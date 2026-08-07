@@ -1,0 +1,231 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 5.9% 10%;
+    --radius: 0.625rem;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+/* ── EduNova design layer ─────────────────────────────── */
+@layer base {
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    background: #f6f6f4;
+    color: #0b0b10;
+  }
+  .font-display { font-family: 'Fraunces', Georgia, serif; }
+}
+
+.aurora {
+  background:
+    radial-gradient(60rem 32rem at 78% 8%, rgba(99,102,241,.45), transparent 60%),
+    radial-gradient(48rem 30rem at 95% 42%, rgba(56,189,248,.4), transparent 60%),
+    radial-gradient(40rem 26rem at 60% 60%, rgba(244,114,182,.35), transparent 60%),
+    radial-gradient(30rem 22rem at 30% 85%, rgba(251,191,36,.3), transparent 60%),
+    linear-gradient(#f6f6f4, #f6f6f4);
+}
+.aurora-soft {
+  background:
+    radial-gradient(40rem 22rem at 85% 0%, rgba(99,102,241,.25), transparent 60%),
+    radial-gradient(34rem 20rem at 100% 60%, rgba(56,189,248,.22), transparent 60%),
+    linear-gradient(#f6f6f4, #f6f6f4);
+}
+.grain::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .5; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+}
+
+.glass-nav {
+  background: rgba(255,255,255,.72);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border-bottom: 1px solid rgba(11,11,16,.06);
+}
+
+.mega-panel {
+  background: rgba(255,255,255,.9);
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  border: 1px solid rgba(11,11,16,.07);
+  box-shadow: 0 30px 80px -20px rgba(20,20,60,.25), 0 4px 16px rgba(20,20,60,.06);
+}
+
+@keyframes megaIn { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
+.mega-in { animation: megaIn .22s cubic-bezier(.2,.8,.2,1) both; }
+
+@keyframes riseIn { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: none; } }
+.rise-in { animation: riseIn .7s cubic-bezier(.2,.8,.2,1) both; }
+.rise-1 { animation-delay: .05s } .rise-2 { animation-delay: .15s } .rise-3 { animation-delay: .25s } .rise-4 { animation-delay: .35s }
+
+@keyframes floaty { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-10px) } }
+.floaty { animation: floaty 7s ease-in-out infinite; }
+
+.card-lift { transition: transform .3s cubic-bezier(.2,.8,.2,1), box-shadow .3s; }
+.card-lift:hover { transform: translateY(-4px); box-shadow: 0 18px 40px -14px rgba(20,20,60,.18); }
+
+.no-scrollbar::-webkit-scrollbar { display: none }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none }
+
+.thin-scroll::-webkit-scrollbar { width: 6px; height: 6px }
+.thin-scroll::-webkit-scrollbar-thumb { background: rgba(11,11,16,.14); border-radius: 99px }
+
+.btn-ink {
+  background: #0b0b10; color: #fff; border-radius: 999px;
+  transition: transform .2s, box-shadow .2s, background .2s;
+}
+.btn-ink:hover { transform: translateY(-1px); box-shadow: 0 10px 24px -8px rgba(11,11,16,.5); }
+
+.text-grad {
+  background: linear-gradient(100deg, #4f46e5, #0ea5e9 55%, #ec4899);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
+.marquee-track { display: flex; gap: 1rem; width: max-content; animation: marquee 30s linear infinite; }
+@keyframes marquee { from { transform: translateX(0) } to { transform: translateX(-50%) } }
+
+/* ── Dark mode design layer ───────────────────────────── */
+.dark body { background: #090911; color: #f2f2f7; }
+
+.dark .aurora {
+  background:
+    radial-gradient(60rem 32rem at 78% 8%, rgba(99,102,241,.28), transparent 60%),
+    radial-gradient(48rem 30rem at 95% 42%, rgba(56,189,248,.2), transparent 60%),
+    radial-gradient(40rem 26rem at 60% 60%, rgba(244,114,182,.16), transparent 60%),
+    radial-gradient(30rem 22rem at 30% 85%, rgba(251,191,36,.1), transparent 60%),
+    linear-gradient(#090911, #090911);
+}
+.dark .aurora-soft {
+  background:
+    radial-gradient(40rem 22rem at 85% 0%, rgba(99,102,241,.16), transparent 60%),
+    radial-gradient(34rem 20rem at 100% 60%, rgba(56,189,248,.12), transparent 60%),
+    linear-gradient(#090911, #090911);
+}
+.dark .grain::after { opacity: .35; }
+
+.dark .glass-nav {
+  background: rgba(10,10,18,.72);
+  border-bottom: 1px solid rgba(255,255,255,.07);
+}
+.dark .mega-panel {
+  background: rgba(17,17,26,.97);
+  border: 1px solid rgba(255,255,255,.1);
+  box-shadow: 0 30px 80px -20px rgba(0,0,0,.7), 0 4px 16px rgba(0,0,0,.4);
+}
+
+/* ── Stronger (less transparent) mega panel, both themes ── */
+.mega-panel { background: rgba(255,255,255,.96); backdrop-filter: blur(28px) saturate(1.6); -webkit-backdrop-filter: blur(28px) saturate(1.6); }
+
+/* ── Scroll reveal ────────────────────────────────────── */
+.reveal { opacity: 0; transform: translateY(34px); transition: opacity .8s cubic-bezier(.2,.8,.2,1), transform .8s cubic-bezier(.2,.8,.2,1); }
+.reveal.revealed { opacity: 1; transform: none; }
+.reveal-d1 { transition-delay: .08s } .reveal-d2 { transition-delay: .16s } .reveal-d3 { transition-delay: .24s }
+.reveal-d4 { transition-delay: .32s } .reveal-d5 { transition-delay: .4s } .reveal-d6 { transition-delay: .48s }
+
+/* ── Portal module transitions ────────────────────────── */
+@keyframes moduleIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.module-in { animation: moduleIn .4s cubic-bezier(.2,.8,.2,1) both; }
+
+/* ── Chat bubbles ─────────────────────────────────────── */
+@keyframes bubbleIn { from { opacity: 0; transform: translateY(10px) scale(.96); } to { opacity: 1; transform: none; } }
+.bubble-in { animation: bubbleIn .3s cubic-bezier(.2,.8,.2,1) both; }
+
+@keyframes typingDot { 0%, 60%, 100% { transform: translateY(0); opacity: .4 } 30% { transform: translateY(-4px); opacity: 1 } }
+.typing-dot { animation: typingDot 1.1s infinite; }
+.typing-dot:nth-child(2) { animation-delay: .15s }
+.typing-dot:nth-child(3) { animation-delay: .3s }
+
+/* ── Glow pulse for CTA ───────────────────────────────── */
+@keyframes glowPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(99,102,241,.35) } 50% { box-shadow: 0 0 0 10px rgba(99,102,241,0) } }
+.glow-pulse { animation: glowPulse 2.4s infinite; }
+
+/* ── Mobile bottom sheet ──────────────────────────────── */
+@keyframes sheetUp { from { transform: translateY(100%) } to { transform: none } }
+.sheet-up { animation: sheetUp .32s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+.fade-in { animation: fadeIn .25s both; }
+
+/* ── Shimmer avatar ring on verified ──────────────────── */
+@keyframes ringSpin { to { transform: rotate(360deg) } }
+
+/* ── Dark inversions: black buttons & active pills flip ── */
+.dark .btn-ink { background: #f2f2f7; color: #0b0b10; }
+.dark .btn-ink:hover { box-shadow: 0 10px 24px -8px rgba(255,255,255,.22); }
+.dark .bg-black.text-white { background-color: #f2f2f7; color: #0b0b10; }
+
+/* ── Chat: gradient bubbles stay branded in both themes ── */
+.chat-me {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6 55%, #d946ef);
+  color: #fff;
+  box-shadow: 0 8px 20px -8px rgba(124,92,246,.55);
+}
+.chat-them { background: #fff; color: #0b0b10; box-shadow: 0 1px 2px rgba(10,10,20,.06), 0 0 0 1px rgba(10,10,20,.05); }
+.dark .chat-them { background: #1a1a27; color: #f2f2f7; box-shadow: 0 0 0 1px rgba(255,255,255,.07); }
