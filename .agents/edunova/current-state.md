@@ -1,6 +1,6 @@
 # EduNova Demo — Current State
 
-> Last updated: 2026-08-07
+> Last updated: 2026-08-08
 
 ## Build & quality gates
 
@@ -18,50 +18,49 @@
   - `admin@edunova.in` / `admin123` (admin)
   - `staff@edunova.in` / `staff123` (staff)
   - `teacher@edunova.in` / `teacher123` (teacher)
-  - `parent.arav.sharma@edunova.in` / `parent123` (parent)
+  - `parent@edunova.in` / `parent123` (parent)
   - `student@edunova.in` / `student123` (student)
 - Role hierarchy: `superadmin` > `admin` > `staff` / `teacher` > `parent` / `student`.
 - Session persistence across reloads via `localStorage`.
 - Superadmin can manage admins (revoke access), admins can manage staff/teachers/students/parents.
-- Mobile login role selector text overflow fixed.
 
-## Portal modules (functional)
+## Portal modules
 
 | Module | Status | Notes |
 |--------|--------|-------|
-| Overview | Functional | Role-aware greeting cards + upcoming events + new stats (defaulters, resignations, disciplinary). |
-| Timetable | Redesigned | Modern desktop grid with day columns; mobile day-picker + vertical cards; term switcher. |
+| Overview | Functional | Role-aware greeting cards + upcoming events + stats (defaulters, resignations, disciplinary). |
+| Timetable | Partial | Desktop grid exists but user feedback says it still looks dated/awful; mobile day-picker + cards work but need polish. `src/portal/modules/timetable.tsx` |
 | Attendance | Functional | Subject-wise + daily view for all roles; staff/admin/teacher attendance management for everyone including admins. |
 | Marks & Grades | Functional | Term-wise cards. |
 | Rank List | Functional | Overall + subject ranks. |
-| Calendar | Common | All roles see the same calendar; admin/staff/superadmin can edit events. |
+| Calendar | Functional | All roles see the same calendar; admin/staff/superadmin can edit events. |
 | Teachers | Functional | Directory cards. |
-| School Feed | Functional | Desktop feed widened, like + comments work. |
-| Messages | Fixed | Teacher sees parent-name in parent threads; teacher-teacher tab added; term switcher. |
+| School Feed | Partial | Like + comments work; desktop layout is still reported as bad. `src/portal/modules/social.tsx:40-111` |
+| Messages | Partial | Threads and chat render; teacher-to-parent view is confusing because `from: me/them` is relative to the thread. This causes the auto-reply to appear as if the parent is typing after the teacher sends a message. `src/portal/modules/social.tsx:11-34` |
 | Event Highlights | Functional | YouTube embed placeholder. |
-| AI Doubt Clearing | Functional | Desktop sidebar + chat layout; rule-based answers. |
+| AI Doubt Clearing | Partial | Rule-based answers; desktop sidebar + chat layout is reported as bad. `src/portal/modules/social.tsx:369-407` |
 | Homework | Functional | Filter by subject + term. |
-| Work Upload | Legitimized | File upload ledger with file name, size, status, notes. |
+| Work Upload | Functional | File upload ledger with file name, size, status, notes. |
 | Permission Slips | Functional | Approve/decline with verify simulation. |
 | Leave Requests | Functional | Create + approve/decline. |
 | Health Records | Functional | Create + e-sign simulation. |
 | Achievements | Functional | Add + list. |
-| Payments & Receipts | Gateway | `PaymentGatewayMod` with UPI QR, card UI, net banking; disabled on mobile view. |
-| Meetings | Functional | Request/approve video meetings; GMeet-style links; visible to requester, teacher, admin, superadmin. |
+| Payments & Receipts | Functional | `PaymentGatewayMod` with UPI QR, card UI, net banking; intentionally disabled on mobile viewport. |
+| Meetings | Functional | Request/approve video meetings with GMeet-style links; visible to requester, teacher, admin, superadmin. |
 | TC & Bonafide | Functional | Apply + approve/decline. |
-| Board Registration | Functional | Validate student details (name, DOB, reg no, roll no, class, school, affiliation) before sending to CBSE/Matric boards. |
-| Take Attendance | Functional | Mark P/A for a fixed roster. |
+| Board Registration | Functional | Validate student details (name, DOB, reg no, roll no, class, school, affiliation) before sending to CBSE/Matric boards. **Name/DOB mismatch highlighting added.** |
+| Take Attendance | Partial | Uses a hardcoded roster (`ROSTER`) and does not persist to the DB. `src/portal/modules/office.tsx:32-71` |
 | Create Assignment | Functional | Posts to homework list. |
-| Upload Grades | Functional | Only updates Aarav's marks. |
+| Upload Grades | Partial | Only updates Aarav Sharma's marks. `src/portal/modules/office.tsx:76-97` |
 | People | Functional | Add/edit/revoke students, teachers, staff, parents, admins; role-aware tabs. |
 | Fees | Functional | Assign fee heads. |
 | Fee Defaulters & AI Calls | Functional | List dues, schedule AI calls, simulate calls, review transcripts. |
 | Disciplinary Committee | Functional | Report cases, track status chain, assign actions, appeals; read-only for students/parents. |
 | Student Reports | Functional | Full dossier with attendance, marks, ranks, fees, meetings, calls, disciplinary, certificates, health. |
-| Work Assignment | Functional | Toggle done status + generate duties. |
+| Work Assignment | Functional | Toggle done status + generate duties, but not assigned to specific people. |
 | Salary Receipts | Functional | Same as payments. |
-| Contract & Resignation | Admin-controlled | Admin/superadmin manage contracts and approve/decline teacher/staff resignations. |
-| Admin Management | Superadmin-only | Revoke admin access; cannot delete own superadmin account. |
+| Contract & Resignation | Functional | Admin/superadmin manage contracts; resignation must be approved before notice starts. |
+| Admin Management | Functional | Superadmin-only; revoke admin access. |
 
 ## What is simulated / not real
 
@@ -77,12 +76,19 @@
 | Payments | No real money is deducted; simulated gateway. |
 | Backend / API | None. |
 
-## Known issues
+## Known bugs & rough edges
 
-1. No automated test suite (Vitest + React Testing Library). Testing is manual via role login.
-2. Large bundle size warning from Vite (~1 MB uncompressed). Code splitting deferred to future.
-3. Some shadcn/ui primitives have unused warnings but are ignored from lint to avoid modifying generated files.
-4. Payment gateway is intentionally disabled on mobile viewport for security demo purposes.
+1. **Teacher messages feel like the parent is typing** — the `me`/`them` relative storage flips depending on the viewer, so the auto-reply/typing indicator shows the wrong name for the teacher view. Best fix: store absolute sender names and render based on `m.from === user.name`. `src/portal/modules/social.tsx:11-34`
+2. **Staff can only manage students/parents** — `canManage` in `src/lib/access.ts:36-38` limits staff to `student`/`parent`. The user wants staff to manage teachers and students as well.
+3. **Mobile login role selector looks odd** — buttons still feel cramped and text fills the button. `src/pages/Login.tsx:85-92`
+4. **Hardcoded teacher tools** — `TakeAttendanceMod` and `GradeUploadMod` ignore the real DB roster and only act on Aarav/Meera. `src/portal/modules/office.tsx:32-97`
+5. **Teacher contract is static** — always shows Meera Krishnan's data regardless of the logged-in teacher. `src/portal/modules/office.tsx:191-241`
+6. **Work assignments have no assignees** — duties are created but not linked to specific staff/teacher. `src/portal/modules/office.tsx:243-290`
+7. **Parent verification is hardcoded** — the Aadhaar + face flow always references Nisha Sharma and mobile ending `••23`. `src/portal/ui.tsx:113-179`
+8. **Attendance records are random on reset** — `makeAttendanceRecords` uses `Math.random()`. `src/lib/data.ts:410-424`
+9. **Light/dark overlap still reported** — some hardcoded light backgrounds exist without `dark:` counterparts, despite the theme fix pass.
+10. **No automated test suite** — manual testing via role login only.
+11. **Large bundle size** — Vite warns about ~1 MB uncompressed chunk.
 
 ## Files and modules inventory
 
@@ -114,5 +120,5 @@
 
 ## Next steps
 
-- See `todos-and-further-plans.md` for open enhancements and future phases.
-- Run `npm run dev` and log in as each role to verify the module menus render.
+- See `todos-and-further-plans.md` for the open backlog.
+- See `phase-1-foundation.md` to start the next execution phase.

@@ -133,6 +133,9 @@ export function VerifyButton({ label, onVerified, className = '' }: { label: str
     }
   }, [stage, open]) // eslint-disable-line
 
+  const parentName = user?.name ?? 'parent'
+  const mobileEnding = user?.phone?.slice(-2) ?? '23'
+
   if (verified) return null
   void db
   return (
@@ -144,11 +147,11 @@ export function VerifyButton({ label, onVerified, className = '' }: { label: str
         {stage === 'aadhaar' && (
           <div className="space-y-4">
             <p className="text-[14px] leading-relaxed text-black/60 dark:text-white/60">
-              Sensitive actions need the actual parent. Enter the OTP sent to the Aadhaar-linked mobile ending <b>••23</b>.
+              Sensitive actions need the actual parent. Enter the OTP sent to the Aadhaar-linked mobile ending <b>••{mobileEnding}</b>.
             </p>
             <div className="flex items-center gap-2 rounded-2xl bg-black/[.04] dark:bg-white/[.06] p-4">
               <Fingerprint size={22} className="text-indigo-600" />
-              <span className="text-[13.5px] text-black/60 dark:text-white/60">Aadhaar XXXX-XXXX-4821 · Nisha Sharma</span>
+              <span className="text-[13.5px] text-black/60 dark:text-white/60">Aadhaar XXXX-XXXX-4821 · {parentName}</span>
             </div>
             <input value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="Enter any 4+ digit OTP (demo)"
               className={inputCls} maxLength={6} inputMode="numeric" />

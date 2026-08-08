@@ -1,73 +1,64 @@
-# Phase 3 — Communication & Workflows
+# Phase 3 — Communication & Visual Polish
 
-## Goals
+## Goal
 
-Fix communication modules, make work upload and online meetings realistic, and improve the desktop UI of the feed and AI doubt clearing.
+Make the most visually prominent modules feel modern, consistent, and responsive.
 
-## Changes
+## Scope
 
-### 1. Teacher Messaging fix (`src/portal/modules/social.tsx`)
+### 1. Timetable redesign (`src/portal/modules/timetable.tsx`)
 
-- When a teacher sends a message, it appears as sent by the teacher (not as a parent typing).
-- Support both parent-teacher and teacher-teacher threads in `db.threads`.
-- For teachers, show two tabs:
-  - **Parents** — conversations with parents of their class/subjects.
-  - **Teachers** — all teachers of the current year/term.
-- For parents/students, keep the current teacher list.
-- Make term selection flexible: filter threads by term, allow switching.
-- Seed teacher-teacher threads.
-- Update page title/subtitle to reflect the active conversation type.
+**Desktop**
+- Use a clean vertical time-axis grid with periods on the left and day columns across the top.
+- Each cell should be a rounded card with the subject color, room badge, and teacher avatar.
+- Sticky day headers and time column.
+- Remove the `min-w-[720px]` horizontal scroll on large screens; use a fluid grid.
+- Add a subtle hover lift and current-period highlight if the timetable matches today.
+- Keep a compact subject legend below the grid.
 
-### 2. Online Meetings / PTA (`src/portal/modules/actions.tsx` or `meetings.tsx`)
+**Mobile**
+- Keep the day-picker tabs but make them larger touch targets.
+- Stack periods vertically with clear spacing, subject color left border, and a teacher avatar row.
+- Avoid cramped text; allow the day button labels to be `Mon`, `Tue`, etc.
 
-- Replace simple `PTAMod` with full `MeetingsMod`.
-- Roles that can request: teacher, student, parent.
-- Approvers: teacher (for student requests), admin/superadmin.
-- Fields: purpose, preferred slot, requested teacher, GMeet-style link (`meet.edunova.in/abc-defg`), status.
-- Once approved, the meeting link appears in both requester and teacher portals.
-- Status: Requested → Scheduled → Completed → Cancelled.
-- Seed demo meetings.
+### 2. School feed desktop UI (`src/portal/modules/social.tsx`)
 
-### 3. Homework / Work Upload legitimation (`src/portal/modules/actions.tsx`)
+- Use a wider centered feed (`max-w-4xl` or `max-w-5xl`) with generous whitespace.
+- Make each post a distinct card with a large header, placeholder media, and clean like/comment footer.
+- Add a sidebar on desktop for trending announcements (optional, keep it simple).
+- Improve the gradient/emoji placeholder to look intentional, not broken.
 
-- Show real file picker UI.
-- Display selected file name, size, upload date, status.
-- Simulate upload progress bar (2 seconds) before marking as Submitted.
-- Store `WorkUpload` record with filename and status.
-- Teacher can view submitted work list with file names and submission dates.
+### 3. AI doubt clearing desktop UI (`src/portal/modules/social.tsx`)
 
-### 4. AI Doubt Clearing desktop UI (`src/portal/modules/social.tsx`)
+- Keep the 2-column layout but tighten spacing and typography.
+- Add suggested-question chips at the bottom of the chat.
+- Make the "Nova is thinking" state more polished (animated dots + subtle card).
+- Improve empty state and message alignment.
 
-- Use a 2-column layout on desktop: history sidebar on the left, chat on the right.
-- Keep rule-based answers.
-- Add suggested questions as chips at the bottom or top.
-- Improve the "Nova is thinking" state with animated dots.
-- Mobile stays single-column.
+### 4. Mobile login role selector (`src/pages/Login.tsx`)
 
-### 5. School Feed desktop UI (`src/portal/modules/social.tsx`)
+- Use smaller, more compact role pills (e.g., icon + short label, `text-[10px]` or `text-[11px]`) with horizontal scroll.
+- Ensure long text never fills the button; use `truncate` or `whitespace-nowrap`.
+- Add a small active indicator (dot) instead of a full background change if it helps readability.
 
-- Use a 2-column masonry or wider single column (`max-w-5xl` grid) instead of narrow `max-w-xl`.
-- Improve image/gradient placeholder height and spacing.
-- Larger text and better use of whitespace.
-- Keep like/comment functionality.
+### 5. Meetings refinement (`src/portal/modules/meetings.tsx`)
 
-### 6. Event Highlights (optional polish)
-
-- Keep Rickroll placeholder for demo, but structure the component so real YouTube IDs can be dropped in later.
+- Verify GMeet-style links are generated (`meet.edunova.in/...`).
+- Confirm teachers and students can both request meetings and the request appears in the other party's portal.
+- Improve the meeting card layout (status pill, date, link, participants).
 
 ## Definition of done
 
-- Teacher messages render correctly from the teacher's perspective.
-- Teachers can message other teachers; parents/students can message teachers.
-- Meeting requests flow end-to-end with GMeet-style links.
-- Work upload looks like a real file upload with progress.
-- AI doubt clearing and school feed desktop layouts are spacious and modern.
-- Mobile layouts remain usable.
+- Timetable looks modern on desktop and clean on mobile.
+- School feed and AI doubt clearing desktop layouts are spacious and intentional.
+- Mobile login role selector is compact and readable.
+- Meetings flow works end-to-end for all requesters.
+- No build/lint errors; commits pushed.
 
-## Files to modify/create
+## Estimated files
 
-- Modify `src/portal/modules/social.tsx`
-- Modify `src/portal/modules/actions.tsx`
-- Create `src/portal/modules/meetings.tsx` (optional split)
-- Modify `src/lib/data.ts` (seed threads, meetings, work uploads)
-- Modify `src/portal/Portal.tsx` (register Meetings module, remove old PTA)
+- `src/portal/modules/timetable.tsx`
+- `src/portal/modules/social.tsx`
+- `src/pages/Login.tsx`
+- `src/portal/modules/meetings.tsx`
+- `src/index.css` (theme utilities if needed)

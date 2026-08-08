@@ -1,86 +1,57 @@
-# Phase 4 — HR, Finance & Compliance
+# Phase 4 — HR, Finance & Compliance Refinements
 
-## Goals
+## Goal
 
-Implement HR workflows (contracts, resignations), fee defaulters + AI parent calls, disciplinary committee, and a legitimate payment gateway (desktop only).
+Polish the finance, HR, and compliance modules that are already functional but need better UX.
 
-## Changes
+## Scope
 
-### 1. Contracts controlled by admin (`src/portal/modules/contracts.tsx` or `office.tsx`)
+### 1. Payment gateway legitimacy (`src/portal/modules/paymentGateway.tsx`)
 
-- Admin/superadmin can create/view contracts for teachers and staff.
-- Contract template: designation, salary, start/end date, clauses, status.
-- Teacher/staff can view their own contract in their portal.
-- Status: Draft → Active → Resigned / Terminated.
-- Link contract to salary receipts.
+- Add clearer status steps (Amount Due → Choose Method → Pay → Receipt).
+- Improve UPI QR, card form, and net-banking UI spacing and labels.
+- Keep the mobile viewport disabled with a friendly "Open on desktop for payments" card.
+- On successful payment, generate and show a styled receipt summary before download.
 
-### 2. Resignation approval workflow (`src/portal/modules/contracts.tsx` or `office.tsx`)
+### 2. Fee defaulters & AI call logs (`src/portal/modules/feeDefaulters.tsx`)
 
-- Teacher/staff submits resignation with reason and last working date.
-- Admin/superadmin sees pending list and approves/declines.
-- If approved, contract status updates to "Resigned" and notice period starts.
-- Notice card appears in the employee's portal with a countdown.
-- Resignation cannot be submitted if a disciplinary case is open (optional guard).
+- Ensure class teacher, admin, and staff can see defaulters and request an AI call.
+- Add a **Call log** tab with filters: status, student, date, requester.
+- Allow archiving/deleting completed calls (admin/superadmin only).
+- Show call duration and outcome on the transcript card.
+- Link each call to the student's full profile report.
 
-### 3. Fees & Fee Defaulters (`src/portal/modules/actions.tsx` or `feeDefaulters.tsx`)
+### 3. Disciplinary committee linkage (`src/portal/modules/disciplinary.tsx`)
 
-- **Fee Defaulters view** (class teacher, admin, staff):
-  - List students with due fees by class/section.
-  - Show amount due, last paid date, contact number, parent name.
-  - Quick actions: "Call parent now", "Schedule AI call", "Send reminder".
-- Admin/staff can assign fees to all students or specific classes.
-- Parents/students see dues and receipts.
+- When a disciplinary case is closed, record the outcome in the student's profile.
+- Show a badge on the student profile if there is an active or closed case.
+- Allow admin/staff to generate a warning letter or certificate hold note from the case view.
 
-### 4. AI Parent Calls (`src/portal/modules/actions.tsx` or `feeDefaulters.tsx`)
+### 4. Contracts & resignations (`src/portal/modules/office.tsx`)
 
-- Simulated voice-bot call to parents:
-  - Requester picks reason: fee reminder, disciplinary follow-up, attendance concern, general update.
-  - Select language and preferred time.
-  - Status: Scheduled → In Progress → Completed → Failed.
-  - Simulate a call with a transcript: greeting → reason → parent response → confirmation.
-  - Store `AIParentCall` record.
-- **Call Logs**:
-  - All calls visible to admin/staff/class teacher (scope based on role).
-  - Filter by status, student, date, requester.
-  - View transcript, duration, outcome.
+- Add a notice-period countdown card for the employee after resignation is approved.
+- Link salary receipts to the contract designation.
+- Show contract status clearly in the People list for teachers/staff.
 
-### 5. Disciplinary Committee (`src/portal/modules/disciplinary.tsx` or `office.tsx`)
+### 5. Admin/staff fee assignment UX
 
-- **Complaint log**: reportedBy, date, description, witnesses, evidence (demo file upload), status.
-- **Hearing workflow**: Scheduled → Heard → Decision → Action Taken → Appeal (optional) → Closed.
-- **Actions**: Warning, Suspension, Expulsion, Community Service, Parent Meeting Required.
-- **Visibility**:
-  - Admin/superadmin/staff/class teacher can view and update.
-  - Student/parent can see their own cases.
-- Demo seed: a few pending and closed cases, including one for a named student.
-- Link disciplinary outcomes to student profile report and certificates if needed.
-
-### 6. Payment Gateway (desktop only) (`src/portal/modules/actions.tsx` or `payments.tsx`)
-
-- Create a legitimate-looking payment modal:
-  - Tabs: UPI, Card, Net Banking.
-  - Simulated card form with validation (no real processing).
-  - Simulated UPI QR with app icons.
-- **Mobile**: Show a "For security, fee payments are available on desktop" message. Allow viewing dues and receipts.
-- **Desktop**: show payment modal and allow "Pay". On success, update receipt status and generate receipt.
+- Allow bulk fee assignment by class/section.
+- Add a confirmation summary before assigning fees.
+- Show per-student fee breakdown in the student profile report.
 
 ## Definition of done
 
-- Contracts are manageable by admin and visible to employees.
-- Resignation requires approval before notice period starts.
-- Fee defaulters list and AI calls are functional for authorized roles.
-- Call logs are searchable and filterable.
-- Disciplinary committee supports full complaint-to-action workflow.
-- Payment gateway is desktop-only and looks legitimate.
-- All financial/HR state persists to `localStorage`.
+- Payment gateway feels like a real checkout on desktop and is clearly disabled on mobile.
+- AI call logs are filterable, archivable, and linked to student profiles.
+- Disciplinary outcomes appear in the student profile report.
+- Resignation approval triggers a clear notice-period countdown.
+- Build + lint pass; commits pushed.
 
-## Files to modify/create
+## Estimated files
 
-- Modify `src/portal/modules/actions.tsx`
-- Modify `src/portal/modules/office.tsx`
-- Create `src/portal/modules/contracts.tsx` (optional split)
-- Create `src/portal/modules/feeDefaulters.tsx` (optional split)
-- Create `src/portal/modules/disciplinary.tsx` (optional split)
-- Create `src/portal/modules/payments.tsx` (optional split)
-- Modify `src/lib/data.ts` (seed contracts, resignations, defaulters, calls, cases)
-- Modify `src/portal/Portal.tsx` (register new modules)
+- `src/portal/modules/paymentGateway.tsx`
+- `src/portal/modules/feeDefaulters.tsx`
+- `src/portal/modules/disciplinary.tsx`
+- `src/portal/modules/office.tsx` (contracts/resignations + fees)
+- `src/portal/modules/studentReport.tsx`
+- `src/lib/data.ts` (types/seed if needed)

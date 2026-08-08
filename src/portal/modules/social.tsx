@@ -33,6 +33,14 @@ function otherHue(thread: Thread, user: User | null) {
   return 262
 }
 
+function autoReplyText(thread: Thread, user: User | null): string {
+  const firstName = (name: string) => name.split(' ')[0]
+  const other = otherName(thread, user)
+  if (thread.kind === 'teacher') return `Got it, ${firstName(user?.name ?? 'colleague')}. I'll review and update the roster if needed.`
+  if (user?.role === 'teacher') return `Thank you, ${firstName(other)}. We'll follow up at home and let you know if anything is needed.`
+  return `Thanks for the message — I'll get back to you right after class. 🙌`
+}
+
 /* ── School feed (all terms, always live) ──────────────── */
 
 const FEED_EMOJI: Record<string, string> = { f1: '🏆', f2: '🌒', f3: '📋', f4: '🎨', f5: '🎉' }
@@ -155,7 +163,7 @@ export function MessagesMod() {
       setTyping(false)
       update(d => {
         const replyFrom: 'me' | 'them' = from === 'me' ? 'them' : 'me'
-        d.threads.find(t => t.id === id)!.messages.push({ from: replyFrom, text: 'Thanks for the message — I’ll get back to you right after class. 🙌', time: 'Just now' })
+        d.threads.find(t => t.id === id)!.messages.push({ from: replyFrom, text: autoReplyText(active, user), time: 'Just now' })
         return d
       })
     }, 2100)
@@ -209,7 +217,7 @@ export function MessagesMod() {
                 </span>
                 <span className="mt-0.5 flex items-center justify-between gap-2">
                   <span className={`truncate text-[12.5px] ${t.unread ? 'font-semibold text-black dark:text-white' : 'text-black/45 dark:text-white/45'}`}>
-                    {last && !isMine(last, t, user) && <CheckCheck size={13} className="mr-1 inline text-indigo-400" />}
+                    {last && isMine(last, t, user) && <CheckCheck size={13} className="mr-1 inline text-indigo-400" />}
                     {last?.text}
                   </span>
                   {t.unread > 0 && <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-fuchsia-500 px-1.5 text-[10px] font-bold text-white">{t.unread}</span>}

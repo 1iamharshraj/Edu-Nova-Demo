@@ -2,7 +2,7 @@
 
 ## What this is
 
-EduNova Demo is a single-page React frontend prototype for an Indian school-management SaaS ("School OS"). It simulates a multi-role portal experience for **Superadmin, Admin, Staff, Teacher, Parent, and Student** entirely in the browser using seeded demo data and `localStorage` persistence.
+EduNova Demo is a single-page React frontend prototype for an Indian school-management SaaS ("School OS"). It simulates a multi-role portal for **Superadmin, Admin, Staff, Teacher, Parent, and Student** entirely in the browser using seeded demo data and `localStorage` persistence.
 
 No backend is connected. Every action is a client-side simulation meant for demos, investor pitches, and usability testing.
 
@@ -38,7 +38,7 @@ public/            manifest.json, sw.js, offline.html, icons, screenshots
 
 - **superadmin** — principal/vice-chairman. Can manage admins, staff, teachers, students, parents, calendar, contracts, admissions, attendance, fees, disciplinary committee.
 - **admin** — school-level manager. Can manage staff, teachers, students, parents; same control as superadmin except cannot manage other admins.
-- **staff** — office/operations. Can manage attendance, people (limited), applications, fees, fee defaulters, disciplinary cases, student reports, calendar, work assignment.
+- **staff** — office/operations. Can manage attendance, people, applications, fees, fee defaulters, disciplinary cases, student reports, calendar, work assignment.
 - **teacher** — classroom. Can take attendance, upload grades, create assignments, message parents/teachers, view/manage leave, resignations, contracts, fee defaulters, disciplinary cases, student reports.
 - **parent** — guardian. Can view timetable, attendance, marks, rank, calendar, messages, permission slips, leave, health records, achievements, payments, meetings.
 - **student** — learner. Can view timetable, attendance, marks, rank, calendar, homework, AI doubts, feed, events, clubs, meetings.
@@ -63,6 +63,14 @@ public/            manifest.json, sw.js, offline.html, icons, screenshots
 
 ## Current status
 
-All planned improvements are implemented. `npm run build`, `npm run lint`, and `npm run dev` all pass.
-See `current-state.md` for the full feature matrix and remaining simulated parts.
-See `todos-and-further-plans.md` for the completed backlog and future enhancements.
+The majority of the requested modules are implemented and wired into the portal. Recent work (Aug 2026) added **name/DOB mismatch highlighting** in Board Registration.
+
+Remaining work is focused on:
+- tightening access-control and messaging bugs,
+- improving a few high-visibility UI modules (timetable, school feed, AI doubts, login role selector),
+- polishing admin admissions and people workflows,
+- a final responsive/light/dark QA pass.
+
+See `current-state.md` for the full feature matrix and known issues.  
+See `todos-and-further-plans.md` for the open backlog.  
+See the `phase-*.md` files for the phased execution plan.

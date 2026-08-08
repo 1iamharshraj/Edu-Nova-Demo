@@ -29,38 +29,43 @@ function termBounds(term: Term): { start: string; end: string } {
   return { start, end }
 }
 
-const ROSTER = ['Aarav Sharma', 'Diya Patel', 'Kabir Singh', 'Anika Menon', 'Rohan Gupta', 'Ira Choudhary', 'Aditya Rao', 'Myra Kapoor', 'Vihaan Joshi', 'Sara Ali']
-
-/* ── Teacher: take attendance ──────────────────────────── */
-
 export function TakeAttendanceMod() {
-  const [marks, setMarks] = useState<Record<string, boolean>>(() => Object.fromEntries(ROSTER.map(n => [n, true])))
+  const { db, user } = useStore()
+  const classStudents = db.users
+    .filter(u => u.role === 'student' && u.class === user?.class)
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const defaults = useMemo(() => Object.fromEntries(classStudents.map(s => [s.name, true])), [classStudents])
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({})
   const [saved, setSaved] = useState(false)
+  const marks = useMemo(() => ({ ...defaults, ...overrides }), [defaults, overrides])
   const present = Object.values(marks).filter(Boolean).length
-  const save = () => { setSaved(true); toast.success(`Attendance saved — ${present}/${ROSTER.length} present`) }
+  const setMark = (name: string, value: boolean) => { setOverrides(o => ({ ...o, [name]: value })); setSaved(false) }
+  const markAllPresent = () => { setOverrides(Object.fromEntries(classStudents.map(s => [s.name, true]))); setSaved(false) }
+  const save = () => { setSaved(true); toast.success(`Attendance saved — ${present}/${classStudents.length} present`) }
   return (
     <div>
-      <PageHead title="Take Attendance" sub="Class X-A · Period 1 · today" />
+      <PageHead title="Take Attendance" sub={`${user?.class ?? 'Class'} · ${classStudents.length} students · Period 1 · today`} />
       <Card className="p-0">
         <div className="flex items-center justify-between border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
-          <p className="text-[14px] font-semibold">{present} of {ROSTER.length} present</p>
-          <button onClick={() => setMarks(Object.fromEntries(ROSTER.map(n => [n, true])))} className="text-[12.5px] font-semibold text-indigo-600 hover:underline">Mark all present</button>
+          <p className="text-[14px] font-semibold">{present} of {classStudents.length} present</p>
+          <button onClick={markAllPresent} className="text-[12.5px] font-semibold text-indigo-600 hover:underline">Mark all present</button>
         </div>
-        {ROSTER.map((n, i) => (
-          <div key={n} className="flex items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3.5 last:border-0">
+        {classStudents.map((s, i) => (
+          <div key={s.id} className="flex items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3.5 last:border-0">
             <span className="w-7 text-[13px] font-semibold text-black/35 dark:text-white/35">{i + 1}</span>
-            <Avatar name={n} hue={(i * 47) % 360} size={34} />
-            <span className="flex-1 text-[14.5px] font-medium">{n}</span>
+            <Avatar name={s.name} hue={s.avatarHue} size={34} />
+            <span className="flex-1 text-[14.5px] font-medium">{s.name}</span>
             <div className="flex rounded-full bg-black/[.05] dark:bg-white/[.07] p-1">
               {([true, false] as const).map(v => (
-                <button key={String(v)} onClick={() => { setMarks(m => ({ ...m, [n]: v })); setSaved(false) }}
-                  className={`rounded-full px-4 py-1.5 text-[12.5px] font-bold transition-all ${marks[n] === v ? (v ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white') : 'text-black/40 dark:text-white/40'}`}>
+                <button key={String(v)} onClick={() => setMark(s.name, v)}
+                  className={`rounded-full px-4 py-1.5 text-[12.5px] font-bold transition-all ${marks[s.name] === v ? (v ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white') : 'text-black/40 dark:text-white/40'}`}>
                   {v ? 'P' : 'A'}
                 </button>
               ))}
             </div>
           </div>
         ))}
+        {classStudents.length === 0 && <div className="p-6"><Empty text="No students found for your class." /></div>}
         <div className="p-5">
           <button onClick={save} className="btn-ink flex w-full items-center justify-center gap-2 py-3.5 text-[14.5px] font-semibold">
             {saved ? <Check size={17} /> : <Save size={16} />} {saved ? 'Saved' : 'Save attendance'}
@@ -74,31 +79,37 @@ export function TakeAttendanceMod() {
 /* ── Teacher: upload grades ────────────────────────────── */
 
 export function GradeUploadMod() {
-  const { db, update } = useStore()
+  const { db, update, user } = useStore()
   const { term, setTerm } = useTerm()
+  const classStudents = db.users
+    .filter(u => u.role === 'student' && u.class === user?.class)
+    .sort((a, b) => a.name.localeCompare(b.name))
   const [subject, setSubject] = useState('Mathematics')
   const [assessment, setAssessment] = useState('Term Exam')
   const [max, setMax] = useState(80)
   const [scores, setScores] = useState<Record<string, string>>({})
 
   const save = () => {
-    const row = db.marks[term].find(r => r.subject === subject)
-    const aarav = parseInt(scores['Aarav Sharma'] || '')
-    if (row && !isNaN(aarav)) {
-      update(d => {
-        const r = d.marks[term].find(x => x.subject === subject)!
-        const a = r.assessments.find(x => x.name === assessment)
-        if (a) { a.score = Math.min(aarav, max); a.max = max }
-        else r.assessments.push({ name: assessment, score: aarav, max })
-        return d
+    let count = 0
+    update(d => {
+      const row = d.marks[term].find(r => r.subject === subject)
+      if (!row) return d
+      classStudents.forEach(s => {
+        const val = parseInt(scores[s.name] || '')
+        if (isNaN(val)) return
+        const a = row.assessments.find(x => x.name === assessment)
+        if (a) { a.score = Math.min(val, max); a.max = max }
+        else row.assessments.push({ name: assessment, score: Math.min(val, max), max })
+        count++
       })
-    }
-    toast.success(`Grades published for ${subject} · ${assessment}`)
+      return d
+    })
+    toast.success(`Grades published for ${subject} · ${assessment} · ${count} students`)
   }
 
   return (
     <div>
-      <PageHead title="Upload Grades" sub="Publish marks for the classes you teach">
+      <PageHead title="Upload Grades" sub={`Publish marks for ${user?.class ?? 'your class'}`}>
         <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
       </PageHead>
       <Card>
@@ -116,14 +127,15 @@ export function GradeUploadMod() {
           <Field label="Max marks"><input type="number" value={max} onChange={e => setMax(+e.target.value)} className={inputCls} /></Field>
         </div>
         <div className="space-y-2.5">
-          {ROSTER.map((n, i) => (
-            <div key={n} className="flex items-center gap-4">
-              <Avatar name={n} hue={(i * 47) % 360} size={32} />
-              <span className="flex-1 text-[14px] font-medium">{n}</span>
-              <input value={scores[n] ?? ''} onChange={e => setScores(s => ({ ...s, [n]: e.target.value.replace(/\D/g, '') }))}
+          {classStudents.map((s) => (
+            <div key={s.id} className="flex items-center gap-4">
+              <Avatar name={s.name} hue={s.avatarHue} size={32} />
+              <span className="flex-1 text-[14px] font-medium">{s.name}</span>
+              <input value={scores[s.name] ?? ''} onChange={e => setScores(sc => ({ ...sc, [s.name]: e.target.value.replace(/\D/g, '') }))}
                 placeholder={`/ ${max}`} className={`${inputCls} w-24 text-center`} inputMode="numeric" />
             </div>
           ))}
+          {classStudents.length === 0 && <Empty text="No students found for your class." />}
         </div>
         <button onClick={save} className="btn-ink mt-6 w-full py-3.5 text-[14.5px] font-semibold">Publish grades</button>
       </Card>
@@ -191,35 +203,43 @@ export function CreateAssignmentMod() {
 /* ── Teacher: contract & notice period ─────────────────── */
 
 export function ContractMod() {
+  const { db, user } = useStore()
   const [notice, setNotice] = useState(false)
   const [declared, setDeclared] = useState(false)
+  const contract = db.contracts.find(c => c.userId === user?.id)
   return (
     <div>
       <PageHead title="My Contract" sub="Employment terms and declarations" />
       <div className="grid gap-5 lg:grid-cols-2">
         <Card>
           <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><ScrollText size={15} /> Current contract</p>
-          {[
-            ['Employee', 'Meera Krishnan · T-0142'],
-            ['Designation', 'Senior Mathematics Teacher'],
-            ['Class teacher of', 'Class X-A'],
-            ['Tenure', '1 Jun 2024 → 31 May 2027'],
-            ['Base salary', fmtINR(78400) + ' / month'],
-            ['Leave policy', '18 paid days / year · deductions per day beyond'],
-            ['Notice period', '60 days, either side'],
-          ].map(([k, v]) => (
-            <div key={k} className="flex justify-between border-b border-black/[.05] dark:border-white/[.07] py-3 text-[14px] last:border-0">
-              <span className="text-black/50 dark:text-white/50">{k}</span><span className="font-semibold">{v}</span>
+          {contract ? (
+            <div>
+              {[
+                ['Employee', `${user?.name} · ${contract.userId.toUpperCase()}`],
+                ['Designation', contract.designation],
+                ['Department', contract.department || '—'],
+                ['Tenure', `${contract.startDate} → ${contract.endDate}`],
+                ['Base salary', fmtINR(contract.salary) + ' / month'],
+                ['Leave policy', '18 paid days / year · deductions per day beyond'],
+                ['Notice period', '60 days, either side'],
+              ].map(([k, v]) => (
+                <div key={k} className="flex justify-between border-b border-black/[.05] dark:border-white/[.07] py-3 text-[14px] last:border-0">
+                  <span className="text-black/50 dark:text-white/50">{k}</span><span className="font-semibold">{v}</span>
+                </div>
+              ))}
             </div>
-          ))}
+          ) : (
+            <Empty text="No contract on file. Contact the admin office." />
+          )}
         </Card>
         <Card>
           <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><FileBadge size={15} /> Notice period declaration</p>
           {declared ? (
-            <div className="rounded-2xl bg-emerald-50 p-5 text-center">
+            <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 p-5 text-center">
               <BadgeCheck size={36} className="mx-auto text-emerald-600" />
-              <p className="mt-3 text-[15px] font-semibold text-emerald-700">Declaration submitted</p>
-              <p className="mt-1 text-[13px] text-emerald-600/80">Your 60-day notice clock started on {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}. HR has been notified.</p>
+              <p className="mt-3 text-[15px] font-semibold text-emerald-700 dark:text-emerald-400">Declaration submitted</p>
+              <p className="mt-1 text-[13px] text-emerald-600/80 dark:text-emerald-400/80">Your 60-day notice clock started on {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}. HR has been notified.</p>
             </div>
           ) : (
             <>

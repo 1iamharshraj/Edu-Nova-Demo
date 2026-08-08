@@ -1,128 +1,58 @@
-# Phase 1 — Foundation
+# Phase 1 — Foundation Fixes (Access, Messaging, Roster)
 
-## Goals
+## Goal
 
-Lay the groundwork for the entire improvement plan: data model, role hierarchy, access control, auth/login fixes, global theme fixes, and the first set of high-impact UI modules (timetable, calendar, attendance).
+Fix the most visible data-accuracy and access-control bugs before moving to larger UI polish.
 
-## Changes
+## Scope
 
-### 1. Data model (`src/lib/data.ts`)
+### 1. Staff management access (`src/lib/access.ts`)
 
-- Extend `Role` to include `'superadmin'`.
-- Extend `User` interface with:
-  - `class?: string`, `section?: string`
-  - `subjects?: string[]` (teachers)
-  - `department?: string` (staff)
-  - `reportsTo?: string`
-  - `joinDate?: string`
-  - `contract?: Contract`
-  - `resignation?: Resignation`
-  - `attendanceId?: string`
-- Add new types:
-  - `Board`, `BoardDetail`, `ValidatedMark`, `Marksheet`
-  - `Contract`, `Resignation`
-  - `MeetingRequest`, `WorkUpload`, `AttendanceRecord`
-  - `AIParentCall`, `DisciplinaryCase`, `StudentProfileReport`
-- Update `DB` interface with new arrays:
-  - `marksheets`, `contracts`, `resignations`, `meetings`, `workUploads`, `attendanceRecords`, `boardDetails`, `aiParentCalls`, `disciplinaryCases`, `studentProfileReports`
-- Update `seedDB()`:
-  - Add superadmin demo user (Principal).
-  - Keep existing admin as school-level admin.
-  - Seed richer profiles (class, section, subjects, department, joinDate).
-  - Seed attendance records for all roles.
-  - Seed sample board details, meetings, contracts, resignations, work uploads, fee defaulters, AI calls, disciplinary cases, student reports.
-- Add board-grade helpers and keep existing helpers.
+- Update `canManage` so a `staff` user can manage `student`, `parent`, and `teacher` roles.
+- Keep admin/superadmin rules unchanged.
+- Verify the People module for `staff` now allows editing teachers and students.
 
-### 2. Access helpers (`src/lib/access.ts` — new file)
+### 2. Teacher message bubble fix (`src/portal/modules/social.tsx`)
 
-Create `canManage(currentUser, targetUser)`, `isSuperAdmin(u)`, `isAdmin(u)`, `roleRank(role)`.
+- Refactor message storage so `Message.from` stores the actual sender name instead of relative `me`/`them`.
+- Update `isMine` and `myFrom` helpers to compare `m.from === user?.name`.
+- Update seed data in `src/lib/data.ts` to use absolute names for seeded threads.
+- Ensure the typing indicator shows the **other** participant's name, not the current user's name.
+- Keep parent/student views unchanged.
 
-Rules:
-- superadmin can manage everyone except themselves if they are the only superadmin.
-- admin can manage staff, teachers, students, parents — not admins or superadmins.
-- staff/teacher can manage only students in their class/subject (demo scope).
+### 3. Hardcoded teacher tools (`src/portal/modules/office.tsx`)
 
-### 3. Store updates (`src/lib/store.tsx`)
+- `TakeAttendanceMod`: replace the hardcoded `ROSTER` with the actual class roster from `db.users` filtered by the teacher's class/section.
+- `GradeUploadMod`: parse scores for all visible students in the selected class, not just Aarav Sharma.
+- Persist marks to the store and show a summary toast.
 
-- `resetAll()` re-seeds with the new schema.
-- `createUser(data)` helper that auto-generates email and password.
-- `deleteUser(id)` guards against deleting the last superadmin or self.
-- Ensure all writes go through `update(fn)` so `localStorage` stays in sync.
+### 4. Logged-in teacher contract (`src/portal/modules/office.tsx`)
 
-### 4. Login (`src/pages/Login.tsx`)
+- `ContractMod`: look up the contract by `user?.id` instead of always showing Meera Krishnan's contract.
+- Fall back to an empty-state card if no contract exists.
 
-- Add superadmin demo account to `ROLES` array.
-- Fix mobile role selector:
-  - Use smaller text, `truncate`, or horizontal scrollable pills.
-  - Ensure labels never wrap awkwardly inside buttons.
-- Update blurbs to match hierarchy.
+### 5. Deterministic demo data (`src/lib/data.ts`)
 
-### 5. Theme fixes (`src/index.css`, `src/lib/theme.tsx`)
+- Replace `Math.random()` in `makeAttendanceRecords` with a seeded PRNG based on `studentId` + date so the same demo always produces the same data.
 
-- Audit all hardcoded backgrounds and ensure `dark:` counterparts exist.
-- Fix known overlap issues:
-  - `mega-panel`, `glass-nav`, `aurora`, `grain`
-  - Any card with `bg-white` must also have `dark:bg-[#14141f]`
-- Add mobile safe-area padding utilities.
+### 6. Parent verification hardcoding (`src/portal/ui.tsx`)
 
-### 6. Portal shell (`src/portal/Portal.tsx`)
-
-- Update `modulesFor(role)` to register new Phase 1 modules and adjust existing ones:
-  - superadmin: Overview, People, Admin Management, Admissions, Attendance, Calendar, Work, Marksheet, Fees, Faculty Salary, Academic Settings, Contracts, Resignations, Disciplinary, Student Reports, Fee Defaulters, AI Calls.
-  - admin: same minus Admin Management.
-  - staff/teacher: add Attendance Mgmt, Calendar Mgmt, People, Fee Defaulters, Disciplinary, Student Reports, Contracts, Resignations.
-  - parent/student: add Meetings, Board Marksheet view.
-- Update `Overview` cards with new stats (pending admins, resignations, contracts, meetings, defaulters, disciplinary cases, AI calls).
-- Add superadmin-only inline Admin Management module.
-
-### 7. UI primitives (`src/portal/ui.tsx`)
-
-- Add `Section`, `FilterBar`, `DataTable` wrappers if needed for Phase 1.
-- Keep existing primitives consistent.
-- Add `line-clamp` utilities if not already present.
-
-### 8. Timetable redesign (`src/portal/modules/timetable.tsx` or `academics.tsx`)
-
-- **Desktop**: modern elegant grid with days as columns, periods as rows. Each cell is a rounded card with subject color, teacher avatar, room badge, and time. Sticky header. Hover lift. Subject color legend.
-- **Mobile**: day picker tabs (Mon–Fri) + vertical list of periods for selected day. No horizontal scrolling.
-
-### 9. Common calendar (`src/portal/modules/academics.tsx` + `office.tsx`)
-
-- `CalendarMod`: read-only for all roles; show holidays, exams, events.
-- `CalendarAdminMod`: admin/superadmin can add/edit/delete events; changes reflect in all portals.
-- Larger desktop calendar, better spacing, clearer event list.
-
-### 10. Attendance for all roles (`src/portal/modules/academics.tsx` + `office.tsx`)
-
-- Students: keep subject-wise + daily view, source from `attendanceRecords`.
-- Teachers/Staff/Admins: own attendance calendar and summary.
-- Admin/Staff/Superadmin: Attendance Management module:
-  - Daily summary by role.
-  - Filter by role/class/department.
-  - Mark attendance for selected date and group.
-  - View individual attendance records.
-- Superadmin: can manage admin attendance and admin users.
+- Use the logged-in parent's `name` and `phone` in the Aadhaar + face flow instead of the hardcoded Nisha Sharma/••23 strings.
 
 ## Definition of done
 
-- `npm run build` passes for the foundation code (deps resolved first).
-- All roles can log in and see the correct Phase 1 modules.
-- Timetable is responsive and visually modern.
-- Calendar edits propagate to all roles.
-- Attendance data persists and covers all user types.
-- Light/dark mode is consistent across Phase 1 modules.
-- `.agents/edunova/` docs updated with Phase 1 progress.
+- Staff can edit/delete teachers and students in the People module.
+- Teacher sending a message in a parent thread shows the bubble on the right and the reply from the parent on the left.
+- Take attendance and upload grades operate on the real class roster.
+- Every teacher sees their own contract.
+- Demo data is deterministic after reset.
+- `npm run build` and `npm run lint` pass.
+- Changes pushed to `origin/main`.
 
-## Files to modify/create
+## Estimated files
 
-- Create `src/lib/access.ts`
-- Modify `src/lib/data.ts`
-- Modify `src/lib/store.tsx`
-- Modify `src/pages/Login.tsx`
-- Modify `src/portal/Portal.tsx`
-- Modify `src/portal/ui.tsx`
-- Modify `src/portal/modules/academics.tsx`
-- Modify `src/portal/modules/office.tsx`
-- Create `src/portal/modules/timetable.tsx` (recommended)
-- Modify `src/index.css`
-- Modify `src/lib/theme.tsx` (if needed)
+- `src/lib/access.ts`
+- `src/portal/modules/social.tsx`
+- `src/lib/data.ts` (seed threads + attendance)
+- `src/portal/modules/office.tsx`
+- `src/portal/ui.tsx` (verify flow)

@@ -33,7 +33,10 @@ export function canManage(current: User, target: User, allUsers: User[]): boolea
   if (current.role === 'admin') {
     return ROLE_RANK[target.role] < ROLE_RANK.admin
   }
-  if (current.role === 'staff' || current.role === 'teacher') {
+  if (current.role === 'staff') {
+    return target.role === 'student' || target.role === 'parent' || target.role === 'teacher'
+  }
+  if (current.role === 'teacher') {
     return target.role === 'student' || target.role === 'parent'
   }
   return false

@@ -1,80 +1,57 @@
-# Phase 2 — People & Academics
+# Phase 2 — People & Admin Workflows
 
-## Goals
+## Goal
 
-Build proper people/student management, board-aware marksheet validation for CBSE and Matric, and expand admissions/certificates.
+Strengthen admin/staff management of students, teachers, admissions, and work assignments.
 
-## Changes
+## Scope
 
-### 1. People Management rewrite (`src/portal/modules/office.tsx` or `people.tsx`)
+### 1. Admissions & certificates pipeline (`src/portal/modules/office.tsx`)
 
-- Tabs: Students, Teachers, Staff, Admins, Parents.
-- Filters: class, section, subject, department, role, search by name/email.
-- Desktop: table view; mobile: card list.
-- Add/edit modal per role:
-  - Student: name, class, section, roll, parent email, board.
-  - Teacher: name, subjects, class teacher of, joining date, salary.
-  - Staff: name, department, designation, joining date.
-  - Admin: name, designation, access scope.
-  - Parent: name, ward(s), phone.
-- Delete with confirmation; guard against deleting self or last superadmin.
-- Superadmin sees an extra "Admins" tab to manage admin users.
-- Clicking a student row opens the full Student Profile Report.
+- Expand `ApplicationsMod` to show a clear pipeline:
+  - Pending → Verified → Approved / Declined.
+- Add an admin/staff notes field for each application.
+- Link an approved admission to a new student profile (auto-create a basic `User` record).
+- Allow downloading approved certificates as styled `.txt` (demo) or a printable view.
+- Filter applications by kind (Admission, TC, Bonafide, Disciplinary).
 
-### 2. Student Profile Report (`src/portal/modules/studentReport.tsx` or `office.tsx`)
+### 2. People → student report link
 
-Admin and staff can open any student profile to see a comprehensive report:
+- In `PeopleMod`, add a **View full report** action on every student card.
+- For admin/staff, open `StudentReportMod` for the selected student.
+- Keep the existing `StudentReportsMod` wrapper in `Portal.tsx`.
 
-- Personal details + board details.
-- Attendance summary across all terms (graph + calendar).
-- Marks/grades across all terms (table + trend chart).
-- Rank history.
-- Achievements and co-curricular activities.
-- Fee status and payment history.
-- Meeting/call history.
-- Disciplinary cases and complaints.
-- Certificates issued (TC, bonafide, etc.).
-- Health records.
-- Teacher/parent notes.
-- Generate printable/downloadable report (demo `.txt` or styled print view).
-- Accessible from People Management and Fee Defaulters.
+### 3. Admin control over all students/teachers/staff
 
-### 3. Marksheet Validation (CBSE + Matric) (`src/portal/modules/office.tsx` or `marksheet.tsx`)
+- Verify `admin` and `superadmin` already see all relevant menus (People, Student Reports, Contracts, Attendance, Fees, Discipline).
+- Add a quick-access **Students**, **Teachers**, **Staff** tab/filter in the admin Overview if not already prominent.
+- Ensure `canManage` allows admin to manage `staff`, `teacher`, `student`, `parent`.
 
-Replace generic 3-step workflow with board-aware validation:
+### 4. Work assignment with assignees (`src/portal/modules/office.tsx`)
 
-- Select board: **CBSE** or **Matric/State**.
-- Display and validate student board details (registration, DOB, school, roll number, etc.).
-- Validate subject marks: theory, practical, total; ensure totals match grade book.
-- Board-specific grade computation:
-  - CBSE: CGPA + skill grades.
-  - Matric: percentage + rank.
-- Sign-off chain: Class Teacher → Principal (superadmin) → Seal & publish.
-- Once sealed, show a "Board Marksheet" view in parent/student portal.
-- Seed at least one validated and one pending marksheet for demo.
+- Add an `assigneeId` field to `WorkUpload` or create a new `WorkAssignment` type.
+- In `WorkAssignMod`, let staff/admin select a teacher/staff assignee when creating a duty.
+- Show the assignee avatar and name on each card.
+- Mark assignments as Done/Assigned and persist.
 
-### 4. Admissions & Certificates (`src/portal/modules/office.tsx`)
+### 5. Global term selection by superadmin
 
-- Expand `ApplicationsMod`:
-  - Admin/superadmin can view admissions, TC, bonafide, disciplinary.
-  - Status pipeline: Pending → Verified → Approved / Declined.
-  - Notes field for admin.
-  - Parent/student can view and download approved certificates (demo `.txt` download).
-- Link certificate issuance to disciplinary case outcomes if needed.
+- Add a small **Set active term** control in the superadmin/admin Overview or Calendar page.
+- Update `Term.current` in the store so all modules default to the selected term.
+- Persist to `localStorage`.
 
 ## Definition of done
 
-- People management handles all five role tabs with add/edit/delete.
-- Student profile report is accessible and shows all historical data.
-- Marksheet validation supports both CBSE and Matric flows end-to-end.
-- Admissions pipeline has clear status transitions.
-- No TypeScript errors; mobile and desktop layouts work.
+- Admin/staff can process admissions with notes and status transitions.
+- Every student in People management has a one-click full report.
+- Work assignments have named assignees and persist status.
+- Superadmin can set the active term from the portal.
+- All admin menus give control over students, teachers, and staff.
+- Build + lint pass; commits pushed.
 
-## Files to modify/create
+## Estimated files
 
-- Modify `src/portal/modules/office.tsx`
-- Create `src/portal/modules/people.tsx` (optional split)
-- Create `src/portal/modules/studentReport.tsx` (optional split)
-- Create `src/portal/modules/marksheet.tsx` (optional split)
-- Modify `src/lib/data.ts` (ensure seed data supports this phase)
-- Modify `src/portal/Portal.tsx` (register modules)
+- `src/portal/modules/office.tsx`
+- `src/portal/Portal.tsx`
+- `src/lib/data.ts` (types/seed)
+- `src/lib/store.tsx`

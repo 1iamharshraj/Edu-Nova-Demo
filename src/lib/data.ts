@@ -407,13 +407,24 @@ function makeRanks(termIdx: number) {
   return { overall, subjects }
 }
 
+function seededRandom(seed: string): number {
+  let h = 1779033703 ^ seed.length
+  for (let i = 0; i < seed.length; i++) {
+    h = Math.imul(h ^ seed.charCodeAt(i), 3432918353)
+    h = (h << 13) | (h >>> 19)
+  }
+  h = Math.imul(h ^ (h >>> 16), 2246822507)
+  h ^= Math.imul(h ^ (h >>> 13), 3266489909)
+  return ((h >>> 0) / 4294967296)
+}
+
 function makeAttendanceRecords(userId: string, role: Role, termIdx: number): AttendanceRecord[] {
   const out: AttendanceRecord[] = []
   const base = 3 + termIdx * 90
   const rate = role === 'student' ? 0.92 : 0.97
   for (let i = 0; i < 42; i++) {
     const date = new Date(2025, 5 + termIdx * 3, base + i)
-    const r = Math.random()
+    const r = seededRandom(`${userId}_${date.toISOString().slice(0, 10)}`)
     let status: AttendanceStatus = 'P'
     if (date.getDay() === 0) status = 'H'
     else if (r > rate) status = 'A'
