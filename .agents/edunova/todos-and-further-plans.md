@@ -34,11 +34,11 @@
 - [x] Fix **parent verification** hardcoded name/mobile. `src/portal/ui.tsx:113-179`
 - [x] Make **attendance records deterministic** on reset instead of random. `src/lib/data.ts:410-424`
 
-### P1 — High-visibility UI polish
-- [ ] Redesign **timetable** to look modern/elegant on desktop and clean on mobile. `src/portal/modules/timetable.tsx`
-- [ ] Improve **school feed desktop UI** (layout, media placeholders, spacing). `src/portal/modules/social.tsx:40-111`
-- [ ] Improve **AI doubt clearing desktop UI** (sidebar, suggested chips, typing state). `src/portal/modules/social.tsx:369-407`
-- [ ] Tighten **mobile login role selector** (compact buttons, better text fit). `src/pages/Login.tsx:85-92`
+### P1 — High-visibility UI polish (partial)
+- [x] Redesign **timetable** to look modern/elegant on desktop and clean on mobile. `src/portal/modules/timetable.tsx`
+- [x] Improve **school feed desktop UI** (layout, media placeholders, spacing). `src/portal/modules/social.tsx:40-111`
+- [x] Improve **AI doubt clearing desktop UI** (sidebar, suggested chips, typing state). `src/portal/modules/social.tsx:369-407`
+- [x] Tighten **mobile login role selector** (compact buttons, better text fit). `src/pages/Login.tsx:85-92`
 - [ ] Resolve remaining **light/dark overlap** issues across all modules. `src/index.css` + module files
 
 ### P2 — Admin & people workflows (partial)

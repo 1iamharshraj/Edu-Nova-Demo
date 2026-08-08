@@ -1,5 +1,7 @@
 # Phase 3 — Communication & Visual Polish
 
+> Status: in progress — timetable, school feed, AI doubt clearing, and mobile login selector completed; remaining light/dark audit moved to Phase 5.
+
 ## Goal
 
 Make the most visually prominent modules feel modern, consistent, and responsive.

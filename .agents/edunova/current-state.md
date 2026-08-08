@@ -29,16 +29,16 @@
 | Module | Status | Notes |
 |--------|--------|-------|
 | Overview | Functional | Role-aware greeting cards + upcoming events + stats (defaulters, resignations, disciplinary). |
-| Timetable | Partial | Desktop grid exists but user feedback says it still looks dated/awful; mobile day-picker + cards work but need polish. `src/portal/modules/timetable.tsx` |
+| Timetable | Functional | Modern desktop time/day grid with subject color bars, sticky headers, and polished mobile day cards. |
 | Attendance | Functional | Subject-wise + daily view for all roles; staff/admin/teacher attendance management for everyone including admins. |
 | Marks & Grades | Functional | Term-wise cards. |
 | Rank List | Functional | Overall + subject ranks. |
 | Calendar | Functional | All roles see the same calendar; admin/staff/superadmin can edit events. |
 | Teachers | Functional | Directory cards. |
-| School Feed | Partial | Like + comments work; desktop layout is still reported as bad. `src/portal/modules/social.tsx:40-111` |
+| School Feed | Functional | Cleaner cards, smaller media placeholder, tag overlay, and improved desktop spacing. |
 | Messages | Functional | Threads and chat render; teacher-to-parent auto-replies are now context-aware and read receipts show only on the user's own messages. |
 | Event Highlights | Functional | YouTube embed placeholder. |
-| AI Doubt Clearing | Partial | Rule-based answers; desktop sidebar + chat layout is reported as bad. `src/portal/modules/social.tsx:369-407` |
+| AI Doubt Clearing | Functional | Rule-based answers with a wider sidebar, gradient answer card, suggestion chips, and cleaner typing state. |
 | Homework | Functional | Filter by subject + term. |
 | Work Upload | Functional | File upload ledger with file name, size, status, notes. |
 | Permission Slips | Functional | Approve/decline with verify simulation. |
@@ -78,13 +78,12 @@
 
 ## Known bugs & rough edges
 
-1. **Mobile login role selector looks odd** — buttons still feel cramped and text fills the button. `src/pages/Login.tsx:85-92`
-2. **Work assignments have no assignees** — duties are created but not linked to specific staff/teacher. `src/portal/modules/office.tsx:243-290`
-3. **Light/dark overlap still reported** — some hardcoded light backgrounds exist without `dark:` counterparts, despite the theme fix pass.
-4. **No automated test suite** — manual testing via role login only.
-5. **Large bundle size** — Vite warns about ~1 MB uncompressed chunk.
+1. **Work assignments have no assignees** — duties are created but not linked to specific staff/teacher. `src/portal/modules/office.tsx:243-290`
+2. **Light/dark overlap still reported** — some hardcoded light backgrounds exist without `dark:` counterparts, despite the theme fix pass.
+3. **No automated test suite** — manual testing via role login only.
+4. **Large bundle size** — Vite warns about ~1 MB uncompressed chunk.
 
-**Already fixed in this cycle:** staff can manage teachers and students; teacher message auto-replies are context-aware; Take Attendance and Upload Grades use the real class roster; My Contract shows the logged-in user's contract; parent verification uses the logged-in parent's name/phone; attendance records are deterministic after reset.
+**Already fixed in this cycle:** staff can manage teachers and students; teacher message auto-replies are context-aware; Take Attendance and Upload Grades use the real class roster; My Contract shows the logged-in user's contract; parent verification uses the logged-in parent's name/phone; attendance records are deterministic after reset; timetable, school feed, AI doubt clearing, and mobile login selector have been polished; admin applications pipeline has status notes and kind filter; People management links to student profile reports.
 
 ## Files and modules inventory
 
