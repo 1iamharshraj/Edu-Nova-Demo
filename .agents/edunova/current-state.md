@@ -49,7 +49,7 @@
 | Payments & Receipts | Gateway | `PaymentGatewayMod` with UPI QR, card UI, net banking; disabled on mobile view. |
 | Meetings | Functional | Request/approve video meetings; GMeet-style links; visible to requester, teacher, admin, superadmin. |
 | TC & Bonafide | Functional | Apply + approve/decline. |
-| Marksheet Validation | Board-aware | CBSE and Matric/State board validation workflows; board details in student reports. |
+| Board Registration | Functional | Validate student details (name, DOB, reg no, roll no, class, school, affiliation) before sending to CBSE/Matric boards. |
 | Take Attendance | Functional | Mark P/A for a fixed roster. |
 | Create Assignment | Functional | Posts to homework list. |
 | Upload Grades | Functional | Only updates Aarav's marks. |
@@ -95,7 +95,7 @@
 - `src/portal/modules/timetable.tsx` — Timetable.
 - `src/portal/modules/social.tsx` — Feed, Messages, Highlights, AI Doubts.
 - `src/portal/modules/actions.tsx` — Homework, Slips, Leave, Health, Achievements, Payments, Work Upload.
-- `src/portal/modules/office.tsx` — Take Attendance, Create Assignment, Upload Grades, Contract, Work Assignment, Registrations, Applications, People, Fees, Calendar Admin, Marksheet Validation, Attendance Mgmt, Contracts & Resignations.
+- `src/portal/modules/office.tsx` — Take Attendance, Create Assignment, Upload Grades, Contract, Work Assignment, Registrations, Applications, People, Fees, Calendar Admin, Board Registration, Attendance Mgmt, Contracts & Resignations.
 - `src/portal/modules/meetings.tsx` — Meeting requests + GMeet links.
 - `src/portal/modules/feeDefaulters.tsx` — Fee defaulters + AI parent calls.
 - `src/portal/modules/disciplinary.tsx` — Disciplinary committee.

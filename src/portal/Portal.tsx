@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
-  Award, BadgeCheck, Banknote, BookOpen, BrainCircuit, CalendarDays, CalendarPlus, ClipboardCheck,
+  Award, Banknote, BookOpen, BrainCircuit, CalendarDays, CalendarPlus, ClipboardCheck,
   CloudUpload, CreditCard, FileBadge, Gavel, HeartPulse, Home, Landmark, LayoutGrid,
-  LogOut, Megaphone, MessagesSquare, PartyPopper, PencilLine, Play, RotateCcw, ScrollText,
+  LogOut, Megaphone, MessagesSquare, PartyPopper, PencilLine, Play, RotateCcw, School, ScrollText,
   ShieldCheck, Sparkles, Trophy, Umbrella, Users, Video, Wallet, type LucideIcon,
 } from 'lucide-react'
 import { Logo } from '@/components/Logo'
@@ -61,7 +61,7 @@ function modulesFor(role: Role): Mod[] {
       M('ach', 'Achievements', Award, <AchievementsMod />, 'Actions'),
       M('pay', 'Payments', CreditCard, <PaymentGatewayMod />, 'Office'),
       M('apps', 'TC & Bonafide', FileBadge, <ApplicationsMod approver={false} />, 'Office'),
-      M('msheet', 'Marksheet Validation', BadgeCheck, <MarksheetMod />, 'Office'),
+      M('msheet', 'Board Registration', School, <MarksheetMod />, 'Office'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Office'),
     ]
     case 'student': return [
@@ -95,7 +95,7 @@ function modulesFor(role: Role): Mod[] {
       M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Classroom'),
       M('meet', 'Meetings', Video, <MeetingsMod />, 'Classroom'),
       M('lapprove', 'Leave Approvals', Umbrella, <LeaveMod approver />, 'Classroom'),
-      M('msheet', 'Marksheet Validation', BadgeCheck, <MarksheetMod />, 'Classroom'),
+      M('msheet', 'Board Registration', School, <MarksheetMod />, 'Classroom'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Classroom'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Classroom'),
       M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Classroom'),
@@ -114,7 +114,7 @@ function modulesFor(role: Role): Mod[] {
       M('leaves', 'Leave Approvals', Umbrella, <LeaveMod approver />, 'Operations'),
       M('calm', 'Calendar Mgmt', CalendarPlus, <CalendarAdminMod />, 'Operations'),
       M('work', 'Work Assignment', PartyPopper, <WorkAssignMod manage />, 'Operations'),
-      M('msheet', 'Marksheet Validation', BadgeCheck, <MarksheetMod />, 'Operations'),
+      M('msheet', 'Board Registration', School, <MarksheetMod />, 'Operations'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Operations'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Operations'),
       M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Operations'),
@@ -131,7 +131,7 @@ function modulesFor(role: Role): Mod[] {
       M('leaves', 'Leave Approvals', Umbrella, <LeaveMod approver />, 'Manage'),
       M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
       M('work', 'Work Assignment', PartyPopper, <WorkAssignMod manage />, 'Manage'),
-      M('msheet', 'Marksheet Validation', BadgeCheck, <MarksheetMod />, 'Manage'),
+      M('msheet', 'Board Registration', School, <MarksheetMod />, 'Manage'),
       M('contracts', 'Contracts & Exit', ScrollText, <ContractsResignationsMod />, 'Manage'),
       M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Manage'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Finance'),
@@ -150,7 +150,7 @@ function modulesFor(role: Role): Mod[] {
       M('leaves', 'Leave Approvals', Umbrella, <LeaveMod approver />, 'Manage'),
       M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
       M('work', 'Work Assignment', PartyPopper, <WorkAssignMod manage />, 'Manage'),
-      M('msheet', 'Marksheet Validation', BadgeCheck, <MarksheetMod />, 'Manage'),
+      M('msheet', 'Board Registration', School, <MarksheetMod />, 'Manage'),
       M('contracts', 'Contracts & Exit', ScrollText, <ContractsResignationsMod />, 'Manage'),
       M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Manage'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Finance'),

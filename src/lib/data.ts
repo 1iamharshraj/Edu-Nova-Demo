@@ -83,6 +83,8 @@ export interface AssignmentWork { id: string; title: string; event: string; due:
 
 export type Board = 'CBSE' | 'Matric'
 
+export type BoardDetailStatus = 'Draft' | 'Pending' | 'Validated' | 'SentToBoard'
+
 export interface BoardDetail {
   studentId: string
   board: Board
@@ -94,6 +96,11 @@ export interface BoardDetail {
   section: string
   year: string
   affiliationNo?: string
+  status: BoardDetailStatus
+  validatedBy?: string
+  validatedAt?: string
+  sentToBoard?: boolean
+  sentAt?: string
 }
 
 export interface ValidatedMark {
@@ -621,10 +628,10 @@ export function seedDB(): DB {
 
   // new seed data
   const boardDetails: Record<string, BoardDetail> = {
-    'u-s': { studentId: 'u-s', board: 'CBSE', registrationNo: 'CBSE2024X12345', schoolName: 'EduNova Senior Secondary School', dob: '2010-03-15', rollNo: 'X-A-12', class: 'X', section: 'A', year: '2025-26', affiliationNo: '930001' },
-    'u-s2': { studentId: 'u-s2', board: 'CBSE', registrationNo: 'CBSE2024X12346', schoolName: 'EduNova Senior Secondary School', dob: '2010-06-22', rollNo: 'X-A-04', class: 'X', section: 'A', year: '2025-26', affiliationNo: '930001' },
-    'u-s3': { studentId: 'u-s3', board: 'Matric', registrationNo: 'MAT2024X98765', schoolName: 'EduNova Senior Secondary School', dob: '2010-01-08', rollNo: 'X-B-07', class: 'X', section: 'B', year: '2025-26' },
-    'u-s4': { studentId: 'u-s4', board: 'CBSE', registrationNo: 'CBSE2024X12347', schoolName: 'EduNova Senior Secondary School', dob: '2010-09-30', rollNo: 'X-B-15', class: 'X', section: 'B', year: '2025-26', affiliationNo: '930001' },
+    'u-s': { studentId: 'u-s', board: 'CBSE', registrationNo: 'CBSE2024X12345', schoolName: 'EduNova Senior Secondary School', dob: '2010-03-15', rollNo: 'X-A-12', class: 'X', section: 'A', year: '2025-26', affiliationNo: '930001', status: 'Validated' },
+    'u-s2': { studentId: 'u-s2', board: 'CBSE', registrationNo: 'CBSE2024X12346', schoolName: 'EduNova Senior Secondary School', dob: '2010-06-22', rollNo: 'X-A-04', class: 'X', section: 'A', year: '2025-26', affiliationNo: '930001', status: 'Pending' },
+    'u-s3': { studentId: 'u-s3', board: 'Matric', registrationNo: 'MAT2024X98765', schoolName: 'EduNova Senior Secondary School', dob: '2010-01-08', rollNo: 'X-B-07', class: 'X', section: 'B', year: '2025-26', status: 'SentToBoard', sentToBoard: true, sentAt: '2025-12-15' },
+    'u-s4': { studentId: 'u-s4', board: 'CBSE', registrationNo: 'CBSE2024X12347', schoolName: 'EduNova Senior Secondary School', dob: '2010-09-30', rollNo: 'X-B-15', class: 'X', section: 'B', year: '2025-26', affiliationNo: '930001', status: 'Draft' },
   }
 
   const validatedMarksCBSE: ValidatedMark[] = SUBJECTS.map(s => {

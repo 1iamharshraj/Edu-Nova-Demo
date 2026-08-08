@@ -5,7 +5,7 @@
 All requested features have been implemented and wired into the portal:
 
 1. ✅ **Superadmin** role above admin (principal/vice-chairman) who can manage all admins.
-2. ✅ **Marksheet validation** is board-aware for CBSE and Matric/State boards.
+2. ✅ **Board Registration Details validation** — validate the student details the school sends to CBSE/Matric boards before exam registration (name, DOB, registration no, roll no, class, school, affiliation).
 3. ✅ **People management** rebuilt for proper staff/teacher/student/admin profiles with add/edit/revoke.
 4. ✅ **Teacher messaging** fixed: parent names shown correctly; teacher-teacher tab added; flexible term selection.
 5. ✅ **Timetable** redesigned for modern desktop + usable mobile.

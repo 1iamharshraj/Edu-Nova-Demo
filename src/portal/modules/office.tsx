@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BadgeCheck, Briefcase, CalendarPlus, Check, FileBadge, FileText, Pencil, Plus, Save, ScrollText, Search, ShieldAlert, Trash2, UserPlus, X } from 'lucide-react'
+import { BadgeCheck, Briefcase, CalendarPlus, Check, FileBadge, FileText, Pencil, Plus, Save, School, ScrollText, Search, Send, ShieldAlert, Trash2, UserPlus, X } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { canManage, isSuperAdmin } from '@/lib/access'
-import { fmtINR, type AttendanceStatus, type Board, type CalEvent, type Contract, type ContractStatus, type Resignation, type Role, type Term, type User } from '@/lib/data'
+import { fmtINR, type AttendanceStatus, type Board, type BoardDetail, type BoardDetailStatus, type CalEvent, type Contract, type ContractStatus, type Resignation, type Role, type Term, type User } from '@/lib/data'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, TermTabs, inputCls, statusTone } from '../ui'
 import { useTerm } from '../Portal'
 import { toast } from 'sonner'
@@ -1040,53 +1040,319 @@ export function CalendarAdminMod() {
   )
 }
 
-/* ── Marksheet validation (boards, 3-step) ─────────────── */
+/* ── Board registration details validation ─────────────── */
+
+const BOARD_DETAIL_STATUS: BoardDetailStatus[] = ['Draft', 'Pending', 'Validated', 'SentToBoard']
+
+function boardDetailStatusTone(s: BoardDetailStatus): 'amber' | 'green' | 'sky' | 'slate' {
+  if (s === 'SentToBoard') return 'sky'
+  if (s === 'Validated') return 'green'
+  if (s === 'Pending') return 'amber'
+  return 'slate'
+}
 
 export function MarksheetMod() {
-  const [step, setStep] = useState(0)
-  const steps = [
-    { t: 'Subject totals verified', d: 'Cross-check each subject total against the grade book.' },
-    { t: 'Class teacher sign-off', d: 'Meera Krishnan confirms X-A marks are final.' },
-    { t: 'Principal seal & publish', d: 'Board-format marksheet locked and published to parents.' },
-  ]
+  const { db, update } = useStore()
+  const [search, setSearch] = useState('')
+  const [boardFilter, setBoardFilter] = useState<'All' | Board>('All')
+  const [statusFilter, setStatusFilter] = useState<BoardDetailStatus | 'All'>('All')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
+
+  const students = useMemo(() => db.users.filter(u => u.role === 'student'), [db.users])
+  const selected = selectedId ? students.find(s => s.id === selectedId) : null
+  const detail = selected ? db.boardDetails[selected.id] : null
+
+  const filtered = useMemo(() => {
+    return students.filter(s => {
+      const d = db.boardDetails[s.id]
+      if (!d) return false
+      if (boardFilter !== 'All' && d.board !== boardFilter) return false
+      if (statusFilter !== 'All' && d.status !== statusFilter) return false
+      if (search) {
+        const q = search.toLowerCase()
+        return s.name.toLowerCase().includes(q) || s.roll?.toLowerCase().includes(q) || d.registrationNo.toLowerCase().includes(q)
+      }
+      return true
+    })
+  }, [students, db.boardDetails, boardFilter, statusFilter, search])
+
+  const ensureDetail = (s: User): BoardDetail => {
+    const existing = db.boardDetails[s.id]
+    if (existing) return existing
+    const created: BoardDetail = {
+      studentId: s.id,
+      board: 'CBSE',
+      registrationNo: '',
+      schoolName: 'EduNova Senior Secondary School',
+      dob: '2010-01-01',
+      rollNo: '',
+      class: s.class ?? 'X',
+      section: s.section ?? 'A',
+      year: '2025-26',
+      status: 'Draft',
+    }
+    update(d => { d.boardDetails[s.id] = created; return d })
+    return created
+  }
+
+  const openDetail = (s: User) => {
+    setSelectedId(s.id)
+    ensureDetail(s)
+  }
+
   return (
     <div>
-      <PageHead title="Marksheet Data Validation" sub="Board classes only · 3-step lock to prevent corrections later" />
-      <Card className="mx-auto max-w-2xl">
-        <div className="mb-8 flex items-center gap-2">
-          {steps.map((_s, i) => (
-            <div key={i} className="flex flex-1 items-center gap-2">
-              <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[13px] font-bold ${i < step ? 'bg-emerald-500 text-white' : i === step ? 'bg-black text-white' : 'bg-black/[.07] dark:bg-white/[.09] text-black/40 dark:text-white/40'}`}>
-                {i < step ? <Check size={15} /> : i + 1}
-              </span>
-              {i < steps.length - 1 && <span className={`h-0.5 flex-1 rounded ${i < step ? 'bg-emerald-400' : 'bg-black/10'}`} />}
+      <PageHead title="Board Registration Details" sub="Validate student data before it is sent to CBSE / Matric boards">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 rounded-xl border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] px-3 py-2">
+            <Search size={15} className="text-black/40 dark:text-white/40" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student / reg no." className="bg-transparent text-[13px] outline-none" />
+          </div>
+          <select value={boardFilter} onChange={e => setBoardFilter(e.target.value as 'All' | Board)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`}>
+            <option value="All">All boards</option>
+            <option value="CBSE">CBSE</option>
+            <option value="Matric">Matric</option>
+          </select>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as BoardDetailStatus | 'All')} className={`${inputCls} w-auto py-1.5 text-[12.5px]`}>
+            <option value="All">All statuses</option>
+            {BOARD_DETAIL_STATUS.map(s => <option key={s} value={s}>{s === 'SentToBoard' ? 'Sent to board' : s}</option>)}
+          </select>
+        </div>
+      </PageHead>
+
+      <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+        <Card className="p-0">
+          <div className="border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
+            <p className="text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Students ({filtered.length})</p>
+          </div>
+          {filtered.length === 0 && <div className="p-6"><Empty text="No students match the filters." /></div>}
+          <div className="divide-y divide-black/[.05] dark:divide-white/[.07]">
+            {filtered.map(s => {
+              const d = db.boardDetails[s.id]
+              return (
+                <button key={s.id} onClick={() => openDetail(s)}
+                  className={`flex w-full items-center gap-4 px-6 py-4 text-left transition-colors ${selectedId === s.id ? 'bg-indigo-50/50 dark:bg-indigo-500/10' : 'hover:bg-black/[.02] dark:hover:bg-white/[.04]'}`}>
+                  <Avatar name={s.name} hue={s.avatarHue} size={42} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[15px] font-semibold">{s.name}</p>
+                    <p className="text-[12.5px] text-black/50 dark:text-white/50">{s.class}{s.section ? '-' + s.section : ''} · Roll {s.roll ?? '–'} · {d?.board}</p>
+                  </div>
+                  <Pill tone={boardDetailStatusTone(d?.status ?? 'Draft')}>{d?.status === 'SentToBoard' ? 'Sent' : d?.status}</Pill>
+                </button>
+              )
+            })}
+          </div>
+        </Card>
+
+        <Card>
+          {!selected || !detail ? (
+            <div className="py-10 text-center">
+              <School size={40} className="mx-auto text-black/20 dark:text-white/20" />
+              <p className="mt-4 text-[15px] font-semibold text-black/50 dark:text-white/50">Select a student to review board details</p>
+            </div>
+          ) : (
+            <BoardDetailView student={selected} detail={detail} onEdit={() => setEditOpen(true)} />
+          )}
+        </Card>
+      </div>
+
+      {selected && detail && (
+        <EditBoardDetailModal
+          open={editOpen}
+          onClose={() => setEditOpen(false)}
+          student={selected}
+          detail={detail}
+        />
+      )}
+    </div>
+  )
+}
+
+function BoardDetailView({ student, detail, onEdit }: { student: User; detail: BoardDetail; onEdit: () => void }) {
+  const { update, user } = useStore()
+
+  const validate = () => {
+    update(d => {
+      const bd = d.boardDetails[student.id]
+      if (!bd) return d
+      bd.status = 'Validated'
+      bd.validatedBy = user?.name
+      bd.validatedAt = new Date().toISOString().slice(0, 10)
+      return d
+    })
+    toast.success('Board details validated')
+  }
+
+  const sendToBoard = () => {
+    update(d => {
+      const bd = d.boardDetails[student.id]
+      if (!bd) return d
+      bd.status = 'SentToBoard'
+      bd.sentToBoard = true
+      bd.sentAt = new Date().toISOString().slice(0, 10)
+      return d
+    })
+    toast.success('Details sent to board')
+  }
+
+  const checklist = [
+    { label: 'Student name matches school records', ok: student.name.trim().length > 0 },
+    { label: 'Date of birth filled', ok: !!detail.dob },
+    { label: 'Board registration number filled', ok: detail.registrationNo.trim().length > 0 },
+    { label: 'Board roll number filled', ok: detail.rollNo.trim().length > 0 },
+    { label: 'Class & section filled', ok: !!detail.class && !!detail.section },
+    { label: 'Academic year filled', ok: !!detail.year },
+    { label: 'School name filled', ok: detail.schoolName.trim().length > 0 },
+    { label: 'CBSE affiliation number (if applicable)', ok: detail.board !== 'CBSE' || !!detail.affiliationNo },
+  ]
+
+  const allOk = checklist.every(c => c.ok)
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Avatar name={student.name} hue={student.avatarHue} size={48} />
+          <div>
+            <p className="text-[17px] font-semibold">{student.name}</p>
+            <p className="text-[13px] text-black/50 dark:text-white/50">{student.class}{student.section ? '-' + student.section : ''} · Roll {student.roll ?? '–'}</p>
+          </div>
+        </div>
+        <Pill tone={boardDetailStatusTone(detail.status)}>{detail.status === 'SentToBoard' ? 'Sent to board' : detail.status}</Pill>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-[14px]">
+        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
+          <p className="text-[12px] text-black/50 dark:text-white/50">Board</p>
+          <p className="font-semibold">{detail.board}</p>
+        </div>
+        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
+          <p className="text-[12px] text-black/50 dark:text-white/50">Registration no.</p>
+          <p className="font-semibold">{detail.registrationNo}</p>
+        </div>
+        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
+          <p className="text-[12px] text-black/50 dark:text-white/50">Roll no.</p>
+          <p className="font-semibold">{detail.rollNo}</p>
+        </div>
+        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
+          <p className="text-[12px] text-black/50 dark:text-white/50">Date of birth</p>
+          <p className="font-semibold">{detail.dob}</p>
+        </div>
+        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
+          <p className="text-[12px] text-black/50 dark:text-white/50">Class & section</p>
+          <p className="font-semibold">{detail.class}-{detail.section}</p>
+        </div>
+        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
+          <p className="text-[12px] text-black/50 dark:text-white/50">Academic year</p>
+          <p className="font-semibold">{detail.year}</p>
+        </div>
+        <div className="col-span-2 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
+          <p className="text-[12px] text-black/50 dark:text-white/50">School name</p>
+          <p className="font-semibold">{detail.schoolName}</p>
+        </div>
+        {detail.affiliationNo && (
+          <div className="col-span-2 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
+            <p className="text-[12px] text-black/50 dark:text-white/50">Affiliation no.</p>
+            <p className="font-semibold">{detail.affiliationNo}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-2xl border border-black/[.06] dark:border-white/[.08] p-4">
+        <p className="mb-3 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Validation checklist</p>
+        <div className="space-y-2">
+          {checklist.map((c, i) => (
+            <div key={i} className="flex items-center gap-2 text-[13px]">
+              {c.ok ? <Check size={14} className="text-emerald-500" /> : <X size={14} className="text-rose-500" />}
+              <span className={c.ok ? 'text-black/70 dark:text-white/70' : 'text-black/50 dark:text-white/50'}>{c.label}</span>
             </div>
           ))}
         </div>
-        {step < 3 ? (
-          <div className="text-center">
-            <p className="font-display text-2xl font-medium">{steps[step].t}</p>
-            <p className="mx-auto mt-2 max-w-sm text-[14px] text-black/50 dark:text-white/50">{steps[step].d}</p>
-            <div className="mt-6 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-4 text-left text-[13px] text-black/55 dark:text-white/55">
-              {step === 0 && 'Mathematics 148/155 · Physics 142/155 · Chemistry 139/155 · English 145/155 · CS 150/155 — all match the grade book.'}
-              {step === 1 && 'Signing as class teacher confirms no re-totalling requests are pending for X-A.'}
-              {step === 2 && 'Once sealed, the marksheet is published to the parent portal and cannot be edited without a board-level unlock.'}
-            </div>
-            <button onClick={() => { setStep(step + 1); toast.success(steps[step].t + ' ✓') }}
-              className="btn-ink mt-6 px-8 py-3 text-[14px] font-semibold">
-              {step === 0 ? 'Verify totals' : step === 1 ? 'Sign off as class teacher' : 'Seal & publish'}
-            </button>
-          </div>
-        ) : (
-          <div className="py-6 text-center">
-            <BadgeCheck size={52} className="mx-auto text-emerald-500" />
-            <p className="font-display mt-4 text-2xl font-medium">Marksheet sealed</p>
-            <p className="mt-2 text-[14px] text-black/50 dark:text-white/50">X-A board marksheet is now live in the parent portal.</p>
-            <button onClick={() => setStep(0)} className="mt-6 rounded-full bg-black/[.06] dark:bg-white/[.08] px-6 py-2.5 text-[13px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">Run again (demo)</button>
-          </div>
+      </div>
+
+      {detail.validatedBy && (
+        <p className="text-[12.5px] text-black/50 dark:text-white/50">Validated by {detail.validatedBy} on {detail.validatedAt}</p>
+      )}
+      {detail.sentToBoard && (
+        <p className="text-[12.5px] text-black/50 dark:text-white/50">Sent to board on {detail.sentAt}</p>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <button onClick={onEdit} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
+          <Pencil size={15} /> Edit details
+        </button>
+        {detail.status !== 'Validated' && detail.status !== 'SentToBoard' && (
+          <button onClick={validate} disabled={!allOk} className="flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-[13.5px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">
+            <Check size={15} /> Validate
+          </button>
         )}
-      </Card>
+        {detail.status === 'Validated' && (
+          <button onClick={sendToBoard} className="flex items-center gap-2 rounded-full bg-sky-600 px-5 py-2.5 text-[13.5px] font-semibold text-white hover:bg-sky-700">
+            <Send size={15} /> Send to board
+          </button>
+        )}
+      </div>
     </div>
+  )
+}
+
+function EditBoardDetailModal({ open, onClose, student, detail }: { open: boolean; onClose: () => void; student: User; detail: BoardDetail }) {
+  const { update } = useStore()
+  const [board, setBoard] = useState<Board>(detail.board)
+  const [registrationNo, setRegistrationNo] = useState(detail.registrationNo)
+  const [schoolName, setSchoolName] = useState(detail.schoolName)
+  const [dob, setDob] = useState(detail.dob)
+  const [rollNo, setRollNo] = useState(detail.rollNo)
+  const [cls, setCls] = useState(detail.class)
+  const [section, setSection] = useState(detail.section)
+  const [year, setYear] = useState(detail.year)
+  const [affiliationNo, setAffiliationNo] = useState(detail.affiliationNo ?? '')
+
+  const save = () => {
+    update(d => {
+      const bd = d.boardDetails[student.id]
+      if (!bd) return d
+      bd.board = board
+      bd.registrationNo = registrationNo.trim()
+      bd.schoolName = schoolName.trim()
+      bd.dob = dob
+      bd.rollNo = rollNo.trim()
+      bd.class = cls.trim()
+      bd.section = section.trim()
+      bd.year = year.trim()
+      bd.affiliationNo = affiliationNo.trim() || undefined
+      bd.status = bd.status === 'SentToBoard' ? 'Validated' : bd.status
+      return d
+    })
+    onClose()
+    toast.success('Board details updated')
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Edit board details — ${student.name}`} wide>
+      <div className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Board">
+            <select value={board} onChange={e => setBoard(e.target.value as Board)} className={inputCls}>
+              <option value="CBSE">CBSE</option>
+              <option value="Matric">Matric</option>
+            </select>
+          </Field>
+          <Field label="Registration no."><input value={registrationNo} onChange={e => setRegistrationNo(e.target.value)} className={inputCls} /></Field>
+          <Field label="Roll no."><input value={rollNo} onChange={e => setRollNo(e.target.value)} className={inputCls} /></Field>
+          <Field label="Date of birth"><input type="date" value={dob} onChange={e => setDob(e.target.value)} className={inputCls} /></Field>
+          <Field label="Class"><input value={cls} onChange={e => setCls(e.target.value)} className={inputCls} /></Field>
+          <Field label="Section"><input value={section} onChange={e => setSection(e.target.value)} className={inputCls} /></Field>
+          <Field label="Academic year"><input value={year} onChange={e => setYear(e.target.value)} className={inputCls} /></Field>
+          <Field label="Affiliation no. (CBSE)"><input value={affiliationNo} onChange={e => setAffiliationNo(e.target.value)} placeholder="Leave blank for Matric" className={inputCls} /></Field>
+        </div>
+        <Field label="School name"><input value={schoolName} onChange={e => setSchoolName(e.target.value)} className={inputCls} /></Field>
+        <button onClick={save} disabled={!registrationNo.trim() || !rollNo.trim() || !dob || !cls.trim() || !section.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">
+          Save details
+        </button>
+      </div>
+    </Modal>
   )
 }
 
