@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, AlertTriangle, BadgeCheck, Briefcase, CalendarPlus, Check, FileBadge, FileText, Pencil, Plus, Save, School, ScrollText, Search, Send, ShieldAlert, Trash2, UserPlus, X } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { canManage, isSuperAdmin } from '@/lib/access'
-import { fmtINR, type AttendanceStatus, type Board, type BoardDetail, type BoardDetailStatus, type CalEvent, type Contract, type ContractStatus, type Resignation, type Role, type Term, type User } from '@/lib/data'
+import { fmtINR, type Application, type AttendanceStatus, type Board, type BoardDetail, type BoardDetailStatus, type CalEvent, type Contract, type ContractStatus, type Resignation, type Role, type Term, type User } from '@/lib/data'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, TermTabs, inputCls, statusTone } from '../ui'
+import { StudentReportMod } from './studentReport'
 import { useTerm } from '../Portal'
 import { toast } from 'sonner'
 
@@ -380,22 +381,49 @@ export function RegistrationsMod({ kind, title, sub }: { kind: keyof typeof CATA
 /* ── Applications: admissions / TC / bonafide / discipline ─ */
 
 export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
-  const { db, update } = useStore()
+  const { db, update, user } = useStore()
   const [open, setOpen] = useState(false)
-  const [kind, setKind] = useState<'TC' | 'Bonafide'>('Bonafide')
+  const [kind, setKind] = useState<Application['kind']>('Bonafide')
   const [detail, setDetail] = useState('')
+  const [kindFilter, setKindFilter] = useState<'All' | Application['kind']>('All')
+  const [notes, setNotes] = useState<Record<string, string>>({})
 
-  const rows = approver ? db.applications : db.applications.filter(a => a.name.includes('Aarav'))
-  const decide = (id: string, ok: boolean) => {
-    update(d => { const a = d.applications.find(x => x.id === id)!; a.status = ok ? 'Approved' : 'Declined'; return d })
-    toast.success(ok ? 'Application approved — document queued for issue' : 'Application declined')
-  }
-  const apply = () => {
+  const mine = useMemo(() => {
+    if (approver) return db.applications
+    if (!user) return []
+    return db.applications.filter(a => {
+      if (user.role === 'student') return a.name.includes(user.name)
+      if (user.role === 'parent') {
+        const wards = (user.wards || '').split(',').map(w => w.trim()).filter(Boolean)
+        return wards.some(w => a.name.includes(w))
+      }
+      return false
+    })
+  }, [db.applications, approver, user])
+
+  const rows = useMemo(() => {
+    if (kindFilter === 'All') return mine
+    return mine.filter(a => a.kind === kindFilter)
+  }, [mine, kindFilter])
+
+  const setStatus = (id: string, status: Application['status']) => {
     update(d => {
-      d.applications.unshift({ id: 'ap' + Date.now(), kind, name: 'Aarav Sharma — X-A', detail, date: new Date().toISOString().slice(0, 10), status: 'Pending' })
+      const a = d.applications.find(x => x.id === id)!
+      a.status = status
+      a.notes = notes[id] ?? a.notes
       return d
     })
-    setOpen(false); setDetail(''); toast.success(kind + ' application submitted')
+    toast.success(`Application ${status.toLowerCase()}`)
+  }
+
+  const apply = () => {
+    if (!user) return
+    update(d => {
+      const label = user.role === 'student' ? `${user.name} — ${user.class}${user.section ? '-' + user.section : ''}` : `${user.name} — ${user.title || user.role}`
+      d.applications.unshift({ id: 'ap' + Date.now(), kind, name: label, detail, date: new Date().toISOString().slice(0, 10), status: 'Pending', notes: '' })
+      return d
+    })
+    setOpen(false); setDetail(''); toast.success(`${kind} application submitted`)
   }
 
   const toneFor = (k: string) => k === 'Admission' ? 'indigo' : k === 'TC' ? 'sky' : k === 'Bonafide' ? 'green' : 'rose'
@@ -406,22 +434,53 @@ export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
         {!approver && (
           <button onClick={() => setOpen(true)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><Plus size={15} /> New application</button>
         )}
+        {approver && (
+          <select value={kindFilter} onChange={e => setKindFilter(e.target.value as 'All' | Application['kind'])} className={`${inputCls} w-auto py-1.5 text-[12.5px]`}>
+            <option value="All">All types</option>
+            <option value="Admission">Admission</option>
+            <option value="TC">TC</option>
+            <option value="Bonafide">Bonafide</option>
+            <option value="Disciplinary">Disciplinary</option>
+          </select>
+        )}
       </PageHead>
-      <Card className="p-0">
+      <Card className="p-0 divide-y divide-black/[.05] dark:divide-white/[.07]">
         {rows.map(a => (
-          <div key={a.id} className="flex flex-wrap items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-4 last:border-0">
-            <Pill tone={toneFor(a.kind)}>{a.kind}</Pill>
-            <div className="min-w-52 flex-1">
-              <p className="text-[14.5px] font-semibold">{a.name}</p>
-              <p className="text-[12.5px] text-black/45 dark:text-white/45">{a.detail} · {new Date(a.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
+          <div key={a.id} className="px-6 py-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <Pill tone={toneFor(a.kind)}>{a.kind}</Pill>
+              <div className="min-w-52 flex-1">
+                <p className="text-[14.5px] font-semibold">{a.name}</p>
+                <p className="text-[12.5px] text-black/45 dark:text-white/45">{a.detail} · {new Date(a.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
+              </div>
+              <Pill tone={statusTone(a.status)}>{a.status}</Pill>
+              {approver && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {a.status === 'Pending' && (
+                    <>
+                      <button onClick={() => setStatus(a.id, 'Verified')} className="rounded-full bg-sky-600 px-4 py-1.5 text-[12.5px] font-semibold text-white hover:bg-sky-700">Verify</button>
+                      <button onClick={() => setStatus(a.id, 'Declined')} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-1.5 text-[12.5px] font-semibold">Decline</button>
+                    </>
+                  )}
+                  {a.status === 'Verified' && (
+                    <>
+                      <button onClick={() => setStatus(a.id, 'Approved')} className="rounded-full bg-emerald-600 px-4 py-1.5 text-[12.5px] font-semibold text-white hover:bg-emerald-700">Approve</button>
+                      <button onClick={() => setStatus(a.id, 'Declined')} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-1.5 text-[12.5px] font-semibold">Decline</button>
+                    </>
+                  )}
+                  {a.status === 'Approved' && <span className="text-[12px] font-semibold text-emerald-600">Queued for issue</span>}
+                  {a.status === 'Declined' && <span className="text-[12px] font-semibold text-rose-500">Declined</span>}
+                </div>
+              )}
             </div>
-            <Pill tone={statusTone(a.status)}>{a.status}</Pill>
-            {approver && a.status === 'Pending' && (
-              <div className="flex gap-2">
-                <button onClick={() => decide(a.id, true)} className="rounded-full bg-emerald-600 px-4 py-1.5 text-[12.5px] font-semibold text-white">Approve</button>
-                <button onClick={() => decide(a.id, false)} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-1.5 text-[12.5px] font-semibold">Decline</button>
+            {approver && (
+              <div className="mt-3">
+                <Field label="Admin/staff note">
+                  <textarea value={notes[a.id] ?? a.notes ?? ''} onChange={e => setNotes(n => ({ ...n, [a.id]: e.target.value }))} placeholder="Add a note before acting..." className={`${inputCls} min-h-[60px] text-[13px]`} />
+                </Field>
               </div>
             )}
+            {!approver && a.notes && <p className="mt-2 text-[12.5px] text-black/50 dark:text-white/50">Note: {a.notes}</p>}
           </div>
         ))}
         {rows.length === 0 && <div className="p-6"><Empty text="No applications yet." /></div>}
@@ -429,7 +488,7 @@ export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
       <Modal open={open} onClose={() => setOpen(false)} title="New application">
         <div className="space-y-4">
           <Field label="Type">
-            <select value={kind} onChange={e => setKind(e.target.value as 'TC' | 'Bonafide')} className={inputCls}>
+            <select value={kind} onChange={e => setKind(e.target.value as Application['kind'])} className={inputCls}>
               <option value="Bonafide">Bonafide certificate</option>
               <option value="TC">Transfer certificate</option>
             </select>
@@ -487,6 +546,7 @@ export function PeopleMod() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<User | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [viewReportId, setViewReportId] = useState<string | null>(null)
 
   const activeRoles = useMemo(() => ALL_TABS.find(t => t.id === tab)?.roles ?? ['student'], [tab])
 
@@ -768,6 +828,9 @@ export function PeopleMod() {
                 <td className="px-6 py-4 text-right">
                   {canEdit(u) ? (
                     <div className="flex items-center justify-end gap-2">
+                      {u.role === 'student' && (
+                        <button onClick={() => setViewReportId(u.id)} className="rounded-full bg-indigo-50 dark:bg-indigo-500/10 p-2 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20" title="View full report"><FileBadge size={15} /></button>
+                      )}
                       <button onClick={() => openEdit(u)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15"><Pencil size={15} /></button>
                       <button onClick={() => setConfirmId(u.id)} className="rounded-full bg-rose-50 p-2 text-rose-500 hover:bg-rose-100"><Trash2 size={15} /></button>
                     </div>
@@ -801,7 +864,10 @@ export function PeopleMod() {
               {u.role === 'admin' && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.designation}{u.department ? ' · ' + u.department : ''}</p>}
               {u.role === 'parent' && <p className="text-[12.5px] text-black/50 dark:text-white/50">Ward(s): {u.wards ?? '—'}</p>}
               {canEdit(u) && (
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {u.role === 'student' && (
+                    <button onClick={() => setViewReportId(u.id)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><FileBadge size={14} /> Report</button>
+                  )}
                   <button onClick={() => openEdit(u)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><Pencil size={14} /> Edit</button>
                   <button onClick={() => setConfirmId(u.id)} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-rose-50 py-2 text-[13px] font-semibold text-rose-500"><Trash2 size={14} /> Delete</button>
                 </div>
@@ -917,6 +983,10 @@ export function PeopleMod() {
             <button onClick={() => setConfirmId(null)} className="rounded-xl bg-black/[.05] dark:bg-white/[.07] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">Cancel</button>
           </div>
         </div>
+      </Modal>
+
+      <Modal open={!!viewReportId} onClose={() => setViewReportId(null)} title="Student Profile Report" wide>
+        {viewReportId ? <StudentReportMod studentId={viewReportId} /> : <Empty text="Select a student to view the report." />}
       </Modal>
     </div>
   )
