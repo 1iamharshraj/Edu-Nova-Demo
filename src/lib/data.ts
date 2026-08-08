@@ -27,6 +27,7 @@ export interface User {
   phone?: string
   parentEmail?: string
   board?: Board
+  dob?: string
   salary?: number
   wards?: string
   contract?: Contract
@@ -87,6 +88,7 @@ export type BoardDetailStatus = 'Draft' | 'Pending' | 'Validated' | 'SentToBoard
 
 export interface BoardDetail {
   studentId: string
+  name: string
   board: Board
   registrationNo: string
   schoolName: string
@@ -101,6 +103,7 @@ export interface BoardDetail {
   validatedAt?: string
   sentToBoard?: boolean
   sentAt?: string
+  mismatchNote?: string
 }
 
 export interface ValidatedMark {
@@ -449,7 +452,7 @@ export function seedDB(): DB {
     { id: 'u-st', role: 'staff', name: 'Farhan Qureshi', email: 'staff@edunova.in', password: 'staff123', title: 'Office Superintendent', avatarHue: 20, verified: true, designation: 'Office Superintendent', department: 'Administration', joinDate: '2020-07-15' },
     { id: 'u-t', role: 'teacher', name: 'Meera Krishnan', email: 'teacher@edunova.in', password: 'teacher123', title: 'Mathematics · Class Teacher X-A', avatarHue: 160, verified: true, subjects: ['Mathematics'], class: 'X-A', joinDate: '2021-05-10' },
     { id: 'u-p', role: 'parent', name: 'Nisha Sharma', email: 'parent@edunova.in', password: 'parent123', title: 'Parent of Aarav Sharma · X-A', avatarHue: 262, verified: false, phone: '+91 98765 43223' },
-    { id: 'u-s', role: 'student', name: 'Aarav Sharma', email: 'student@edunova.in', password: 'student123', title: 'Class X-A · Roll 12', avatarHue: 200, verified: true, class: 'X-A', section: 'A', roll: '12', board: 'CBSE', parentEmail: 'parent@edunova.in' },
+    { id: 'u-s', role: 'student', name: 'Aarav Sharma', email: 'student@edunova.in', password: 'student123', title: 'Class X-A · Roll 12', avatarHue: 200, verified: true, class: 'X-A', section: 'A', roll: '12', board: 'CBSE', parentEmail: 'parent@edunova.in', dob: '2010-03-15' },
     // additional staff & teachers
     { id: 'u-t2', role: 'teacher', name: 'Arjun Nair', email: 'arjun.n@edunova.in', password: 'teacher123', title: 'Physics Teacher', avatarHue: 190, verified: true, subjects: ['Physics'], class: 'X-B', joinDate: '2020-03-12' },
     { id: 'u-t3', role: 'teacher', name: 'Sofia D’Souza', email: 'sofia.d@edunova.in', password: 'teacher123', title: 'Chemistry Teacher', avatarHue: 120, verified: true, subjects: ['Chemistry'], class: 'X-A', joinDate: '2021-06-15' },
@@ -459,9 +462,9 @@ export function seedDB(): DB {
     { id: 'u-st2', role: 'staff', name: 'Priya Menon', email: 'priya.m@edunova.in', password: 'staff123', title: 'Accounts Officer', avatarHue: 60, verified: true, designation: 'Accounts Officer', department: 'Finance', joinDate: '2020-02-14' },
     { id: 'u-st3', role: 'staff', name: 'Rajesh Kumar', email: 'rajesh.k@edunova.in', password: 'staff123', title: 'Admission Coordinator', avatarHue: 100, verified: true, designation: 'Admission Coordinator', department: 'Admissions', joinDate: '2021-08-30' },
     // additional students
-    { id: 'u-s2', role: 'student', name: 'Diya Patel', email: 'diya.p@edunova.in', password: 'student123', title: 'Class X-A · Roll 4', avatarHue: 210, verified: true, class: 'X-A', section: 'A', roll: '4', board: 'CBSE', parentEmail: 'parent.diya@edunova.in' },
-    { id: 'u-s3', role: 'student', name: 'Kabir Singh', email: 'kabir.s@edunova.in', password: 'student123', title: 'Class X-B · Roll 7', avatarHue: 240, verified: true, class: 'X-B', section: 'B', roll: '7', board: 'Matric', parentEmail: 'parent.kabir@edunova.in' },
-    { id: 'u-s4', role: 'student', name: 'Rohan Gupta', email: 'rohan.g@edunova.in', password: 'student123', title: 'Class X-B · Roll 15', avatarHue: 30, verified: true, class: 'X-B', section: 'B', roll: '15', board: 'CBSE', parentEmail: 'parent.rohan@edunova.in' },
+    { id: 'u-s2', role: 'student', name: 'Diya Patel', email: 'diya.p@edunova.in', password: 'student123', title: 'Class X-A · Roll 4', avatarHue: 210, verified: true, class: 'X-A', section: 'A', roll: '4', board: 'CBSE', parentEmail: 'parent.diya@edunova.in', dob: '2010-06-20' },
+    { id: 'u-s3', role: 'student', name: 'Kabir Singh', email: 'kabir.s@edunova.in', password: 'student123', title: 'Class X-B · Roll 7', avatarHue: 240, verified: true, class: 'X-B', section: 'B', roll: '7', board: 'Matric', parentEmail: 'parent.kabir@edunova.in', dob: '2010-01-08' },
+    { id: 'u-s4', role: 'student', name: 'Rohan Gupta', email: 'rohan.g@edunova.in', password: 'student123', title: 'Class X-B · Roll 15', avatarHue: 30, verified: true, class: 'X-B', section: 'B', roll: '15', board: 'CBSE', parentEmail: 'parent.rohan@edunova.in', dob: '2010-09-30' },
     // parents
     { id: 'u-p2', role: 'parent', name: 'Priya Patel', email: 'parent.diya@edunova.in', password: 'parent123', title: 'Parent of Diya Patel · X-A', avatarHue: 300, verified: false, phone: '+91 98765 43224' },
     { id: 'u-p3', role: 'parent', name: 'Harpreet Singh', email: 'parent.kabir@edunova.in', password: 'parent123', title: 'Parent of Kabir Singh · X-B', avatarHue: 70, verified: false, phone: '+91 98765 43225' },
@@ -628,10 +631,10 @@ export function seedDB(): DB {
 
   // new seed data
   const boardDetails: Record<string, BoardDetail> = {
-    'u-s': { studentId: 'u-s', board: 'CBSE', registrationNo: 'CBSE2024X12345', schoolName: 'EduNova Senior Secondary School', dob: '2010-03-15', rollNo: 'X-A-12', class: 'X', section: 'A', year: '2025-26', affiliationNo: '930001', status: 'Validated' },
-    'u-s2': { studentId: 'u-s2', board: 'CBSE', registrationNo: 'CBSE2024X12346', schoolName: 'EduNova Senior Secondary School', dob: '2010-06-22', rollNo: 'X-A-04', class: 'X', section: 'A', year: '2025-26', affiliationNo: '930001', status: 'Pending' },
-    'u-s3': { studentId: 'u-s3', board: 'Matric', registrationNo: 'MAT2024X98765', schoolName: 'EduNova Senior Secondary School', dob: '2010-01-08', rollNo: 'X-B-07', class: 'X', section: 'B', year: '2025-26', status: 'SentToBoard', sentToBoard: true, sentAt: '2025-12-15' },
-    'u-s4': { studentId: 'u-s4', board: 'CBSE', registrationNo: 'CBSE2024X12347', schoolName: 'EduNova Senior Secondary School', dob: '2010-09-30', rollNo: 'X-B-15', class: 'X', section: 'B', year: '2025-26', affiliationNo: '930001', status: 'Draft' },
+    'u-s': { studentId: 'u-s', name: 'Aarav Kumar Sharma', board: 'CBSE', registrationNo: 'CBSE2024X12345', schoolName: 'EduNova Senior Secondary School', dob: '2010-03-15', rollNo: 'X-A-12', class: 'X', section: 'A', year: '2025-26', affiliationNo: '930001', status: 'Validated' },
+    'u-s2': { studentId: 'u-s2', name: 'Diya Patel', board: 'CBSE', registrationNo: 'CBSE2024X12346', schoolName: 'EduNova Senior Secondary School', dob: '2010-06-22', rollNo: 'X-A-04', class: 'X', section: 'A', year: '2025-26', affiliationNo: '930001', status: 'Pending' },
+    'u-s3': { studentId: 'u-s3', name: 'Kabir Singh', board: 'Matric', registrationNo: 'MAT2024X98765', schoolName: 'EduNova Senior Secondary School', dob: '2010-01-08', rollNo: 'X-B-07', class: 'X', section: 'B', year: '2025-26', status: 'SentToBoard', sentToBoard: true, sentAt: '2025-12-15' },
+    'u-s4': { studentId: 'u-s4', name: 'Rohan Gupta', board: 'CBSE', registrationNo: 'CBSE2024X12347', schoolName: 'EduNova Senior Secondary School', dob: '2010-09-30', rollNo: 'X-B-15', class: 'X', section: 'B', year: '2025-26', affiliationNo: '930001', status: 'Draft' },
   }
 
   const validatedMarksCBSE: ValidatedMark[] = SUBJECTS.map(s => {

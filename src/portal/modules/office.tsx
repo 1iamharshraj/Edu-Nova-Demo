@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BadgeCheck, Briefcase, CalendarPlus, Check, FileBadge, FileText, Pencil, Plus, Save, School, ScrollText, Search, Send, ShieldAlert, Trash2, UserPlus, X } from 'lucide-react'
+import { AlertCircle, AlertTriangle, BadgeCheck, Briefcase, CalendarPlus, Check, FileBadge, FileText, Pencil, Plus, Save, School, ScrollText, Search, Send, ShieldAlert, Trash2, UserPlus, X } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { canManage, isSuperAdmin } from '@/lib/access'
 import { fmtINR, type AttendanceStatus, type Board, type BoardDetail, type BoardDetailStatus, type CalEvent, type Contract, type ContractStatus, type Resignation, type Role, type Term, type User } from '@/lib/data'
@@ -1082,6 +1082,7 @@ export function MarksheetMod() {
     if (existing) return existing
     const created: BoardDetail = {
       studentId: s.id,
+      name: s.name,
       board: 'CBSE',
       registrationNo: '',
       schoolName: 'EduNova Senior Secondary School',
@@ -1152,7 +1153,7 @@ export function MarksheetMod() {
               <p className="mt-4 text-[15px] font-semibold text-black/50 dark:text-white/50">Select a student to review board details</p>
             </div>
           ) : (
-            <BoardDetailView student={selected} detail={detail} onEdit={() => setEditOpen(true)} />
+            <BoardDetailView key={selected.id} student={selected} detail={detail} onEdit={() => setEditOpen(true)} />
           )}
         </Card>
       </div>
@@ -1171,6 +1172,10 @@ export function MarksheetMod() {
 
 function BoardDetailView({ student, detail, onEdit }: { student: User; detail: BoardDetail; onEdit: () => void }) {
   const { update, user } = useStore()
+  const [mismatchNote, setMismatchNote] = useState(detail.mismatchNote || '')
+
+  const nameMatch = detail.name.trim().toLowerCase() === student.name.trim().toLowerCase()
+  const dobMatch = !!student.dob && detail.dob === student.dob
 
   const validate = () => {
     update(d => {
@@ -1196,9 +1201,19 @@ function BoardDetailView({ student, detail, onEdit }: { student: User; detail: B
     toast.success('Details sent to board')
   }
 
+  const updateMismatchNote = (note: string) => {
+    setMismatchNote(note)
+    update(d => {
+      const bd = d.boardDetails[student.id]
+      if (!bd) return d
+      bd.mismatchNote = note
+      return d
+    })
+  }
+
   const checklist = [
-    { label: 'Student name matches school records', ok: student.name.trim().length > 0 },
-    { label: 'Date of birth filled', ok: !!detail.dob },
+    { label: 'Student name matches school records (or mismatch noted)', ok: nameMatch || mismatchNote.trim().length > 0 },
+    { label: 'Date of birth matches school records (or mismatch noted)', ok: dobMatch || mismatchNote.trim().length > 0 },
     { label: 'Board registration number filled', ok: detail.registrationNo.trim().length > 0 },
     { label: 'Board roll number filled', ok: detail.rollNo.trim().length > 0 },
     { label: 'Class & section filled', ok: !!detail.class && !!detail.section },
@@ -1208,6 +1223,8 @@ function BoardDetailView({ student, detail, onEdit }: { student: User; detail: B
   ]
 
   const allOk = checklist.every(c => c.ok)
+  const mismatch = !nameMatch || !dobMatch
+  const canValidate = allOk
 
   return (
     <div className="space-y-5">
@@ -1236,7 +1253,7 @@ function BoardDetailView({ student, detail, onEdit }: { student: User; detail: B
           <p className="font-semibold">{detail.rollNo}</p>
         </div>
         <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">Date of birth</p>
+          <p className="text-[12px] text-black/50 dark:text-white/50">Date of birth (board record)</p>
           <p className="font-semibold">{detail.dob}</p>
         </div>
         <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
@@ -1255,6 +1272,25 @@ function BoardDetailView({ student, detail, onEdit }: { student: User; detail: B
           <div className="col-span-2 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
             <p className="text-[12px] text-black/50 dark:text-white/50">Affiliation no.</p>
             <p className="font-semibold">{detail.affiliationNo}</p>
+          </div>
+        )}
+      </div>
+
+      <div className={`rounded-2xl border p-4 ${mismatch ? 'border-amber-300 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-500/10' : 'border-black/[.06] dark:border-white/[.08]'}`}>
+        <div className="mb-3 flex items-center gap-2">
+          <p className="text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">School record vs Board record</p>
+          {mismatch && <Pill tone="amber"><AlertTriangle size={12} /> Mismatch</Pill>}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ComparisonRow label="Student name" school={student.name} board={detail.name} match={nameMatch} />
+          <ComparisonRow label="Date of birth" school={student.dob ?? 'Not set'} board={detail.dob} match={dobMatch} />
+        </div>
+        {mismatch && (
+          <div className="mt-3">
+            <Field label="Mismatch note (required to validate)">
+              <textarea value={mismatchNote} onChange={e => updateMismatchNote(e.target.value)} placeholder="e.g., Board record has the official name; school record is missing middle name." className={`${inputCls} min-h-[80px]`} />
+            </Field>
+            {!mismatchNote.trim() && <p className="mt-2 flex items-center gap-1.5 text-[12px] text-rose-600"><AlertCircle size={13} /> Add a note to explain why the mismatch is acceptable before validating.</p>}
           </div>
         )}
       </div>
@@ -1283,7 +1319,7 @@ function BoardDetailView({ student, detail, onEdit }: { student: User; detail: B
           <Pencil size={15} /> Edit details
         </button>
         {detail.status !== 'Validated' && detail.status !== 'SentToBoard' && (
-          <button onClick={validate} disabled={!allOk} className="flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-[13.5px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">
+          <button onClick={validate} disabled={!canValidate} title={canValidate ? '' : 'Resolve mismatches or add a note to validate'} className="flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-[13.5px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">
             <Check size={15} /> Validate
           </button>
         )}
@@ -1297,8 +1333,28 @@ function BoardDetailView({ student, detail, onEdit }: { student: User; detail: B
   )
 }
 
+function ComparisonRow({ label, school, board, match }: { label: string; school: string; board: string; match: boolean }) {
+  return (
+    <div className={`rounded-2xl p-3 ${match ? 'bg-black/[.03] dark:bg-white/[.05]' : 'bg-amber-50/60 dark:bg-amber-500/10 ring-1 ring-amber-200 dark:ring-amber-500/30'}`}>
+      <p className="mb-2 text-[12px] font-semibold text-black/50 dark:text-white/50">{label}</p>
+      <div className="space-y-1.5 text-[13px]">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-black/50 dark:text-white/50">School</span>
+          <span className="font-medium">{school}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-black/50 dark:text-white/50">Board</span>
+          <span className={`font-medium ${match ? '' : 'text-amber-700 dark:text-amber-400'}`}>{board}</span>
+        </div>
+      </div>
+      {!match && <p className="mt-2 flex items-center gap-1 text-[11.5px] font-semibold text-amber-700 dark:text-amber-400"><AlertTriangle size={12} /> Does not match</p>}
+    </div>
+  )
+}
+
 function EditBoardDetailModal({ open, onClose, student, detail }: { open: boolean; onClose: () => void; student: User; detail: BoardDetail }) {
   const { update } = useStore()
+  const [name, setName] = useState(detail.name)
   const [board, setBoard] = useState<Board>(detail.board)
   const [registrationNo, setRegistrationNo] = useState(detail.registrationNo)
   const [schoolName, setSchoolName] = useState(detail.schoolName)
@@ -1308,11 +1364,13 @@ function EditBoardDetailModal({ open, onClose, student, detail }: { open: boolea
   const [section, setSection] = useState(detail.section)
   const [year, setYear] = useState(detail.year)
   const [affiliationNo, setAffiliationNo] = useState(detail.affiliationNo ?? '')
+  const [mismatchNote, setMismatchNote] = useState(detail.mismatchNote ?? '')
 
   const save = () => {
     update(d => {
       const bd = d.boardDetails[student.id]
       if (!bd) return d
+      bd.name = name.trim()
       bd.board = board
       bd.registrationNo = registrationNo.trim()
       bd.schoolName = schoolName.trim()
@@ -1322,6 +1380,7 @@ function EditBoardDetailModal({ open, onClose, student, detail }: { open: boolea
       bd.section = section.trim()
       bd.year = year.trim()
       bd.affiliationNo = affiliationNo.trim() || undefined
+      bd.mismatchNote = mismatchNote.trim() || undefined
       bd.status = bd.status === 'SentToBoard' ? 'Validated' : bd.status
       return d
     })
@@ -1339,6 +1398,7 @@ function EditBoardDetailModal({ open, onClose, student, detail }: { open: boolea
               <option value="Matric">Matric</option>
             </select>
           </Field>
+          <Field label="Student name (board record)"><input value={name} onChange={e => setName(e.target.value)} className={inputCls} /></Field>
           <Field label="Registration no."><input value={registrationNo} onChange={e => setRegistrationNo(e.target.value)} className={inputCls} /></Field>
           <Field label="Roll no."><input value={rollNo} onChange={e => setRollNo(e.target.value)} className={inputCls} /></Field>
           <Field label="Date of birth"><input type="date" value={dob} onChange={e => setDob(e.target.value)} className={inputCls} /></Field>
@@ -1348,7 +1408,10 @@ function EditBoardDetailModal({ open, onClose, student, detail }: { open: boolea
           <Field label="Affiliation no. (CBSE)"><input value={affiliationNo} onChange={e => setAffiliationNo(e.target.value)} placeholder="Leave blank for Matric" className={inputCls} /></Field>
         </div>
         <Field label="School name"><input value={schoolName} onChange={e => setSchoolName(e.target.value)} className={inputCls} /></Field>
-        <button onClick={save} disabled={!registrationNo.trim() || !rollNo.trim() || !dob || !cls.trim() || !section.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">
+        <Field label="Mismatch note (optional)">
+          <textarea value={mismatchNote} onChange={e => setMismatchNote(e.target.value)} placeholder="Explain any mismatch between school and board records." className={`${inputCls} min-h-[80px]`} />
+        </Field>
+        <button onClick={save} disabled={!name.trim() || !registrationNo.trim() || !rollNo.trim() || !dob || !cls.trim() || !section.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">
           Save details
         </button>
       </div>
