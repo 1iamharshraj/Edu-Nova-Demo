@@ -83,12 +83,16 @@ export default function Login() {
         <div className="rise-in rise-1 mx-auto w-full max-w-md">
           <form onSubmit={submit} className="rounded-[2rem] border border-black/[.07] dark:border-white/[.09] bg-white/85 dark:bg-[#14141f]/95 p-8 shadow-[0_30px_70px_-30px_rgba(30,30,80,.35)] backdrop-blur">
             <div className="mb-6 flex gap-2 overflow-x-auto pb-1 lg:hidden no-scrollbar">
-              {ROLES.map((r) => (
-                <button type="button" key={r.role} onClick={() => pick(r.role)}
-                  className={`shrink-0 rounded-xl px-3 py-2 text-[11px] font-semibold whitespace-nowrap ${role === r.role ? 'bg-black text-white' : 'bg-black/[.05] dark:bg-white/[.07] text-black/60 dark:text-white/60'}`}>
-                  {r.label}
-                </button>
-              ))}
+              {ROLES.map((r) => {
+                const active = r.role === role
+                const Icon = r.icon
+                return (
+                  <button type="button" key={r.role} onClick={() => pick(r.role)}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[10px] font-semibold whitespace-nowrap transition-all ${active ? 'bg-gradient-to-r ' + r.grad + ' text-white shadow' : 'border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] text-black/60 dark:text-white/60'}`}>
+                    <Icon size={12} /> {r.label}
+                  </button>
+                )
+              })}
             </div>
             <div className={`mb-6 flex items-center gap-3 rounded-2xl bg-gradient-to-r ${active.grad} p-4 text-white`}>
               <active.icon size={22} />

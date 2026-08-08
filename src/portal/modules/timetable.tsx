@@ -38,42 +38,46 @@ export function TimetableMod() {
         <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
       </PageHead>
 
-      {/* Desktop: days as columns, periods as rows */}
+      {/* Desktop */}
       <Card className="hidden md:block overflow-hidden p-0">
         <div className="overflow-auto thin-scroll">
-          <div className="min-w-[720px] p-5">
-            <div className="sticky top-0 z-10 grid grid-cols-[80px_repeat(5,1fr)] gap-3 bg-white dark:bg-[#14141f] pb-2">
+          <div className="min-w-[620px] p-4 lg:min-w-0">
+            {/* header */}
+            <div className="sticky top-0 z-10 grid grid-cols-[72px_repeat(5,1fr)] gap-2 border-b border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] pb-3">
               <div />
               {DAYS.map(d => (
-                <div key={d} className="px-3 py-2 text-[12px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">
+                <div key={d} className="px-2 py-2 text-center text-[12px] font-bold uppercase tracking-wider text-black/40 dark:text-white/40">
                   {d}
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-[80px_repeat(5,1fr)] gap-3">
-              {PERIODS.map((p, pi) => (
+            {/* grid */}
+            <div className="grid grid-cols-[72px_repeat(5,1fr)] gap-2 pt-3">
+              {PERIODS.map((p) => (
                 <Fragment key={p}>
-                  <div className="flex items-center justify-end pr-2 text-[12px] font-semibold text-black/40 dark:text-white/40">
-                    {p}
+                  <div className="flex flex-col items-end justify-center pr-2 text-[11px] font-semibold text-black/40 dark:text-white/40">
+                    <span>{p}</span>
                   </div>
                   {DAYS.map((d, di) => {
-                    const cell = grid[di]?.[pi]
-                    if (!cell) return <div key={`${d}-${p}`} />
+                    const cell = grid[di]?.find(c => c.time === p)
+                    if (!cell) return <div key={`${d}-${p}`} className="rounded-2xl border border-dashed border-black/[.08] dark:border-white/[.10] bg-black/[.02] dark:bg-white/[.03]" />
                     const sub = subjects.get(cell.subject)
                     const col = sub?.color ?? '#6366f1'
                     return (
                       <div
                         key={`${d}-${p}`}
-                        className="rounded-2xl p-3 shadow-sm transition-all hover:scale-[1.03] hover:shadow-md"
-                        style={{ background: `${col}14`, borderLeft: `4px solid ${col}` }}
+                        className="group relative overflow-hidden rounded-2xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-3 transition-all hover:-translate-y-0.5 hover:shadow-md"
                       >
-                        <p className="text-[13px] font-semibold leading-tight" style={{ color: col }}>
+                        <div className="absolute left-0 top-2 bottom-2 w-1 rounded-full" style={{ background: col }} />
+                        <p className="pl-2.5 text-[13px] font-semibold leading-tight" style={{ color: col }}>
                           {cell.subject}
                         </p>
-                        <p className="mt-1 text-[11px] text-black/45 dark:text-white/45">{cell.room}</p>
-                        <p className="mt-0.5 text-[11px] text-black/40 dark:text-white/40">{cell.time}</p>
-                        <div className="mt-2.5 flex items-center gap-2">
-                          <Avatar name={sub?.teacher ?? cell.subject} hue={hexToHue(col)} size={28} />
+                        <div className="mt-2.5 flex items-center justify-between pl-2.5 text-[11px] text-black/50 dark:text-white/50">
+                          <span>{cell.time}</span>
+                          <span className="rounded-md bg-black/[.04] dark:bg-white/[.06] px-1.5 py-0.5 font-medium">{cell.room}</span>
+                        </div>
+                        <div className="mt-2.5 flex items-center gap-2 pl-2.5">
+                          <Avatar name={sub?.teacher ?? cell.subject} hue={hexToHue(col)} size={24} />
                           <span className="truncate text-[11px] font-medium text-black/60 dark:text-white/60">
                             {sub?.teacher ?? '—'}
                           </span>
@@ -88,41 +92,41 @@ export function TimetableMod() {
         </div>
       </Card>
 
-      {/* Mobile: day picker + vertical period list */}
+      {/* Mobile */}
       <div className="md:hidden">
         <div className="mb-4 grid grid-cols-5 gap-2">
           {DAYS.map((d, i) => (
             <button
               key={d}
               onClick={() => setDayIdx(i)}
-              className={`rounded-full py-2 text-[13px] font-semibold transition-all ${dayIdx === i ? 'bg-black text-white shadow-sm' : 'border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] text-black/60 dark:text-white/60'}`}
+              className={`rounded-xl py-2.5 text-[13px] font-semibold transition-all ${dayIdx === i ? 'bg-black text-white shadow-sm' : 'border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] text-black/60 dark:text-white/60'}`}
             >
               {d.slice(0, 3)}
             </button>
           ))}
         </div>
         <div className="space-y-3">
-          {PERIODS.map((p, pi) => {
-            const cell = grid[dayIdx]?.[pi]
+          {PERIODS.map((p) => {
+            const cell = grid[dayIdx]?.find(c => c.time === p)
             if (!cell) return null
             const sub = subjects.get(cell.subject)
             const col = sub?.color ?? '#6366f1'
             return (
               <div
                 key={p}
-                className="rounded-3xl border border-black/[.06] dark:border-white/[.08] p-4 shadow-sm"
-                style={{ background: `${col}10`, borderLeft: `4px solid ${col}` }}
+                className="relative overflow-hidden rounded-2xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-4"
               >
-                <div className="flex items-start justify-between gap-3">
+                <div className="absolute left-0 top-3 bottom-3 w-1 rounded-full" style={{ background: col }} />
+                <div className="flex items-start justify-between gap-3 pl-2.5">
                   <div className="flex-1">
-                    <p className="text-[14px] font-semibold" style={{ color: col }}>
+                    <p className="text-[14.5px] font-semibold" style={{ color: col }}>
                       {cell.subject}
                     </p>
                     <p className="mt-0.5 text-[12px] text-black/45 dark:text-white/45">{cell.room}</p>
                   </div>
-                  <span className="shrink-0 text-[12px] font-semibold text-black/50 dark:text-white/50">{cell.time}</span>
+                  <span className="shrink-0 rounded-md bg-black/[.04] dark:bg-white/[.06] px-2 py-0.5 text-[11px] font-semibold text-black/50 dark:text-white/50">{p}</span>
                 </div>
-                <div className="mt-3 flex items-center gap-2.5">
+                <div className="mt-3 flex items-center gap-2.5 pl-2.5">
                   <Avatar name={sub?.teacher ?? cell.subject} hue={hexToHue(col)} size={32} />
                   <span className="text-[12px] font-medium text-black/60 dark:text-white/60">{sub?.teacher ?? '—'}</span>
                 </div>
@@ -132,7 +136,7 @@ export function TimetableMod() {
         </div>
       </div>
 
-      {/* Subject color legend */}
+      {/* Legend */}
       <div className="mt-4 flex flex-wrap gap-2 rounded-2xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-4">
         {db.subjects.map(s => (
           <div key={s.id} className="flex items-center gap-2 rounded-full bg-black/[.03] dark:bg-white/[.06] px-3 py-1.5">
