@@ -41,9 +41,9 @@
 - [ ] Tighten **mobile login role selector** (compact buttons, better text fit). `src/pages/Login.tsx:85-92`
 - [ ] Resolve remaining **light/dark overlap** issues across all modules. `src/index.css` + module files
 
-### P2 — Admin & people workflows
-- [ ] Strengthen **admissions & certificates** pipeline: clear status transitions, admin notes, link to student profile. `src/portal/modules/office.tsx` (ApplicationsMod)
-- [ ] Add **student profile report** entry from People management for admin/staff. `src/portal/modules/office.tsx` (PeopleMod)
+### P2 — Admin & people workflows (partial)
+- [x] Strengthen **admissions & certificates** pipeline: clear status transitions, admin notes, kind filter. `src/portal/modules/office.tsx` (ApplicationsMod)
+- [x] Add **student profile report** entry from People management for admin/staff. `src/portal/modules/office.tsx` (PeopleMod)
 - [ ] Add **work assignment assignees** — link duties to specific teachers/staff. `src/portal/modules/office.tsx:243-290`
 - [ ] Allow **admin/superadmin** to select and set the global active term from the portal. `src/portal/Portal.tsx` term context
 

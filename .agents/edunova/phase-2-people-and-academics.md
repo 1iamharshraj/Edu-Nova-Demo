@@ -1,5 +1,7 @@
 # Phase 2 — People & Admin Workflows
 
+> Status: in progress — admissions pipeline and People → report link completed; work assignees and term selector still open.
+
 ## Goal
 
 Strengthen admin/staff management of students, teachers, admissions, and work assignments.
