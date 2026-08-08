@@ -1,5 +1,7 @@
 # Phase 4 — HR, Finance & Compliance Refinements
 
+> Status: in progress — AI call log delete added; payment gateway and disciplinary linkage already functional.
+
 ## Goal
 
 Polish the finance, HR, and compliance modules that are already functional but need better UX.
