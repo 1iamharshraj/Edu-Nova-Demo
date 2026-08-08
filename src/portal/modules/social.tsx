@@ -1,9 +1,37 @@
-import { useEffect, useRef, useState } from 'react'
-import { BrainCircuit, CheckCheck, ChevronLeft, Heart, ImageIcon, MessageCircle, Phone, Play, Search, Send, Smile, Sparkles, Video } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { BrainCircuit, CheckCheck, ChevronLeft, Heart, ImageIcon, MessageCircle, MessageSquare, Phone, Play, Search, Send, Smile, Sparkles, Video } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { HIGHLIGHTS } from '@/lib/data'
+import type { Message, Thread, User } from '@/lib/data'
 import { Avatar, Card, Empty, PageHead, Pill, inputCls } from '../ui'
 import { useTerm } from '../Portal'
+
+/* ── helpers for viewer-relative threads ───────────────── */
+
+function isMine(m: Message, thread: Thread, user: User | null) {
+  if (thread.kind === 'teacher') return m.from === 'me'
+  // parent-kind threads are seeded from the parent/student perspective
+  if (user?.role === 'teacher') return m.from === 'them'
+  return m.from === 'me'
+}
+
+function myFrom(thread: Thread, user: User | null): 'me' | 'them' {
+  if (thread.kind === 'teacher') return 'me'
+  if (user?.role === 'teacher') return 'them'
+  return 'me'
+}
+
+function otherName(thread: Thread, user: User | null) {
+  if (thread.kind === 'teacher') return thread.person
+  if (user?.role === 'teacher') return thread.parentName || 'Parent'
+  return thread.person
+}
+
+function otherHue(thread: Thread, user: User | null) {
+  if (thread.kind === 'teacher') return 190
+  if (user?.role === 'teacher') return 25
+  return 262
+}
 
 /* ── School feed (all terms, always live) ──────────────── */
 
@@ -29,45 +57,45 @@ export function FeedMod() {
   return (
     <div>
       <PageHead title="School Feed" sub="Everything happening around campus, as it happens" />
-      <div className="mx-auto max-w-xl space-y-6">
+      <div className="mx-auto max-w-5xl space-y-8">
         {posts.map((p) => (
           <Card key={p.id} className="p-0">
-            <div className="flex items-center gap-3 p-5 pb-4">
+            <div className="flex items-center gap-3.5 p-6 pb-5">
               <div className="rounded-full bg-gradient-to-tr from-indigo-500 via-fuchsia-500 to-amber-400 p-[2.5px]">
                 <span className="block rounded-full bg-white dark:bg-[#14141f] p-[2px]">
-                  <Avatar name={p.author} hue={p.author.includes('Club') || p.author.includes('Art') ? 180 : 262} size={40} />
+                  <Avatar name={p.author} hue={p.author.includes('Club') || p.author.includes('Art') ? 180 : 262} size={44} />
                 </span>
               </div>
               <div className="flex-1">
-                <p className="text-[14.5px] font-semibold">{p.author}</p>
-                <p className="text-[12px] text-black/45 dark:text-white/45">{p.role} · {p.time}</p>
+                <p className="text-[15.5px] font-semibold">{p.author}</p>
+                <p className="text-[12.5px] text-black/45 dark:text-white/45">{p.role} · {p.time}</p>
               </div>
               <Pill tone="indigo">{p.tag}</Pill>
             </div>
-            <div className="relative flex h-52 items-center justify-center overflow-hidden" style={{ background: p.gradient }}>
-              <span className="text-6xl drop-shadow-lg">{FEED_EMOJI[p.id] ?? '📸'}</span>
+            <div className="relative flex h-72 items-center justify-center overflow-hidden sm:h-80" style={{ background: p.gradient }}>
+              <span className="text-7xl drop-shadow-lg">{FEED_EMOJI[p.id] ?? '📸'}</span>
               <span className="absolute inset-0 bg-gradient-to-t from-black/25 to-transparent" />
               <ImageIcon size={18} className="absolute bottom-3 right-3 text-white/80" />
             </div>
-            <div className="p-5">
-              <p className="text-[14.5px] leading-relaxed text-black/75 dark:text-white/75">{p.text}</p>
-              <div className="mt-4 flex items-center gap-5 border-t border-black/[.06] dark:border-white/[.08] pt-4">
+            <div className="p-6">
+              <p className="text-[15px] leading-relaxed text-black/75 dark:text-white/75">{p.text}</p>
+              <div className="mt-5 flex items-center gap-6 border-t border-black/[.06] dark:border-white/[.08] pt-5">
                 <button onClick={() => toggleLike(p.id)}
-                  className={`flex items-center gap-1.5 text-[13.5px] font-semibold transition-transform active:scale-125 ${p.liked ? 'text-rose-500' : 'text-black/50 dark:text-white/50 hover:text-rose-500'}`}>
-                  <Heart size={17} fill={p.liked ? 'currentColor' : 'none'} className={p.liked ? 'animate-[bubbleIn_.3s]' : ''} /> {p.likes}
+                  className={`flex items-center gap-1.5 text-[14px] font-semibold transition-transform active:scale-125 ${p.liked ? 'text-rose-500' : 'text-black/50 dark:text-white/50 hover:text-rose-500'}`}>
+                  <Heart size={18} fill={p.liked ? 'currentColor' : 'none'} className={p.liked ? 'animate-[bubbleIn_.3s]' : ''} /> {p.likes}
                 </button>
-                <button onClick={() => setCommentFor(commentFor === p.id ? null : p.id)} className="flex items-center gap-1.5 text-[13.5px] font-semibold text-black/50 dark:text-white/50 hover:text-indigo-600">
-                  <MessageCircle size={17} /> {p.comments.length}
+                <button onClick={() => setCommentFor(commentFor === p.id ? null : p.id)} className="flex items-center gap-1.5 text-[14px] font-semibold text-black/50 dark:text-white/50 hover:text-indigo-600">
+                  <MessageCircle size={18} /> {p.comments.length}
                 </button>
               </div>
               {p.comments.map((c, i) => (
-                <div key={i} className="mt-3 flex gap-2.5 text-[13.5px]">
-                  <Avatar name={c.by} hue={200} size={26} />
+                <div key={i} className="mt-3.5 flex gap-2.5 text-[13.5px]">
+                  <Avatar name={c.by} hue={200} size={28} />
                   <p className="rounded-2xl bg-black/[.04] dark:bg-white/[.06] px-3.5 py-2"><b>{c.by}</b> · {c.text}</p>
                 </div>
               ))}
               {commentFor === p.id && (
-                <div className="fade-in mt-3 flex gap-2">
+                <div className="fade-in mt-4 flex gap-2">
                   <input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === 'Enter' && addComment(p.id)}
                     placeholder="Write a comment…" className={inputCls} autoFocus />
                   <button onClick={() => addComment(p.id)} className="btn-ink px-4"><Send size={15} /></button>
@@ -87,15 +115,27 @@ export function FeedMod() {
 export function MessagesMod() {
   const { db, update, user } = useStore()
   const { term, setTerm } = useTerm()
-  const threads = db.threads.filter(t => t.term === term)
-  const [activeId, setActiveId] = useState(threads[0]?.id ?? '')
-  const active = db.threads.find(t => t.id === activeId) ?? threads[0]
+  const isTeacher = user?.role === 'teacher'
+  const [tab, setTab] = useState<'parent' | 'teacher'>('parent')
+
+  const baseThreads = useMemo(() => db.threads.filter(t => t.term === term), [db.threads, term])
+  const filteredThreads = useMemo(() => {
+    if (isTeacher) return baseThreads.filter(t => t.kind === tab)
+    return baseThreads.filter(t => t.kind === 'parent' || !t.kind)
+  }, [baseThreads, isTeacher, tab])
+
+  const [activeId, setActiveId] = useState(filteredThreads[0]?.id ?? '')
   const [text, setText] = useState('')
   const [typing, setTyping] = useState(false)
   const [query, setQuery] = useState('')
   const [mobileChat, setMobileChat] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+
+  const active = useMemo(() => {
+    const found = filteredThreads.find(t => t.id === activeId)
+    return found && filteredThreads.some(t => t.id === found.id) ? found : filteredThreads[0]
+  }, [filteredThreads, activeId])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -104,8 +144,9 @@ export function MessagesMod() {
   const send = () => {
     if (!text.trim() || !active) return
     const id = active.id
+    const from = myFrom(active, user)
     update(d => {
-      d.threads.find(t => t.id === id)!.messages.push({ from: 'me', text: text.trim(), time: 'Just now' })
+      d.threads.find(t => t.id === id)!.messages.push({ from, text: text.trim(), time: 'Just now' })
       return d
     })
     setText('')
@@ -113,7 +154,8 @@ export function MessagesMod() {
     setTimeout(() => {
       setTyping(false)
       update(d => {
-        d.threads.find(t => t.id === id)!.messages.push({ from: 'them', text: 'Thanks for the message — I’ll get back to you right after class. 🙌', time: 'Just now' })
+        const replyFrom: 'me' | 'them' = from === 'me' ? 'them' : 'me'
+        d.threads.find(t => t.id === id)!.messages.push({ from: replyFrom, text: 'Thanks for the message — I’ll get back to you right after class. 🙌', time: 'Just now' })
         return d
       })
     }, 2100)
@@ -124,11 +166,24 @@ export function MessagesMod() {
     update(d => { const th = d.threads.find(x => x.id === id); if (th) th.unread = 0; return d })
   }
 
-  const visible = threads.filter(t => t.person.toLowerCase().includes(query.toLowerCase()))
+  const visible = filteredThreads.filter(t => t.person.toLowerCase().includes(query.toLowerCase()))
+
+  const title = isTeacher ? 'Messages' : 'Teacher Messages'
+  const sub = isTeacher ? 'Direct conversations with parents and faculty' : 'Direct, verified conversations with teachers'
 
   const ThreadList = (
     <div className="flex h-full flex-col">
       <div className="border-b border-black/[.06] dark:border-white/[.08] p-4">
+        {isTeacher && (
+          <div className="mb-3 inline-flex rounded-full border border-black/[.08] dark:border-white/[.1] bg-white dark:bg-[#14141f] p-1">
+            {(['parent', 'teacher'] as const).map(k => (
+              <button key={k} onClick={() => setTab(k)}
+                className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-all ${tab === k ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>
+                {k === 'parent' ? 'Parents' : 'Teachers'}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="relative">
           <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-black/30 dark:text-white/30" />
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search chats"
@@ -136,28 +191,33 @@ export function MessagesMod() {
         </div>
       </div>
       <div ref={listRef} className="flex-1 overflow-y-auto thin-scroll">
-        {visible.map((t, i) => (
-          <button key={t.id} onClick={() => openThread(t.id)}
-            className={`group flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-all ${active?.id === t.id ? 'bg-gradient-to-r from-indigo-500/[.09] to-transparent' : 'hover:bg-black/[.02] dark:hover:bg-white/[.04]'}`}>
-            <span className="relative">
-              <Avatar name={t.person} hue={(i * 70 + 40) % 360} size={46} />
-              <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white dark:border-[#14141f] bg-emerald-400" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex items-baseline justify-between">
-                <span className="truncate text-[14.5px] font-semibold">{t.person}</span>
-                <span className="ml-2 shrink-0 text-[10.5px] text-black/35 dark:text-white/35">{t.messages[t.messages.length - 1]?.time.split(' ')[0]}</span>
+        {visible.map((t) => {
+          const name = otherName(t, user)
+          const hue = otherHue(t, user)
+          const last = t.messages[t.messages.length - 1]
+          return (
+            <button key={t.id} onClick={() => openThread(t.id)}
+              className={`group flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-all ${active?.id === t.id ? 'bg-gradient-to-r from-indigo-500/[.09] to-transparent' : 'hover:bg-black/[.02] dark:hover:bg-white/[.04]'}`}>
+              <span className="relative">
+                <Avatar name={name} hue={hue} size={46} />
+                <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white dark:border-[#14141f] bg-emerald-400" />
               </span>
-              <span className="mt-0.5 flex items-center justify-between gap-2">
-                <span className={`truncate text-[12.5px] ${t.unread ? 'font-semibold text-black dark:text-white' : 'text-black/45 dark:text-white/45'}`}>
-                  {t.messages[t.messages.length - 1]?.from === 'me' && <CheckCheck size={13} className="mr-1 inline text-indigo-400" />}
-                  {t.messages[t.messages.length - 1]?.text}
+              <span className="min-w-0 flex-1">
+                <span className="flex items-baseline justify-between">
+                  <span className="truncate text-[14.5px] font-semibold">{name}</span>
+                  <span className="ml-2 shrink-0 text-[10.5px] text-black/35 dark:text-white/35">{last?.time.split(' ')[0]}</span>
                 </span>
-                {t.unread > 0 && <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-fuchsia-500 px-1.5 text-[10px] font-bold text-white">{t.unread}</span>}
+                <span className="mt-0.5 flex items-center justify-between gap-2">
+                  <span className={`truncate text-[12.5px] ${t.unread ? 'font-semibold text-black dark:text-white' : 'text-black/45 dark:text-white/45'}`}>
+                    {last && !isMine(last, t, user) && <CheckCheck size={13} className="mr-1 inline text-indigo-400" />}
+                    {last?.text}
+                  </span>
+                  {t.unread > 0 && <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-fuchsia-500 px-1.5 text-[10px] font-bold text-white">{t.unread}</span>}
+                </span>
               </span>
-            </span>
-          </button>
-        ))}
+            </button>
+          )
+        })}
         {visible.length === 0 && <div className="p-6"><Empty text="No chats found." /></div>}
       </div>
     </div>
@@ -171,11 +231,11 @@ export function MessagesMod() {
           <ChevronLeft size={20} />
         </button>
         <span className="relative">
-          <Avatar name={active.person} hue={130} size={40} />
+          <Avatar name={otherName(active, user)} hue={otherHue(active, user)} size={40} />
           <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white dark:border-[#14141f] bg-emerald-400" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[14.5px] font-semibold">{active.person}</p>
+          <p className="truncate text-[14.5px] font-semibold">{otherName(active, user)}</p>
           <p className="truncate text-[11.5px] font-medium text-emerald-500">{typing ? 'typing…' : `online · ${active.subtitle}`}</p>
         </div>
         <button className="rounded-full bg-black/[.04] dark:bg-white/[.06] p-2.5 text-black/50 dark:text-white/50 transition hover:bg-black/[.08] dark:hover:bg-white/[.12] hover:text-indigo-600"><Phone size={16} /></button>
@@ -186,14 +246,14 @@ export function MessagesMod() {
       <div className="flex-1 space-y-1.5 overflow-y-auto bg-[#f2f1ee] dark:bg-[#0c0c14] px-4 py-5 thin-scroll sm:px-6">
         <p className="pb-3 text-center text-[11px] font-medium text-black/35 dark:text-white/30">🔒 Verified conversation · {active.subtitle}</p>
         {active.messages.map((m, i) => {
-          const mine = m.from === 'me'
+          const mine = isMine(m, active, user)
           const prev = active.messages[i - 1]
-          const sameAsPrev = prev && prev.from === m.from
+          const sameAsPrev = prev && isMine(prev, active, user) === mine
           return (
             <div key={i} className={`bubble-in flex items-end gap-2 ${mine ? 'justify-end' : 'justify-start'} ${sameAsPrev ? '' : 'pt-2'}`}>
               {!mine && (
                 <span className="w-7 shrink-0">
-                  {!sameAsPrev && <Avatar name={active.person} hue={130} size={28} />}
+                  {!sameAsPrev && <Avatar name={otherName(active, user)} hue={otherHue(active, user)} size={28} />}
                 </span>
               )}
               <div className={`max-w-[75%] px-4 py-2.5 text-[13.5px] leading-relaxed sm:max-w-[65%] ${mine
@@ -209,7 +269,7 @@ export function MessagesMod() {
         })}
         {typing && (
           <div className="bubble-in flex items-end gap-2">
-            <Avatar name={active.person} hue={130} size={28} />
+            <Avatar name={otherName(active, user)} hue={otherHue(active, user)} size={28} />
             <div className="chat-them flex gap-1.5 rounded-2xl rounded-bl-sm px-4 py-3.5">
               <span className="typing-dot h-2 w-2 rounded-full bg-black/40 dark:bg-white/50" />
               <span className="typing-dot h-2 w-2 rounded-full bg-black/40 dark:bg-white/50" />
@@ -224,7 +284,7 @@ export function MessagesMod() {
       <div className="flex items-center gap-2 border-t border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-3 sm:p-4">
         <button className="rounded-full p-2 text-black/40 dark:text-white/40 transition hover:text-amber-500"><Smile size={20} /></button>
         <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
-          placeholder={`Message ${active.person.split(' ')[0]}…`}
+          placeholder={`Message ${otherName(active, user).split(' ')[0]}…`}
           className="w-full rounded-full border border-black/[.08] dark:border-white/[.1] bg-black/[.03] dark:bg-white/[.05] px-5 py-3 text-[14px] outline-none transition focus:border-indigo-400 focus:bg-white dark:focus:bg-[#1a1a27] focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-500/10" />
         <button onClick={send} disabled={!text.trim()}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white shadow-lg shadow-indigo-500/30 transition-all hover:scale-105 active:scale-95 disabled:opacity-40 disabled:shadow-none">
@@ -241,7 +301,7 @@ export function MessagesMod() {
 
   return (
     <div>
-      <PageHead title={user?.role === 'teacher' ? 'Parent Messages' : 'Teacher Messages'} sub="Direct, verified conversations">
+      <PageHead title={title} sub={sub}>
         <TermBar term={term} setTerm={setTerm} />
       </PageHead>
       <Card className="h-[calc(100dvh-280px)] min-h-[480px] overflow-hidden p-0 md:h-[620px]">
@@ -313,60 +373,123 @@ const AI_ANSWERS: [RegExp, string][] = [
   [/tense|grammar|english/i, 'Quick rule: use present perfect (“has finished”) for actions connected to now, past simple (“finished”) for completed past with a time marker. “She has finished her homework” vs “She finished it yesterday.”'],
 ]
 
+const SUGGESTIONS = [
+  'How do I solve quadratic equations?',
+  'Explain Newton’s second law',
+  'What happens in photosynthesis?',
+  'When do I use present perfect vs past simple?',
+]
+
+const aiTsId = () => Date.now()
+
 export function AIDoubtsMod() {
-  const [log, setLog] = useState<{ q: string; a: string }[]>([])
+  const [log, setLog] = useState<{ id: string; q: string; a: string }[]>([])
+  const [activeId, setActiveId] = useState<string | null>(null)
   const [q, setQ] = useState('')
   const [thinking, setThinking] = useState(false)
 
-  const ask = () => {
-    if (!q.trim()) return
-    const question = q.trim(); setQ(''); setThinking(true)
+  const active = activeId ? log.find(m => m.id === activeId) : null
+
+  const ask = (question?: string) => {
+    const raw = (question ?? q).trim()
+    if (!raw) return
+    const id = 'ai_' + aiTsId()
+    setQ('')
+    setThinking(true)
+    if (question) setActiveId(id)
     setTimeout(() => {
-      const hit = AI_ANSWERS.find(([re]) => re.test(question))
-      const a = hit ? hit[1] : `Great question! Here’s how I’d approach “${question}”: break it into what’s given, what’s asked, and which chapter formula connects them. For Class X, this maps to your current Term 3 syllabus — check the worked examples in your notes, and ask your subject teacher during doubt hour if you’d like it on the board.`
-      setLog(l => [...l, { q: question, a }]); setThinking(false)
+      const hit = AI_ANSWERS.find(([re]) => re.test(raw))
+      const a = hit ? hit[1] : `Great question! Here’s how I’d approach “${raw}”: break it into what’s given, what’s asked, and which chapter formula connects them. For Class X, this maps to your current Term 3 syllabus — check the worked examples in your notes, and ask your subject teacher during doubt hour if you’d like it on the board.`
+      setLog(l => [...l, { id, q: raw, a }])
+      setActiveId(id)
+      setThinking(false)
     }, 1100)
   }
+
+  const HistorySidebar = (
+    <div className="flex h-full flex-col border-b border-black/[.06] dark:border-white/[.08] md:border-b-0 md:border-r">
+      <div className="flex items-center gap-3 border-b border-black/[.06] dark:border-white/[.08] px-4 py-3.5">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white"><BrainCircuit size={18} /></span>
+        <div>
+          <p className="text-[13.5px] font-semibold">Nova Tutor</p>
+          <p className="text-[11px] text-black/40 dark:text-white/40">History</p>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto p-2 thin-scroll">
+        {log.length === 0 && (
+          <div className="px-3 py-6 text-center text-[12.5px] text-black/35 dark:text-white/35">
+            <MessageSquare size={28} className="mx-auto mb-2" />
+            No questions yet.
+          </div>
+        )}
+        {log.map((m) => (
+          <button key={m.id} onClick={() => setActiveId(m.id)}
+            className={`w-full rounded-xl px-3 py-2.5 text-left transition ${activeId === m.id ? 'bg-indigo-50 dark:bg-indigo-500/15' : 'hover:bg-black/[.04] dark:hover:bg-white/[.06]'}`}>
+            <p className={`truncate text-[13px] font-medium ${activeId === m.id ? 'text-indigo-700 dark:text-indigo-300' : 'text-black/70 dark:text-white/70'}`}>{m.q}</p>
+            <p className="truncate text-[11.5px] text-black/40 dark:text-white/40">{m.a.slice(0, 50)}…</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+
+  const ChatArea = (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-3 border-b border-black/[.06] dark:border-white/[.08] px-4 py-3 sm:px-5">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white"><BrainCircuit size={20} /></span>
+        <div>
+          <p className="text-[14.5px] font-semibold">Nova Tutor</p>
+          <p className="text-[11.5px] text-emerald-600">● trained on Class X syllabus</p>
+        </div>
+      </div>
+      <div className="flex-1 space-y-4 overflow-y-auto bg-[#fafafa] dark:bg-[#0e0e17] p-4 sm:p-5 thin-scroll">
+        {!active && log.length === 0 && (
+          <div className="mt-12 text-center sm:mt-16">
+            <Sparkles size={30} className="mx-auto text-indigo-400" />
+            <p className="mt-3 text-[15px] font-semibold">Ask anything from your subjects</p>
+            <p className="mt-1 text-[13px] text-black/40 dark:text-white/40">Nova is awake, even at 2 AM.</p>
+            <div className="mx-auto mt-5 flex max-w-lg flex-wrap justify-center gap-2">
+              {SUGGESTIONS.map(s => (
+                <button key={s} onClick={() => ask(s)}
+                  className="rounded-full bg-white dark:bg-[#14141f] px-4 py-2 text-[12.5px] text-black/60 dark:text-white/60 ring-1 ring-black/[.07] dark:ring-white/10 hover:text-black dark:hover:text-white hover:ring-indigo-300">
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {active && (
+          <div className="space-y-4">
+            <div className="flex justify-end"><p className="max-w-[80%] rounded-2xl rounded-br-md bg-black px-4 py-2.5 text-[13.5px] text-white">{active.q}</p></div>
+            <div className="flex justify-start"><p className="max-w-[85%] rounded-2xl rounded-bl-md bg-white dark:bg-[#14141f] px-4 py-3 text-[13.5px] leading-relaxed ring-1 ring-black/[.07] dark:ring-white/10">{active.a}</p></div>
+          </div>
+        )}
+        {thinking && (
+          <div className="flex items-start gap-2">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white"><BrainCircuit size={16} /></span>
+            <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm bg-white dark:bg-[#14141f] px-4 py-3 ring-1 ring-black/[.07] dark:ring-white/10">
+              <span className="typing-dot h-2 w-2 rounded-full bg-black/40 dark:bg-white/50" />
+              <span className="typing-dot h-2 w-2 rounded-full bg-black/40 dark:bg-white/50" />
+              <span className="typing-dot h-2 w-2 rounded-full bg-black/40 dark:bg-white/50" />
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2 border-t border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-3 sm:p-4">
+        <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && ask()}
+          placeholder="Type your doubt…" className={`${inputCls} min-w-0 flex-1`} />
+        <button onClick={() => ask()} className="btn-ink px-5"><Send size={16} /></button>
+      </div>
+    </div>
+  )
 
   return (
     <div>
       <PageHead title="AI Doubt Clearing" sub="Curriculum-aware answers, any hour of the night" />
-      <div className="mx-auto max-w-2xl">
-        <Card className="flex h-[520px] flex-col p-0">
-          <div className="flex items-center gap-3 border-b border-black/[.06] dark:border-white/[.08] px-5 py-4">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white"><BrainCircuit size={20} /></span>
-            <div>
-              <p className="text-[14.5px] font-semibold">Nova Tutor</p>
-              <p className="text-[11.5px] text-emerald-600">● trained on Class X syllabus</p>
-            </div>
-          </div>
-          <div className="flex-1 space-y-4 overflow-y-auto bg-[#fafafa] dark:bg-[#0e0e17] p-5 thin-scroll">
-            {log.length === 0 && (
-              <div className="mt-16 text-center">
-                <Sparkles size={30} className="mx-auto text-indigo-400" />
-                <p className="mt-3 text-[15px] font-semibold">Ask anything from your subjects</p>
-                <div className="mx-auto mt-5 grid max-w-sm gap-2">
-                  {['How do I solve quadratic equations?', 'Explain Newton’s second law', 'What happens in photosynthesis?'].map(s => (
-                    <button key={s} onClick={() => setQ(s)} className="rounded-xl bg-white dark:bg-[#14141f] px-4 py-2.5 text-left text-[13px] text-black/60 dark:text-white/60 ring-1 ring-black/[.07] dark:ring-white/10 hover:text-black dark:hover:text-white">{s}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {log.map((m, i) => (
-              <div key={i} className="space-y-2.5">
-                <div className="flex justify-end"><p className="max-w-[80%] rounded-2xl rounded-br-md bg-black px-4 py-2.5 text-[13.5px] text-white">{m.q}</p></div>
-                <div className="flex justify-start"><p className="max-w-[85%] rounded-2xl rounded-bl-md bg-white dark:bg-[#14141f] px-4 py-3 text-[13.5px] leading-relaxed ring-1 ring-black/[.07] dark:ring-white/10">{m.a}</p></div>
-              </div>
-            ))}
-            {thinking && <p className="text-[13px] text-black/40 dark:text-white/40">Nova is thinking…</p>}
-          </div>
-          <div className="flex gap-2 border-t border-black/[.06] dark:border-white/[.08] p-4">
-            <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && ask()}
-              placeholder="Type your doubt…" className={inputCls} />
-            <button onClick={ask} className="btn-ink px-5"><Send size={16} /></button>
-          </div>
-        </Card>
-      </div>
+      <Card className="flex h-[520px] flex-col overflow-hidden p-0 md:grid md:grid-cols-[260px_1fr]">
+        {HistorySidebar}
+        {ChatArea}
+      </Card>
     </div>
   )
 }

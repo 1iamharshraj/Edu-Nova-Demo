@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Award, CheckCircle2, CloudUpload, Download, FileSignature, Plus, Receipt, Wallet } from 'lucide-react'
+import { Award, CheckCircle2, CloudUpload, Download, FileSignature, FileText, Plus, Receipt, Wallet } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { fmtINR } from '@/lib/data'
 import { Card, Empty, Field, Modal, PageHead, Pill, TermTabs, VerifyButton, inputCls, statusTone } from '../ui'
@@ -349,3 +349,89 @@ export function PaymentsMod({ salary = false }: { salary?: boolean }) {
     </div>
   )
 }
+
+/* ── Work upload ledger ────────────────────────────────── */
+
+export function WorkUploadMod() {
+  const { db, update, user } = useStore()
+  const [open, setOpen] = useState(false)
+  const [fileName, setFileName] = useState('')
+  const [homeworkId, setHomeworkId] = useState('')
+  const [notes, setNotes] = useState('')
+  const homework = db.homework.filter(h => h.status === 'Pending' || h.status === 'Late')
+  const uploads = db.workUploads.slice().sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt))
+
+  const create = () => {
+    if (!fileName.trim()) return
+    const hw = homework.find(h => h.id === homeworkId)
+    update(d => {
+      d.workUploads.unshift({
+        id: 'wu_' + Date.now(),
+        homeworkId: homeworkId || '',
+        fileName: fileName.trim(),
+        fileSize: (1 + Math.random() * 4).toFixed(1) + ' MB',
+        uploadedBy: user?.name ?? 'Student',
+        uploadedAt: new Date().toISOString(),
+        status: 'Uploaded',
+        notes: notes.trim() || undefined,
+      })
+      if (hw) hw.status = 'Submitted'
+      return d
+    })
+    setOpen(false)
+    setFileName('')
+    setHomeworkId('')
+    setNotes('')
+    toast.success('Work uploaded and logged')
+  }
+
+  return (
+    <div>
+      <PageHead title="Work Upload" sub="Submitted assignments, projects and files">
+        <button onClick={() => setOpen(true)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
+          <CloudUpload size={15} /> Upload new
+        </button>
+      </PageHead>
+      <div className="grid gap-4 md:grid-cols-2">
+        {uploads.map(u => (
+          <Card key={u.id} className="card-lift">
+            <div className="flex items-start gap-3">
+              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${u.status === 'Verified' ? 'bg-emerald-50 text-emerald-600' : u.status === 'Rejected' ? 'bg-rose-50 text-rose-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                <FileText size={18} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[15px] font-semibold">{u.fileName}</p>
+                <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.fileSize} · {u.uploadedBy} · {new Date(u.uploadedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+                {u.notes && <p className="mt-1.5 text-[12.5px] text-black/55 dark:text-white/55">{u.notes}</p>}
+              </div>
+              <Pill tone={u.status === 'Verified' ? 'green' : u.status === 'Rejected' ? 'rose' : 'amber'}>{u.status}</Pill>
+            </div>
+          </Card>
+        ))}
+        {uploads.length === 0 && <div className="md:col-span-2"><Empty text="No submissions yet. Upload the first file." /></div>}
+      </div>
+
+      <Modal open={open} onClose={() => setOpen(false)} title="Upload work">
+        <div className="space-y-4">
+          <label className="flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-black/15 dark:border-white/15 py-8 text-black/40 dark:text-white/40 hover:border-indigo-300 hover:text-indigo-500">
+            <CloudUpload size={32} />
+            <span className="mt-2 text-[13px] font-medium">{fileName ? fileName : 'Tap to select file (demo)'}</span>
+            <input type="file" className="hidden" onChange={e => setFileName(e.target.files?.[0]?.name ?? '')} />
+          </label>
+          <Field label="Link to assignment (optional)">
+            <select value={homeworkId} onChange={e => setHomeworkId(e.target.value)} className={inputCls}>
+              <option value="">No specific assignment</option>
+              {homework.map(h => <option key={h.id} value={h.id}>{h.subject} · {h.title}</option>)}
+            </select>
+          </Field>
+          <Field label="Notes">
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Notes for the evaluator…" className={inputCls} />
+          </Field>
+          <button onClick={create} disabled={!fileName.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Upload work</button>
+        </div>
+      </Modal>
+    </div>
+  )
+}
+
+export { PaymentGatewayMod } from './paymentGateway'

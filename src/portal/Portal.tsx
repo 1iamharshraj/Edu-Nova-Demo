@@ -1,37 +1,44 @@
 import React, { createContext, useContext, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
-  Award, BadgeCheck, BookOpen, BrainCircuit, CalendarDays, CalendarPlus, ClipboardCheck,
-  CreditCard, FileBadge, HeartPulse, Home, LayoutGrid,
+  Award, BadgeCheck, Banknote, BookOpen, BrainCircuit, CalendarDays, CalendarPlus, ClipboardCheck,
+  CloudUpload, CreditCard, FileBadge, Gavel, HeartPulse, Home, Landmark, LayoutGrid,
   LogOut, Megaphone, MessagesSquare, PartyPopper, PencilLine, Play, RotateCcw, ScrollText,
-  ShieldCheck, Sparkles, Trophy, Umbrella, Users, Video, Wallet,
+  ShieldCheck, Sparkles, Trophy, Umbrella, Users, Video, Wallet, type LucideIcon,
 } from 'lucide-react'
 import { Logo } from '@/components/Logo'
 import { useStore } from '@/lib/store'
 import { ThemeToggle } from '@/lib/theme'
 import { InstallButton } from '@/lib/pwa'
 import type { Role } from '@/lib/data'
-import { Avatar, Pill } from './ui'
-import { AttendanceMod, CalendarMod, MarksMod, RanksMod, TeachersMod, TimetableMod } from './modules/academics'
+import { Avatar, Card, Empty, PageHead, Pill } from './ui'
+import { AttendanceMod, CalendarMod, MarksMod, RanksMod, TeachersMod } from './modules/academics'
+import { TimetableMod } from './modules/timetable'
 import { AIDoubtsMod, FeedMod, HighlightsMod, MessagesMod } from './modules/social'
-import { AchievementsMod, HealthMod, HomeworkMod, LeaveMod, PaymentsMod, SlipsMod } from './modules/actions'
+import { AchievementsMod, HealthMod, HomeworkMod, LeaveMod, PaymentsMod, SlipsMod, WorkUploadMod } from './modules/actions'
 import {
-  ApplicationsMod, AttendanceMgmtMod, CalendarAdminMod, ContractMod, CreateAssignmentMod,
+  ApplicationsMod, AttendanceMgmtMod, CalendarAdminMod, ContractMod, ContractsResignationsMod, CreateAssignmentMod,
   FeesMod, GradeUploadMod, MarksheetMod, PeopleMod, RegistrationsMod, TakeAttendanceMod, WorkAssignMod,
 } from './modules/office'
+import { MeetingsMod } from './modules/meetings'
+import { FeeDefaultersAndCallsMod } from './modules/feeDefaulters'
+import { DisciplinaryCommitteeMod } from './modules/disciplinary'
+import { PaymentGatewayMod } from './modules/paymentGateway'
+import { StudentReportMod } from './modules/studentReport'
 import { toast } from 'sonner'
 
 /* ── term context ──────────────────────────────────────── */
 
 const TermCtx = createContext<{ term: string; setTerm: (t: string) => void }>({ term: 't3', setTerm: () => {} })
+// eslint-disable-next-line react-refresh/only-export-components
 export const useTerm = () => useContext(TermCtx)
 
 /* ── module registry ───────────────────────────────────── */
 
-interface Mod { id: string; label: string; icon: any; el: React.ReactNode; group: string }
+interface Mod { id: string; label: string; icon: LucideIcon; el: React.ReactNode; group: string }
 
 function modulesFor(role: Role): Mod[] {
-  const M = (id: string, label: string, icon: any, el: React.ReactNode, group: string): Mod => ({ id, label, icon, el, group })
+  const M = (id: string, label: string, icon: LucideIcon, el: React.ReactNode, group: string): Mod => ({ id, label, icon, el, group })
   switch (role) {
     case 'parent': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
@@ -41,18 +48,21 @@ function modulesFor(role: Role): Mod[] {
       M('ranks', 'Rank List', Trophy, <RanksMod />, 'Academics'),
       M('cal', 'Calendar', CalendarPlus, <CalendarMod />, 'Academics'),
       M('teachers', 'Teachers', Users, <TeachersMod />, 'Academics'),
+      M('report', 'Student Report', FileBadge, <StudentReportsMod />, 'Academics'),
       M('feed', 'School Feed', Megaphone, <FeedMod />, 'Community'),
-      M('msgs', 'Teacher Messages', MessagesSquare, <MessagesMod />, 'Community'),
-      M('hl', 'Event Highlights', Video, <HighlightsMod />, 'Community'),
+      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Community'),
+      M('meet', 'Meetings', Video, <MeetingsMod />, 'Community'),
+      M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Community'),
       M('hw', 'Homework Status', BookOpen, <HomeworkMod />, 'Actions'),
+      M('work', 'Work Upload', CloudUpload, <WorkUploadMod />, 'Actions'),
       M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Actions'),
       M('leave', 'Holiday Requests', Umbrella, <LeaveMod />, 'Actions'),
       M('health', 'Health Records', HeartPulse, <HealthMod />, 'Actions'),
       M('ach', 'Achievements', Award, <AchievementsMod />, 'Actions'),
-      M('pay', 'Payments & Receipts', CreditCard, <PaymentsMod />, 'Office'),
+      M('pay', 'Payments', CreditCard, <PaymentGatewayMod />, 'Office'),
       M('apps', 'TC & Bonafide', FileBadge, <ApplicationsMod approver={false} />, 'Office'),
-      M('pta', 'Online PTA', Sparkles, <PTAMod />, 'Office'),
       M('msheet', 'Marksheet Validation', BadgeCheck, <MarksheetMod />, 'Office'),
+      M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Office'),
     ]
     case 'student': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
@@ -62,13 +72,19 @@ function modulesFor(role: Role): Mod[] {
       M('ranks', 'Rank List', Trophy, <RanksMod />, 'Academics'),
       M('cal', 'Calendar', CalendarPlus, <CalendarMod />, 'Academics'),
       M('hw', 'Homework Upload', BookOpen, <HomeworkMod uploader />, 'Academics'),
+      M('work', 'Work Upload', CloudUpload, <WorkUploadMod />, 'Academics'),
       M('ai', 'AI Doubt Clearing', BrainCircuit, <AIDoubtsMod />, 'Academics'),
+      M('report', 'My Report', FileBadge, <StudentReportsMod />, 'Academics'),
       M('feed', 'School Feed', Megaphone, <FeedMod />, 'Community'),
-      M('hl', 'Event Highlights', Video, <HighlightsMod />, 'Community'),
+      M('meet', 'Meetings', Video, <MeetingsMod />, 'Community'),
+      M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Community'),
       M('ffcs', 'Clubs & Chapters', Users, <RegistrationsMod kind="ffcs" title="Clubs & Chapters (FFCS)" sub="Fully flexible club selection — pick what moves you" />, 'Activities'),
       M('iha', 'Inter-House (IHA)', PartyPopper, <RegistrationsMod kind="iha" title="Inter-House Activities" sub="Represent your house this term" />, 'Activities'),
       M('exc', 'Extra-Curricular (EXC)', Sparkles, <RegistrationsMod kind="exc" title="EXC Registrations" sub="Weekend extra-curricular coaching" />, 'Activities'),
       M('events', 'Event Registration', Play, <RegistrationsMod kind="events" title="Event Registration" sub="Sign up for upcoming school events" />, 'Activities'),
+      M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Office'),
+      M('pay', 'Fee Payments', CreditCard, <PaymentGatewayMod />, 'Office'),
+      M('apps', 'Applications', FileBadge, <ApplicationsMod approver={false} />, 'Office'),
     ]
     case 'teacher': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
@@ -76,12 +92,16 @@ function modulesFor(role: Role): Mod[] {
       M('assign', 'Create Assignment', BookOpen, <CreateAssignmentMod />, 'Classroom'),
       M('grades', 'Upload Grades', PencilLine, <GradeUploadMod />, 'Classroom'),
       M('tt', 'My Timetable', CalendarDays, <TimetableMod />, 'Classroom'),
-      M('msgs', 'Parent Messages', MessagesSquare, <MessagesMod />, 'Classroom'),
+      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Classroom'),
+      M('meet', 'Meetings', Video, <MeetingsMod />, 'Classroom'),
       M('lapprove', 'Leave Approvals', Umbrella, <LeaveMod approver />, 'Classroom'),
       M('msheet', 'Marksheet Validation', BadgeCheck, <MarksheetMod />, 'Classroom'),
+      M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Classroom'),
+      M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Classroom'),
+      M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Classroom'),
       M('salary', 'Salary Receipts', Wallet, <PaymentsMod salary />, 'My HR'),
       M('myleave', 'My Leave', Umbrella, <TeacherLeaveMod />, 'My HR'),
-      M('contract', 'Contract & Notice', ScrollText, <ContractMod />, 'My HR'),
+      M('contract', 'My Contract', ScrollText, <ContractMod />, 'My HR'),
       M('work', 'Event Duties', PartyPopper, <WorkAssignMod />, 'My HR'),
       M('freg', 'Faculty Events', Play, <RegistrationsMod kind="faculty" title="Faculty Event Registration" sub="Workshops and panels for teachers" />, 'My HR'),
       M('ach', 'My Achievements', Award, <AchievementsMod />, 'My HR'),
@@ -90,12 +110,17 @@ function modulesFor(role: Role): Mod[] {
       M('home', 'Overview', Home, <Overview />, 'Main'),
       M('attm', 'Attendance Mgmt', ClipboardCheck, <AttendanceMgmtMod />, 'Operations'),
       M('people', 'People', Users, <PeopleMod />, 'Operations'),
-      M('apps', 'Applications', FileBadge, <ApplicationsMod />, 'Operations'),
+      M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Operations'),
       M('leaves', 'Leave Approvals', Umbrella, <LeaveMod approver />, 'Operations'),
       M('calm', 'Calendar Mgmt', CalendarPlus, <CalendarAdminMod />, 'Operations'),
       M('work', 'Work Assignment', PartyPopper, <WorkAssignMod manage />, 'Operations'),
+      M('msheet', 'Marksheet Validation', BadgeCheck, <MarksheetMod />, 'Operations'),
+      M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Operations'),
+      M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Operations'),
+      M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Operations'),
+      M('meet', 'Meetings', Video, <MeetingsMod />, 'Operations'),
       M('fees', 'Fees', CreditCard, <FeesMod />, 'Finance'),
-      M('pay', 'Fee Receipts', Wallet, <PaymentsMod />, 'Finance'),
+      M('pay', 'Fee Gateway', Landmark, <PaymentGatewayMod />, 'Finance'),
       M('salary', 'Salary Receipts', ScrollText, <PaymentsMod salary />, 'Finance'),
     ]
     case 'admin': return [
@@ -107,7 +132,32 @@ function modulesFor(role: Role): Mod[] {
       M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
       M('work', 'Work Assignment', PartyPopper, <WorkAssignMod manage />, 'Manage'),
       M('msheet', 'Marksheet Validation', BadgeCheck, <MarksheetMod />, 'Manage'),
+      M('contracts', 'Contracts & Exit', ScrollText, <ContractsResignationsMod />, 'Manage'),
+      M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Manage'),
+      M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Finance'),
+      M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Finance'),
+      M('meet', 'Meetings', Video, <MeetingsMod />, 'Finance'),
       M('fees', 'Fees', CreditCard, <FeesMod />, 'Finance'),
+      M('pay', 'Fee Gateway', Landmark, <PaymentGatewayMod />, 'Finance'),
+      M('salary', 'Faculty Salary', Wallet, <PaymentsMod salary />, 'Finance'),
+    ]
+    case 'superadmin': return [
+      M('home', 'Overview', Home, <Overview />, 'Main'),
+      M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
+      M('admins', 'Admin Management', ShieldCheck, <AdminManagementMod />, 'Manage'),
+      M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
+      M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Manage'),
+      M('leaves', 'Leave Approvals', Umbrella, <LeaveMod approver />, 'Manage'),
+      M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
+      M('work', 'Work Assignment', PartyPopper, <WorkAssignMod manage />, 'Manage'),
+      M('msheet', 'Marksheet Validation', BadgeCheck, <MarksheetMod />, 'Manage'),
+      M('contracts', 'Contracts & Exit', ScrollText, <ContractsResignationsMod />, 'Manage'),
+      M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Manage'),
+      M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Finance'),
+      M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Finance'),
+      M('meet', 'Meetings', Video, <MeetingsMod />, 'Finance'),
+      M('fees', 'Fees', CreditCard, <FeesMod />, 'Finance'),
+      M('pay', 'Fee Gateway', Landmark, <PaymentGatewayMod />, 'Finance'),
       M('salary', 'Faculty Salary', Wallet, <PaymentsMod salary />, 'Finance'),
     ]
   }
@@ -115,22 +165,65 @@ function modulesFor(role: Role): Mod[] {
 
 /* ── small inline modules ──────────────────────────────── */
 
-function PTAMod() {
-  const [booked, setBooked] = useState<string | null>(null)
-  const slots = ['Fri 4:00 PM', 'Fri 4:20 PM', 'Fri 4:40 PM', 'Sat 10:00 AM', 'Sat 10:20 AM']
+function StudentReportsMod() {
+  const { db, user } = useStore()
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  if (!user) return null
+  if (user.role === 'student') return <StudentReportMod studentId={user.id} />
+  if (user.role === 'parent') {
+    const child = db.users.find(u => u.role === 'student' && u.parentEmail === user.email)
+    if (!child) {
+      return (
+        <div>
+          <PageHead title="Student Report" sub="No child linked to this parent account" />
+          <Card><Empty text="No student linked to this parent account." /></Card>
+        </div>
+      )
+    }
+    return <StudentReportMod studentId={child.id} />
+  }
+  const students = db.users.filter(u => u.role === 'student')
+  if (selectedId) return <StudentReportMod studentId={selectedId} />
+  return (
+    <div>
+      <PageHead title="Student Reports" sub="Select a student to view the full dossier" />
+      <div className="grid gap-4 md:grid-cols-2">
+        {students.map(s => (
+          <Card key={s.id} className="card-lift flex items-center gap-4">
+            <Avatar name={s.name} hue={s.avatarHue} size={48} />
+            <div className="flex-1">
+              <p className="text-[15px] font-semibold">{s.name}</p>
+              <p className="text-[13px] text-black/50 dark:text-white/50">{s.class}{s.section ? '-' + s.section : ''} · Roll {s.roll ?? '—'}</p>
+            </div>
+            <button onClick={() => setSelectedId(s.id)} className="btn-ink px-4 py-2 text-[13px] font-semibold">View report</button>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function AdminManagementMod() {
+  const { db, user, deleteUser } = useStore()
+  const admins = db.users.filter(u => u.role === 'admin' || u.role === 'superadmin')
   return (
     <div>
       <div className="mb-6">
-        <h1 className="font-display text-[clamp(1.6rem,3vw,2.2rem)] font-medium tracking-tight">Online PTA</h1>
-        <p className="mt-1 text-[14px] text-black/50 dark:text-white/50">Book a 20-minute video slot with Aarav’s class teacher</p>
+        <h1 className="font-display text-[clamp(1.6rem,3vw,2.2rem)] font-medium tracking-tight">Admin Management</h1>
+        <p className="mt-1 text-[14px] text-black/50 dark:text-white/50">Superadmin view of all admins and principals</p>
       </div>
-      <div className="grid max-w-2xl gap-3">
-        {slots.map(s => (
-          <button key={s} onClick={() => { setBooked(s); toast.success(`PTA slot booked — link will appear here`) }}
-            className={`flex items-center justify-between rounded-2xl border p-5 text-left transition-all ${booked === s ? 'border-emerald-300 bg-emerald-50' : 'border-black/[.07] dark:border-white/[.09] bg-white dark:bg-[#14141f] hover:border-indigo-300'}`}>
-            <span className="text-[15px] font-semibold">{s} · Meera Krishnan</span>
-            {booked === s ? <Pill tone="green">Booked · join link sent</Pill> : <Pill tone="slate">Available</Pill>}
-          </button>
+      <div className="grid gap-4">
+        {admins.map(a => (
+          <div key={a.id} className="flex items-center gap-4 rounded-3xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-5">
+            <Avatar name={a.name} hue={a.avatarHue} size={48} />
+            <div className="flex-1">
+              <p className="text-[15px] font-semibold">{a.name}</p>
+              <p className="text-[13px] text-black/50 dark:text-white/50 capitalize">{a.role} · {a.title}</p>
+            </div>
+            {a.id !== user?.id && (
+              <button onClick={() => deleteUser(a.id) && toast.success('Admin access revoked')} className="rounded-full bg-rose-50 dark:bg-rose-500/10 px-4 py-2 text-[13px] font-semibold text-rose-500">Revoke</button>
+            )}
+          </div>
         ))}
       </div>
     </div>
@@ -189,6 +282,10 @@ function Overview() {
     const overall = Math.round(att.bySubject.reduce((a, s) => a + s.present, 0) / att.bySubject.reduce((a, s) => a + s.total, 0) * 100)
     const pendingHw = db.homework.filter(h => h.term === 't3' && (h.status === 'Pending' || h.status === 'Late')).length
     const slips = db.slips.filter(s => s.status === 'Pending').length
+    const defaulters = db.receipts.filter(r => r.kind === 'fee' && r.status === 'Due').length
+    const pendingDisciplinary = db.disciplinaryCases.filter(d => d.status !== 'Closed').length
+    const pendingResignations = db.resignations.filter(r => r.status === 'Pending').length
+    const pendingCalls = db.aiParentCalls.filter(c => c.status === 'Scheduled').length
     switch (role) {
       case 'parent': return [
         { k: 'Attendance', v: overall + '%', s: 'Term 3 · Aarav', tone: 'from-emerald-500 to-teal-400' },
@@ -205,8 +302,26 @@ function Overview() {
       case 'teacher': return [
         { k: 'Classes today', v: '5', s: '2 in X-A', tone: 'from-indigo-500 to-violet-500' },
         { k: 'Leave requests', v: String(db.leaves.filter(l => l.status === 'Pending').length), s: 'awaiting approval', tone: 'from-amber-500 to-orange-400' },
-        { k: 'Ungraded', v: '3', s: 'assessment piles', tone: 'from-rose-500 to-pink-400' },
-        { k: 'Next salary', v: '₹78,400', s: 'credits 30 Apr', tone: 'from-emerald-500 to-teal-400' },
+        { k: 'Fee defaulters', v: String(defaulters), s: 'students with dues', tone: 'from-rose-500 to-pink-400' },
+        { k: 'Disciplinary', v: String(pendingDisciplinary), s: 'open cases', tone: 'from-sky-500 to-cyan-400' },
+      ]
+      case 'staff': return [
+        { k: 'Fee defaulters', v: String(defaulters), s: 'students with dues', tone: 'from-rose-500 to-pink-400' },
+        { k: 'Applications', v: String(db.applications.filter(a => a.status === 'Pending').length), s: 'need a decision', tone: 'from-amber-500 to-orange-400' },
+        { k: 'Disciplinary', v: String(pendingDisciplinary), s: 'open cases', tone: 'from-indigo-500 to-violet-500' },
+        { k: 'AI calls', v: String(pendingCalls), s: 'scheduled', tone: 'from-sky-500 to-cyan-400' },
+      ]
+      case 'admin': return [
+        { k: 'Fee defaulters', v: String(defaulters), s: 'students with dues', tone: 'from-rose-500 to-pink-400' },
+        { k: 'Resignations', v: String(pendingResignations), s: 'pending approval', tone: 'from-amber-500 to-orange-400' },
+        { k: 'Disciplinary', v: String(pendingDisciplinary), s: 'open cases', tone: 'from-indigo-500 to-violet-500' },
+        { k: 'Applications', v: String(db.applications.filter(a => a.status === 'Pending').length), s: 'need a decision', tone: 'from-sky-500 to-cyan-400' },
+      ]
+      case 'superadmin': return [
+        { k: 'Admins', v: String(db.users.filter(u => u.role === 'admin').length), s: 'school administrators', tone: 'from-fuchsia-500 to-pink-500' },
+        { k: 'Resignations', v: String(pendingResignations), s: 'pending approval', tone: 'from-amber-500 to-orange-400' },
+        { k: 'Fee defaulters', v: String(defaulters), s: 'students with dues', tone: 'from-rose-500 to-pink-400' },
+        { k: 'Disciplinary', v: String(pendingDisciplinary), s: 'open cases', tone: 'from-indigo-500 to-violet-500' },
       ]
       default: return [
         { k: 'Students present', v: '95.5%', s: 'whole school today', tone: 'from-emerald-500 to-teal-400' },
@@ -271,6 +386,7 @@ function Overview() {
 const ROLE_GRAD: Record<Role, string> = {
   parent: 'from-indigo-500 to-violet-500', student: 'from-sky-500 to-cyan-400',
   teacher: 'from-emerald-500 to-teal-400', staff: 'from-amber-500 to-orange-400', admin: 'from-rose-500 to-pink-400',
+  superadmin: 'from-fuchsia-500 to-pink-500',
 }
 
 export default function Portal() {

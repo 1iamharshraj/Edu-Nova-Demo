@@ -1,17 +1,18 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { ArrowLeft, ArrowRight, Eye, EyeOff, GraduationCap, Landmark, LayoutDashboard, ShieldCheck, Users, BookOpen } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Crown, Eye, EyeOff, GraduationCap, Landmark, LayoutDashboard, ShieldCheck, Users, BookOpen } from 'lucide-react'
 import { Logo } from '@/components/Logo'
 import { useStore } from '@/lib/store'
 import { ThemeToggle } from '@/lib/theme'
 import type { Role } from '@/lib/data'
 
 const ROLES: { role: Role; label: string; icon: any; email: string; pass: string; grad: string; blurb: string }[] = [
+  { role: 'superadmin', label: 'Superadmin', icon: Crown, email: 'principal@edunova.in', pass: 'principal123', grad: 'from-fuchsia-500 to-pink-500', blurb: 'Dr. Arun Nambiar · Principal' },
+  { role: 'admin', label: 'Admin', icon: Landmark, email: 'admin@edunova.in', pass: 'admin123', grad: 'from-rose-500 to-pink-400', blurb: 'Dr. Leela Menon · School Administrator' },
+  { role: 'staff', label: 'Staff', icon: LayoutDashboard, email: 'staff@edunova.in', pass: 'staff123', grad: 'from-amber-500 to-orange-400', blurb: 'Farhan Qureshi · Office Superintendent' },
+  { role: 'teacher', label: 'Teacher', icon: BookOpen, email: 'teacher@edunova.in', pass: 'teacher123', grad: 'from-emerald-500 to-teal-400', blurb: 'Meera Krishnan · Mathematics · Class Teacher X-A' },
   { role: 'parent', label: 'Parent', icon: Users, email: 'parent@edunova.in', pass: 'parent123', grad: 'from-indigo-500 to-violet-500', blurb: 'Nisha Sharma · Parent of Aarav, X-A' },
   { role: 'student', label: 'Student', icon: GraduationCap, email: 'student@edunova.in', pass: 'student123', grad: 'from-sky-500 to-cyan-400', blurb: 'Aarav Sharma · Class X-A, Roll 12' },
-  { role: 'teacher', label: 'Teacher', icon: BookOpen, email: 'teacher@edunova.in', pass: 'teacher123', grad: 'from-emerald-500 to-teal-400', blurb: 'Meera Krishnan · Mathematics' },
-  { role: 'staff', label: 'Staff', icon: LayoutDashboard, email: 'staff@edunova.in', pass: 'staff123', grad: 'from-amber-500 to-orange-400', blurb: 'Farhan Qureshi · Office' },
-  { role: 'admin', label: 'Admin', icon: Landmark, email: 'admin@edunova.in', pass: 'admin123', grad: 'from-rose-500 to-pink-400', blurb: 'Dr. Leela Menon · Principal' },
 ]
 
 export default function Login() {
@@ -81,10 +82,10 @@ export default function Login() {
         {/* form card */}
         <div className="rise-in rise-1 mx-auto w-full max-w-md">
           <form onSubmit={submit} className="rounded-[2rem] border border-black/[.07] dark:border-white/[.09] bg-white/85 dark:bg-[#14141f]/95 p-8 shadow-[0_30px_70px_-30px_rgba(30,30,80,.35)] backdrop-blur">
-            <div className="mb-6 flex gap-2 lg:hidden">
+            <div className="mb-6 flex gap-2 overflow-x-auto pb-1 lg:hidden no-scrollbar">
               {ROLES.map((r) => (
                 <button type="button" key={r.role} onClick={() => pick(r.role)}
-                  className={`flex-1 rounded-xl py-2 text-[12px] font-semibold ${role === r.role ? 'bg-black text-white' : 'bg-black/[.05] dark:bg-white/[.07] text-black/60 dark:text-white/60'}`}>
+                  className={`shrink-0 rounded-xl px-3 py-2 text-[11px] font-semibold whitespace-nowrap ${role === r.role ? 'bg-black text-white' : 'bg-black/[.05] dark:bg-white/[.07] text-black/60 dark:text-white/60'}`}>
                   {r.label}
                 </button>
               ))}

@@ -12,13 +12,19 @@ function Guard({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function LoggedInRedirect({ children }: { children: React.ReactNode }) {
+  const { user } = useStore()
+  if (user) return <Navigate to="/portal" replace />
+  return <>{children}</>
+}
+
 export default function App() {
   return (
     <StoreProvider>
       <Toaster position="bottom-right" richColors closeButton />
       <Routes>
         <Route path="/" element={<Landing />} />
-        <Route path="/login" element={<Login />} />
+        <Route path="/login" element={<LoggedInRedirect><Login /></LoggedInRedirect>} />
         <Route path="/portal" element={<Guard><Portal /></Guard>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

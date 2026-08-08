@@ -33,6 +33,7 @@ export function Pill({ tone, children }: { tone: 'green' | 'amber' | 'rose' | 's
   return <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] font-semibold ring-1 ${map[tone]}`}>{children}</span>
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function statusTone(s: string): 'green' | 'amber' | 'rose' | 'slate' {
   if (['Approved', 'Paid', 'Graded', 'Submitted', 'Done'].includes(s)) return 'green'
   if (['Pending', 'Due', 'Assigned'].includes(s)) return 'amber'
