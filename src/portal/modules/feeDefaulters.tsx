@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Calendar, Clock, Filter, MessageSquare, Phone, User as UserIcon } from 'lucide-react'
+import { Calendar, Clock, Filter, MessageSquare, Phone, Trash2, User as UserIcon } from 'lucide-react'
 import { useStore } from '@/lib/store'
-import { canViewFeeDefaulters } from '@/lib/access'
+import { canViewFeeDefaulters, isAdmin } from '@/lib/access'
 import { fmtINR, type AIParentCall, type AIParentCallStatus, type Role, type User } from '@/lib/data'
 import { Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
 import { toast } from 'sonner'
@@ -152,6 +152,11 @@ export function FeeDefaultersAndCallsMod() {
     toast.success(`AI call completed — spoke to ${parent.name}`)
   }
 
+  const deleteCall = (id: string) => {
+    update(d => { d.aiParentCalls = d.aiParentCalls.filter(c => c.id !== id); return d })
+    toast.success('Call log removed')
+  }
+
   const scheduleCall = () => {
     if (!selectedStudent || !scheduledAt) return
     const parent = parents.find(p => p.email === selectedStudent.parentEmail) ?? parents.find(p => p.title.includes(selectedStudent.name))
@@ -296,10 +301,18 @@ export function FeeDefaultersAndCallsMod() {
                     {c.duration ? ` · ${Math.floor(c.duration / 60)}m ${c.duration % 60}s` : ''}
                   </p>
                 </div>
-                <button onClick={() => setTranscriptOpen(c)}
-                  className="flex items-center gap-1.5 rounded-full bg-black/[.06] dark:bg-white/[.08] px-3.5 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
-                  <UserIcon size={13} /> View transcript
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button onClick={() => setTranscriptOpen(c)}
+                    className="flex items-center gap-1.5 rounded-full bg-black/[.06] dark:bg-white/[.08] px-3.5 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
+                    <UserIcon size={13} /> View transcript
+                  </button>
+                  {isAdmin(user) && (
+                    <button onClick={() => deleteCall(c.id)}
+                      className="flex items-center gap-1.5 rounded-full bg-rose-50 px-3.5 py-2 text-[12.5px] font-semibold text-rose-500 hover:bg-rose-100">
+                      <Trash2 size={13} /> Delete
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
