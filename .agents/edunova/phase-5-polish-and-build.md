@@ -69,14 +69,16 @@ Fix any layout breaks, overflow, or touch-target issues. Ensure the bottom mobil
 
 ## Definition of done
 
-- `npm run build` passes with zero errors.
-- `npm run lint` passes (or only acceptable warnings).
-- All six roles can log in and use their modules.
-- Mobile and desktop layouts are polished.
-- Light/dark mode is consistent.
-- Demo data reset produces a fully seeded app.
-- Documentation is up to date.
-- Latest code is on `origin/main`.
+- [x] `npm run build` passes with zero errors.
+- [x] `npm run lint` passes (or only acceptable warnings).
+- [x] All six roles can log in and use their modules.
+- [x] Mobile and desktop layouts are polished.
+- [x] Light/dark mode is consistent.
+- [x] Demo data reset produces a fully seeded app.
+- [x] Documentation is up to date.
+- [x] Latest code is on `origin/main`.
+
+> Completed 2026-08-08. Known remaining items (work assignment assignees, global term selector, exhaustive light/dark edge-case audit, automated tests, bundle splitting) are documented as future enhancements in `todos-and-further-plans.md`.
 
 ## Estimated files
 

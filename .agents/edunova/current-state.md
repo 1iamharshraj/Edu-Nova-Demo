@@ -115,5 +115,5 @@
 
 ## Next steps
 
-- See `todos-and-further-plans.md` for the open backlog.
-- See `phase-1-foundation.md` to start the next execution phase.
+- Phase 5 final QA, documentation sync, and GitHub push are complete.
+- See `todos-and-further-plans.md` for the open backlog and future enhancements.
