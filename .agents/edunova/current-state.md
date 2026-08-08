@@ -36,7 +36,7 @@
 | Calendar | Functional | All roles see the same calendar; admin/staff/superadmin can edit events. |
 | Teachers | Functional | Directory cards. |
 | School Feed | Partial | Like + comments work; desktop layout is still reported as bad. `src/portal/modules/social.tsx:40-111` |
-| Messages | Partial | Threads and chat render; teacher-to-parent view is confusing because `from: me/them` is relative to the thread. This causes the auto-reply to appear as if the parent is typing after the teacher sends a message. `src/portal/modules/social.tsx:11-34` |
+| Messages | Functional | Threads and chat render; teacher-to-parent auto-replies are now context-aware and read receipts show only on the user's own messages. |
 | Event Highlights | Functional | YouTube embed placeholder. |
 | AI Doubt Clearing | Partial | Rule-based answers; desktop sidebar + chat layout is reported as bad. `src/portal/modules/social.tsx:369-407` |
 | Homework | Functional | Filter by subject + term. |
@@ -49,9 +49,9 @@
 | Meetings | Functional | Request/approve video meetings with GMeet-style links; visible to requester, teacher, admin, superadmin. |
 | TC & Bonafide | Functional | Apply + approve/decline. |
 | Board Registration | Functional | Validate student details (name, DOB, reg no, roll no, class, school, affiliation) before sending to CBSE/Matric boards. **Name/DOB mismatch highlighting added.** |
-| Take Attendance | Partial | Uses a hardcoded roster (`ROSTER`) and does not persist to the DB. `src/portal/modules/office.tsx:32-71` |
+| Take Attendance | Functional | Uses the teacher's real class roster from the DB. |
 | Create Assignment | Functional | Posts to homework list. |
-| Upload Grades | Partial | Only updates Aarav Sharma's marks. `src/portal/modules/office.tsx:76-97` |
+| Upload Grades | Functional | Publishes scores for every student in the teacher's class. |
 | People | Functional | Add/edit/revoke students, teachers, staff, parents, admins; role-aware tabs. |
 | Fees | Functional | Assign fee heads. |
 | Fee Defaulters & AI Calls | Functional | List dues, schedule AI calls, simulate calls, review transcripts. |
@@ -78,17 +78,13 @@
 
 ## Known bugs & rough edges
 
-1. **Teacher messages feel like the parent is typing** — the `me`/`them` relative storage flips depending on the viewer, so the auto-reply/typing indicator shows the wrong name for the teacher view. Best fix: store absolute sender names and render based on `m.from === user.name`. `src/portal/modules/social.tsx:11-34`
-2. **Staff can only manage students/parents** — `canManage` in `src/lib/access.ts:36-38` limits staff to `student`/`parent`. The user wants staff to manage teachers and students as well.
-3. **Mobile login role selector looks odd** — buttons still feel cramped and text fills the button. `src/pages/Login.tsx:85-92`
-4. **Hardcoded teacher tools** — `TakeAttendanceMod` and `GradeUploadMod` ignore the real DB roster and only act on Aarav/Meera. `src/portal/modules/office.tsx:32-97`
-5. **Teacher contract is static** — always shows Meera Krishnan's data regardless of the logged-in teacher. `src/portal/modules/office.tsx:191-241`
-6. **Work assignments have no assignees** — duties are created but not linked to specific staff/teacher. `src/portal/modules/office.tsx:243-290`
-7. **Parent verification is hardcoded** — the Aadhaar + face flow always references Nisha Sharma and mobile ending `••23`. `src/portal/ui.tsx:113-179`
-8. **Attendance records are random on reset** — `makeAttendanceRecords` uses `Math.random()`. `src/lib/data.ts:410-424`
-9. **Light/dark overlap still reported** — some hardcoded light backgrounds exist without `dark:` counterparts, despite the theme fix pass.
-10. **No automated test suite** — manual testing via role login only.
-11. **Large bundle size** — Vite warns about ~1 MB uncompressed chunk.
+1. **Mobile login role selector looks odd** — buttons still feel cramped and text fills the button. `src/pages/Login.tsx:85-92`
+2. **Work assignments have no assignees** — duties are created but not linked to specific staff/teacher. `src/portal/modules/office.tsx:243-290`
+3. **Light/dark overlap still reported** — some hardcoded light backgrounds exist without `dark:` counterparts, despite the theme fix pass.
+4. **No automated test suite** — manual testing via role login only.
+5. **Large bundle size** — Vite warns about ~1 MB uncompressed chunk.
+
+**Already fixed in this cycle:** staff can manage teachers and students; teacher message auto-replies are context-aware; Take Attendance and Upload Grades use the real class roster; My Contract shows the logged-in user's contract; parent verification uses the logged-in parent's name/phone; attendance records are deterministic after reset.
 
 ## Files and modules inventory
 

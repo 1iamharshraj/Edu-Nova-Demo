@@ -1,5 +1,7 @@
 # Phase 1 — Foundation Fixes (Access, Messaging, Roster)
 
+> Status: completed in commit `73fd97b`.
+
 ## Goal
 
 Fix the most visible data-accuracy and access-control bugs before moving to larger UI polish.

@@ -26,13 +26,13 @@
 
 ## Open backlog (prioritized)
 
-### P0 — Fix data & messaging accuracy
-- [ ] Fix `canManage` so **staff** can manage **teachers** and **students** (not just students/parents). `src/lib/access.ts:36-38`
-- [ ] Refactor messages to store **absolute sender names** (or at least fix the teacher view) so teacher messages are not rendered as if the parent is typing/sending. `src/portal/modules/social.tsx:11-34`
-- [ ] Fix **teacher contract** to show the logged-in teacher's own contract, not Meera Krishnan's static data. `src/portal/modules/office.tsx:191-241`
-- [ ] Fix **Take Attendance** and **Upload Grades** to use the actual DB roster instead of hardcoded names. `src/portal/modules/office.tsx:32-97`
-- [ ] Fix **parent verification** hardcoded name/mobile. `src/portal/ui.tsx:113-179`
-- [ ] Make **attendance records deterministic** on reset instead of random. `src/lib/data.ts:410-424`
+### P0 — Fix data & messaging accuracy (done)
+- [x] Fix `canManage` so **staff** can manage **teachers** and **students** (not just students/parents). `src/lib/access.ts:36-38`
+- [x] Fix teacher-message auto-replies so the other participant's reply matches the conversation direction, and show read receipts only on the user's own messages. `src/portal/modules/social.tsx:11-34`
+- [x] Fix **teacher contract** to show the logged-in teacher's own contract, not Meera Krishnan's static data. `src/portal/modules/office.tsx:191-241`
+- [x] Fix **Take Attendance** and **Upload Grades** to use the actual DB roster instead of hardcoded names. `src/portal/modules/office.tsx:32-97`
+- [x] Fix **parent verification** hardcoded name/mobile. `src/portal/ui.tsx:113-179`
+- [x] Make **attendance records deterministic** on reset instead of random. `src/lib/data.ts:410-424`
 
 ### P1 — High-visibility UI polish
 - [ ] Redesign **timetable** to look modern/elegant on desktop and clean on mobile. `src/portal/modules/timetable.tsx`
