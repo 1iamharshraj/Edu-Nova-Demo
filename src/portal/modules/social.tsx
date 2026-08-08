@@ -62,16 +62,23 @@ export function FeedMod() {
     setDraft(''); setCommentFor(null)
   }
 
+  const placeholder = (tag: string) => {
+    if (tag.includes('Sports')) return '🏆'
+    if (tag.includes('Exam') || tag.includes('Academic')) return '📝'
+    if (tag.includes('Art') || tag.includes('Cultural')) return '🎨'
+    return '📢'
+  }
+
   return (
     <div>
       <PageHead title="School Feed" sub="Everything happening around campus, as it happens" />
-      <div className="mx-auto max-w-5xl space-y-8">
+      <div className="mx-auto grid max-w-5xl gap-6">
         {posts.map((p) => (
-          <Card key={p.id} className="p-0">
-            <div className="flex items-center gap-3.5 p-6 pb-5">
+          <Card key={p.id} className="p-0 overflow-hidden">
+            <div className="flex items-center gap-3.5 p-5 pb-4">
               <div className="rounded-full bg-gradient-to-tr from-indigo-500 via-fuchsia-500 to-amber-400 p-[2.5px]">
                 <span className="block rounded-full bg-white dark:bg-[#14141f] p-[2px]">
-                  <Avatar name={p.author} hue={p.author.includes('Club') || p.author.includes('Art') ? 180 : 262} size={44} />
+                  <Avatar name={p.author} hue={p.author.includes('Club') || p.author.includes('Art') ? 180 : 262} size={42} />
                 </span>
               </div>
               <div className="flex-1">
@@ -80,12 +87,14 @@ export function FeedMod() {
               </div>
               <Pill tone="indigo">{p.tag}</Pill>
             </div>
-            <div className="relative flex h-72 items-center justify-center overflow-hidden sm:h-80" style={{ background: p.gradient }}>
-              <span className="text-7xl drop-shadow-lg">{FEED_EMOJI[p.id] ?? '📸'}</span>
+            <div className="relative flex h-48 items-center justify-center overflow-hidden sm:h-56" style={{ background: p.gradient }}>
+              <span className="text-4xl opacity-90 drop-shadow-lg">{FEED_EMOJI[p.id] ?? placeholder(p.tag)}</span>
               <span className="absolute inset-0 bg-gradient-to-t from-black/25 to-transparent" />
-              <ImageIcon size={18} className="absolute bottom-3 right-3 text-white/80" />
+              <span className="absolute bottom-3 right-3 flex items-center gap-1 rounded-md bg-black/50 px-2 py-0.5 text-[11px] font-semibold text-white">
+                <ImageIcon size={12} /> {p.tag}
+              </span>
             </div>
-            <div className="p-6">
+            <div className="p-5">
               <p className="text-[15px] leading-relaxed text-black/75 dark:text-white/75">{p.text}</p>
               <div className="mt-5 flex items-center gap-6 border-t border-black/[.06] dark:border-white/[.08] pt-5">
                 <button onClick={() => toggleLike(p.id)}
@@ -455,7 +464,7 @@ export function AIDoubtsMod() {
           <div className="mt-12 text-center sm:mt-16">
             <Sparkles size={30} className="mx-auto text-indigo-400" />
             <p className="mt-3 text-[15px] font-semibold">Ask anything from your subjects</p>
-            <p className="mt-1 text-[13px] text-black/40 dark:text-white/40">Nova is awake, even at 2 AM.</p>
+            <p className="mt-1 text-[13px] text-black/40 dark:text-white/40">Your syllabus-aware tutor is ready. Pick a suggestion or type your own doubt.</p>
             <div className="mx-auto mt-5 flex max-w-lg flex-wrap justify-center gap-2">
               {SUGGESTIONS.map(s => (
                 <button key={s} onClick={() => ask(s)}
@@ -468,14 +477,31 @@ export function AIDoubtsMod() {
         )}
         {active && (
           <div className="space-y-4">
-            <div className="flex justify-end"><p className="max-w-[80%] rounded-2xl rounded-br-md bg-black px-4 py-2.5 text-[13.5px] text-white">{active.q}</p></div>
-            <div className="flex justify-start"><p className="max-w-[85%] rounded-2xl rounded-bl-md bg-white dark:bg-[#14141f] px-4 py-3 text-[13.5px] leading-relaxed ring-1 ring-black/[.07] dark:ring-white/10">{active.a}</p></div>
+            <div className="flex justify-end">
+              <p className="max-w-[80%] rounded-2xl rounded-br-md bg-black px-4 py-2.5 text-[13.5px] text-white">{active.q}</p>
+            </div>
+            <div className="flex justify-start">
+              <div className="max-w-[85%] overflow-hidden rounded-2xl rounded-tl-md bg-white dark:bg-[#14141f] ring-1 ring-black/[.07] dark:ring-white/10">
+                <div className="h-1 w-full bg-gradient-to-r from-indigo-500 to-fuchsia-500" />
+                <div className="flex items-start gap-3 px-4 py-3">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white"><BrainCircuit size={14} /></span>
+                  <p className="text-[13.5px] leading-relaxed">{active.a}</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-center gap-2 pt-1">
+              {SUGGESTIONS.map(s => (
+                <button key={s} onClick={() => ask(s)} className="rounded-full bg-white dark:bg-[#14141f] px-3 py-1.5 text-[11.5px] text-black/50 dark:text-white/50 ring-1 ring-black/[.06] dark:ring-white/10 hover:text-indigo-600 dark:hover:text-indigo-300">
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {thinking && (
           <div className="flex items-start gap-2">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 text-white"><BrainCircuit size={16} /></span>
-            <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm bg-white dark:bg-[#14141f] px-4 py-3 ring-1 ring-black/[.07] dark:ring-white/10">
+            <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-md bg-white dark:bg-[#14141f] px-4 py-3 ring-1 ring-black/[.07] dark:ring-white/10">
               <span className="typing-dot h-2 w-2 rounded-full bg-black/40 dark:bg-white/50" />
               <span className="typing-dot h-2 w-2 rounded-full bg-black/40 dark:bg-white/50" />
               <span className="typing-dot h-2 w-2 rounded-full bg-black/40 dark:bg-white/50" />
@@ -494,7 +520,7 @@ export function AIDoubtsMod() {
   return (
     <div>
       <PageHead title="AI Doubt Clearing" sub="Curriculum-aware answers, any hour of the night" />
-      <Card className="flex h-[520px] flex-col overflow-hidden p-0 md:grid md:grid-cols-[260px_1fr]">
+      <Card className="flex h-[520px] flex-col overflow-hidden p-0 md:grid md:grid-cols-[280px_1fr]">
         {HistorySidebar}
         {ChatArea}
       </Card>
