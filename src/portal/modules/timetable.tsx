@@ -4,7 +4,7 @@ import { DAYS, TIMESLOTS } from '@/lib/data'
 import type { Subject, TTCell } from '@/lib/data'
 import { Card, PageHead, TermTabs } from '../ui'
 import { useTerm } from '../Portal'
-import { Coffee, Sun, Utensils } from 'lucide-react'
+import { Coffee, Sun, Utensils, Clock, MapPin, User } from 'lucide-react'
 
 const BREAK_META: Record<string, { icon: React.ReactNode; bg: string; text: string }> = {
   'Morning Break': { icon: <Sun size={14} />, bg: 'bg-amber-400/10 dark:bg-amber-400/10', text: 'text-amber-700 dark:text-amber-300' },
@@ -97,16 +97,38 @@ export function TimetableMod() {
                         className="group relative overflow-hidden rounded-xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-3 transition-all hover:shadow-md"
                       >
                         <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: col }} />
-                        <p className="pl-2.5 text-[13px] font-semibold leading-tight" style={{ color: col }}>
-                          {cell.subject}
-                        </p>
-                        <p className="mt-1 pl-2.5 text-[11px] text-black/50 dark:text-white/50 truncate">
-                          {sub?.teacher ?? '—'}
-                        </p>
-                        <div className="mt-2 pl-2.5">
-                          <span className="inline-block rounded-md bg-black/[.04] dark:bg-white/[.06] px-1.5 py-0.5 text-[10px] font-semibold text-black/50 dark:text-white/50">
-                            {cell.room}
-                          </span>
+                        {/* default compact view */}
+                        <div className="transition-opacity group-hover:opacity-0">
+                          <p className="pl-2.5 text-[13px] font-semibold leading-tight" style={{ color: col }}>
+                            {cell.subject}
+                          </p>
+                          <p className="mt-1 pl-2.5 text-[11px] text-black/50 dark:text-white/50 truncate">
+                            {sub?.teacher ?? '—'}
+                          </p>
+                          <div className="mt-2 pl-2.5">
+                            <span className="inline-block rounded-md bg-black/[.04] dark:bg-white/[.06] px-1.5 py-0.5 text-[10px] font-semibold text-black/50 dark:text-white/50">
+                              {cell.room}
+                            </span>
+                          </div>
+                        </div>
+                        {/* hover detail overlay */}
+                        <div className="absolute inset-0 z-10 flex flex-col justify-center gap-1.5 rounded-xl bg-white/95 dark:bg-[#14141f]/95 p-3 opacity-0 transition-opacity group-hover:opacity-100">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 w-2 rounded-full" style={{ background: col }} />
+                            <p className="text-[13px] font-semibold" style={{ color: col }}>{cell.subject}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-black/60 dark:text-white/60">
+                            <Clock size={12} />
+                            <span>{slot.time}{slot.duration ? ` · ${slot.duration}` : ''}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-black/60 dark:text-white/60">
+                            <MapPin size={12} />
+                            <span>{cell.room}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-black/60 dark:text-white/60">
+                            <User size={12} />
+                            <span className="truncate">{sub?.teacher ?? '—'}</span>
+                          </div>
                         </div>
                       </div>
                     )
