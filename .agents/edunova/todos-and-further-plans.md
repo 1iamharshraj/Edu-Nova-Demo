@@ -23,6 +23,7 @@
 19. ✅ **Fee defaulters** + **AI parent calls** (request by class teacher/admin/staff, view call logs, transcripts).
 20. ✅ **Disciplinary committee** module for complaints, hearings, actions, appeals.
 21. ✅ **Student profile report** for admin/staff/teacher with full academic/behavioral/financial history.
+22. ✅ **Board Registration role-scoped student list** — students, parents, and teachers now see only the relevant students instead of the whole roster.
 
 ## Open backlog (prioritized)
 

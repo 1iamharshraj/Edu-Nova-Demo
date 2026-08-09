@@ -48,7 +48,7 @@
 | Payments & Receipts | Functional | `PaymentGatewayMod` with UPI QR, card UI, net banking; intentionally disabled on mobile viewport. |
 | Meetings | Functional | Request/approve video meetings with GMeet-style links; visible to requester, teacher, admin, superadmin. |
 | TC & Bonafide | Functional | Apply + approve/decline. |
-| Board Registration | Functional | Validate student details (name, DOB, reg no, roll no, class, school, affiliation) before sending to CBSE/Matric boards. **Name/DOB mismatch highlighting added.** |
+| Board Registration | Functional | Validate student details before sending to CBSE/Matric boards. Students see only themselves; parents see only their wards; teachers see their class; staff/admin/superadmin see all. **Name/DOB mismatch highlighting added.** |
 | Take Attendance | Functional | Uses the teacher's real class roster from the DB. |
 | Create Assignment | Functional | Posts to homework list. |
 | Upload Grades | Functional | Publishes scores for every student in the teacher's class. |

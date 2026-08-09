@@ -1142,14 +1142,28 @@ function boardDetailStatusTone(s: BoardDetailStatus): 'amber' | 'green' | 'sky' 
 }
 
 export function MarksheetMod() {
-  const { db, update } = useStore()
+  const { db, update, user } = useStore()
   const [search, setSearch] = useState('')
   const [boardFilter, setBoardFilter] = useState<'All' | Board>('All')
   const [statusFilter, setStatusFilter] = useState<BoardDetailStatus | 'All'>('All')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editOpen, setEditOpen] = useState(false)
 
-  const students = useMemo(() => db.users.filter(u => u.role === 'student'), [db.users])
+  const visibleStudents = useMemo(() => {
+    const all = db.users.filter(u => u.role === 'student')
+    if (!user) return []
+    if (user.role === 'student') return all.filter(s => s.id === user.id)
+    if (user.role === 'parent') {
+      const wards = (user.wards || '').split(',').map(w => w.trim()).filter(Boolean)
+      return all.filter(s => s.parentEmail === user.email || wards.some(w => s.name.includes(w)))
+    }
+    if (user.role === 'teacher') {
+      return all.filter(s => s.class && user.class && s.class === user.class)
+    }
+    return all
+  }, [db.users, user])
+
+  const students = visibleStudents
   const selected = selectedId ? students.find(s => s.id === selectedId) : null
   const detail = selected ? db.boardDetails[selected.id] : null
 
