@@ -6,7 +6,7 @@
 2. ✅ **Board Registration Details validation** — validate the student details the school sends to CBSE/Matric boards before exam registration (name, DOB, registration no, roll no, class, school, affiliation). **Name/DOB mismatches are now highlighted with a side-by-side comparison and require a note before validating.**
 3. ✅ **People management** rebuilt for proper staff/teacher/student/admin profiles with add/edit/revoke.
 4. ✅ **Teacher messaging** tabs for parents and teachers; flexible term selection.
-5. ✅ **Timetable** desktop grid + mobile day-picker (needs further visual polish).
+5. ✅ **Timetable** — weekdays as rows, time slots as columns across 09:00–17:00, morning/lunch/evening breaks highlighted, polished mobile day cards.
 6. ✅ **Mobile login role selector** scrollable pills (needs further compactness polish).
 7. ✅ **Online meetings** GMeet-style links, request/approve flow from teacher, student, and parent, visible to all parties.
 8. ✅ **Teacher resignation** approval workflow before notice period starts.

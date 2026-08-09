@@ -29,7 +29,7 @@
 | Module | Status | Notes |
 |--------|--------|-------|
 | Overview | Functional | Role-aware greeting cards + upcoming events + stats (defaulters, resignations, disciplinary). |
-| Timetable | Functional | Modern desktop time/day grid with subject color bars, sticky headers, and polished mobile day cards. |
+| Timetable | Functional | Modern desktop time/day grid: weekdays as rows, 09:00-17:00 time slots as columns, morning/lunch/evening breaks highlighted. Polished mobile day cards. |
 | Attendance | Functional | Subject-wise + daily view for all roles; staff/admin/teacher attendance management for everyone including admins. |
 | Marks & Grades | Functional | Term-wise cards. |
 | Rank List | Functional | Overall + subject ranks. |

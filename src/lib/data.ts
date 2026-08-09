@@ -295,7 +295,19 @@ export interface DB {
 }
 
 export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-export const PERIODS = ['08:00', '09:00', '10:00', '11:15', '12:15', '13:30']
+export const TIMESLOTS = [
+  { time: '09:00', label: '09:00', kind: 'class' as const },
+  { time: '09:45', label: '09:45', kind: 'class' as const },
+  { time: '10:30', label: 'Morning Break', kind: 'break' as const, duration: '10:30 - 10:45' },
+  { time: '11:30', label: '11:30', kind: 'class' as const },
+  { time: '12:15', label: '12:15', kind: 'class' as const },
+  { time: '13:00', label: 'Lunch Break', kind: 'break' as const, duration: '13:00 - 13:45' },
+  { time: '13:45', label: '13:45', kind: 'class' as const },
+  { time: '14:30', label: '14:30', kind: 'class' as const },
+  { time: '15:15', label: 'Evening Break', kind: 'break' as const, duration: '15:15 - 15:30' },
+  { time: '15:30', label: '15:30', kind: 'class' as const },
+  { time: '16:15', label: '16:15', kind: 'class' as const },
+]
 
 const subj = (id: string, name: string, teacher: string, color: string): Subject => ({ id, name, teacher, color })
 
@@ -313,10 +325,15 @@ const mkCell = (s: string, room: string, time: string): TTCell => ({ subject: s,
 function makeTT(shift: number): TTCell[][] {
   const names = ['Mathematics', 'Physics', 'Chemistry', 'English', 'Computer Science', 'Physical Ed.']
   const rooms = ['A-201', 'Lab-2', 'Lab-1', 'B-104', 'CS-Lab', 'Ground']
-  return DAYS.map((_, d) =>
-    PERIODS.map((t, p) => {
-      const i = (d * 2 + p + shift) % names.length
-      return mkCell(names[i], rooms[i], t)
+  let classIndex = shift
+  return DAYS.map(() =>
+    TIMESLOTS.map(slot => {
+      if (slot.kind === 'break') {
+        return mkCell(slot.label, '—', slot.time)
+      }
+      const i = classIndex % names.length
+      classIndex++
+      return mkCell(names[i], rooms[i], slot.time)
     })
   )
 }
