@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Calendar, Clock, Filter, MessageSquare, Phone, Trash2, User as UserIcon } from 'lucide-react'
-import { useStore } from '@/lib/store'
+import { useAcademic, useStore } from '@/lib/store'
 import { canViewFeeDefaulters, isAdmin } from '@/lib/access'
 import { fmtINR, type AIParentCall, type AIParentCallStatus, type Role, type User } from '@/lib/data'
 import { Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
@@ -85,8 +85,18 @@ export function FeeDefaultersAndCallsMod() {
 
   const canView = user && canViewFeeDefaulters(user)
 
+  const { guardians, wardsOf } = useAcademic()
+
   const students = useMemo(() => db.users.filter(u => u.role === 'student'), [db.users])
   const parents = useMemo(() => db.users.filter(u => u.role === 'parent'), [db.users])
+
+  // guardian link first, then the legacy parentEmail / title heuristics
+  const parentOf = useMemo(() => (s: User): User | undefined => {
+    const g = guardians.find(x => x.studentId === s.id)
+    return (g && parents.find(p => p.id === g.parentId))
+      ?? parents.find(p => !!s.parentEmail && p.email === s.parentEmail)
+      ?? parents.find(p => p.title.includes(s.name))
+  }, [guardians, parents])
 
   const defaulters = useMemo(() => {
     return students
@@ -94,12 +104,12 @@ export function FeeDefaultersAndCallsMod() {
         const dues = db.receipts.filter(r => r.kind === 'fee' && r.status === 'Due' && r.studentId === s.id)
         const paid = db.receipts.filter(r => r.kind === 'fee' && r.status === 'Paid' && r.studentId === s.id)
         const lastPaid = paid.length > 0 ? paid.sort((a, b) => b.date.localeCompare(a.date))[0].date : null
-        const parent = parents.find(p => p.email === s.parentEmail) ?? parents.find(p => p.title.includes(s.name))
+        const parent = parentOf(s)
         return { student: s, dues, totalDue: dues.reduce((a, r) => a + r.amount, 0), lastPaid, parent }
       })
       .filter(d => d.dues.length > 0)
       .sort((a, b) => b.totalDue - a.totalDue)
-  }, [students, parents, db.receipts])
+  }, [students, parentOf, db.receipts])
 
   const groups = useMemo(() => {
     const map: Record<string, typeof defaulters> = {}
@@ -110,7 +120,10 @@ export function FeeDefaultersAndCallsMod() {
   const filteredCalls = useMemo(() => {
     let calls = [...db.aiParentCalls]
     if (user?.role === 'student') calls = calls.filter(c => c.studentId === user.id)
-    if (user?.role === 'parent') calls = calls.filter(c => c.parentId === user.id || c.studentName.includes(user.name.split(' ').slice(-1)[0] ?? ''))
+    if (user?.role === 'parent') {
+      const wards = wardsOf(user.id)
+      calls = calls.filter(c => c.parentId === user.id || wards.includes(c.studentId) || c.studentName.includes(user.name.split(' ').slice(-1)[0] ?? ''))
+    }
     if (statusFilter !== 'all') calls = calls.filter(c => c.status === statusFilter)
     if (studentFilter !== 'all') calls = calls.filter(c => c.studentId === studentFilter)
     if (requesterFilter !== 'all') calls = calls.filter(c => c.requesterId === requesterFilter)
@@ -119,7 +132,7 @@ export function FeeDefaultersAndCallsMod() {
       calls = calls.filter(c => c.scheduledAt.startsWith(d) || c.createdAt === d)
     }
     return calls.sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt))
-  }, [db.aiParentCalls, user, statusFilter, studentFilter, requesterFilter, dateFilter])
+  }, [db.aiParentCalls, user, wardsOf, statusFilter, studentFilter, requesterFilter, dateFilter])
 
   const uniqueRequesters = useMemo(() => {
     const map = new Map<string, string>()
@@ -159,7 +172,7 @@ export function FeeDefaultersAndCallsMod() {
 
   const scheduleCall = () => {
     if (!selectedStudent || !scheduledAt) return
-    const parent = parents.find(p => p.email === selectedStudent.parentEmail) ?? parents.find(p => p.title.includes(selectedStudent.name))
+    const parent = parentOf(selectedStudent)
     if (!parent) return toast.error('No parent contact found')
     const call: AIParentCall = {
       id: 'ac_' + tsId(),

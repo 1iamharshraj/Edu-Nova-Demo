@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { ChevronLeft, ChevronRight, Download, Mail, Phone, Trophy } from 'lucide-react'
-import { useStore } from '@/lib/store'
+import { useAcademic, useStore } from '@/lib/store'
 import { gradeFor, pctFor } from '@/lib/data'
 import type { AttendanceStatus, Term } from '@/lib/data'
 import { Avatar, Card, Empty, PageHead, Pill, Progress, TermTabs } from '../ui'
-import { useTerm } from '../Portal'
+import { firstName, useActiveTerm, useViewedStudent } from './viewer'
 
 const MONTH_INDEX: Record<string, number> = {
   January: 0, February: 1, March: 2, April: 3, May: 4, June: 5, July: 6, August: 7, September: 8, October: 9, November: 10, December: 11,
@@ -43,18 +43,30 @@ function termMonthYear(term: Term, monthIndex: number): number {
 
 export function AttendanceMod({ readOnly = true }: { readOnly?: boolean }) {
   const { db, user } = useStore()
-  const { term, setTerm } = useTerm()
+  const { term, setTerm, termObj } = useActiveTerm()
+  const viewed = useViewedStudent()
   void readOnly
   const [mi, setMi] = useState(0)
 
   if (user?.role === 'parent' || user?.role === 'student' || !user) {
-    const data = db.attendance[term]
+    const data = db.attendance[term] ?? { bySubject: [], days: [] }
     const totalP = data.bySubject.reduce((a, s) => a + s.present, 0)
     const totalT = data.bySubject.reduce((a, s) => a + s.total, 0)
     const overall = totalT ? Math.round((totalP / totalT) * 100) : 0
+    const who = user?.role === 'parent' ? (viewed?.name ?? 'your child') : (user?.name ?? 'student')
+    if (!db.attendance[term]) {
+      return (
+        <div>
+          <PageHead title="Attendance" sub={`Subject-wise and daily record for ${who}`}>
+            <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
+          </PageHead>
+          <Empty text="No attendance recorded for this term yet." />
+        </div>
+      )
+    }
     return (
       <div>
-        <PageHead title="Attendance" sub={`Subject-wise and daily record for ${user?.role === 'parent' ? 'your child' : user?.name ?? 'student'}`}>
+        <PageHead title="Attendance" sub={`Subject-wise and daily record for ${who}`}>
           <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
         </PageHead>
         <div className="grid gap-5 lg:grid-cols-[1fr_1.4fr]">
@@ -104,7 +116,14 @@ export function AttendanceMod({ readOnly = true }: { readOnly?: boolean }) {
     )
   }
 
-  const termObj = db.terms.find(t => t.id === term)!
+  if (!termObj) {
+    return (
+      <div>
+        <PageHead title="My Attendance" sub={user.name} />
+        <Empty text="No terms configured yet." />
+      </div>
+    )
+  }
   const bounds = termBounds(termObj)
   const records = db.attendanceRecords.filter(r => r.userId === user.id && r.date >= bounds.start && r.date <= bounds.end)
   const counts = { P: 0, A: 0, L: 0, H: 0 }
@@ -198,15 +217,18 @@ export function AttendanceMod({ readOnly = true }: { readOnly?: boolean }) {
 
 export function MarksMod() {
   const { db } = useStore()
-  const { term, setTerm } = useTerm()
-  const rows = db.marks[term]
-  const avg = Math.round(rows.reduce((a, r) => a + pctFor(r), 0) / rows.length)
+  const { term, setTerm } = useActiveTerm()
+  const viewed = useViewedStudent()
+  const rows = db.marks[term] ?? []
+  const avg = rows.length ? Math.round(rows.reduce((a, r) => a + pctFor(r), 0) / rows.length) : 0
+  const sub = rows.length ? `Term average ${avg}%${viewed ? ` · ${viewed.name}` : ''}` : (viewed?.name ?? 'No marks published yet')
   return (
     <div>
-      <PageHead title="Marks & Grades" sub={`Term average ${avg}% · Aarav Sharma`}>
+      <PageHead title="Marks & Grades" sub={sub}>
         <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
       </PageHead>
       <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+        {rows.length === 0 && <div className="md:col-span-2 xl:col-span-3"><Empty text="No marks published for this term yet." /></div>}
         {rows.map((r) => {
           const pct = pctFor(r)
           const g = gradeFor(r)
@@ -248,13 +270,16 @@ export function MarksMod() {
 
 export function RanksMod() {
   const { db } = useStore()
-  const { term, setTerm } = useTerm()
-  const data = db.ranks[term]
+  const { term, setTerm } = useActiveTerm()
+  const { classOf } = useAcademic()
+  const viewed = useViewedStudent()
+  const data = db.ranks[term] ?? { overall: [], subjects: {} }
   const [view, setView] = useState('overall')
-  const rows = view === 'overall' ? data.overall : data.subjects[view]
+  const rows = (view === 'overall' ? data.overall : data.subjects[view]) ?? []
+  const classLabel = viewed ? (classOf(viewed.id)?.label ?? viewed.class) : undefined
   return (
     <div>
-      <PageHead title="Rank List" sub="Class X-A · overall and subject-wise standings">
+      <PageHead title="Rank List" sub={`${classLabel ? `Class ${classLabel} · ` : ''}overall and subject-wise standings`}>
         <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
       </PageHead>
       <div className="mb-5 flex flex-wrap gap-2">
@@ -270,8 +295,9 @@ export function RanksMod() {
         ))}
       </div>
       <Card className="p-0">
+        {rows.length === 0 && <div className="p-6"><Empty text="No rankings published for this term yet." /></div>}
         {rows.map((r) => {
-          const me = r.name === 'Aarav Sharma'
+          const me = !!viewed && r.name === viewed.name
           return (
             <div key={r.name} className={`flex items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3.5 last:border-0 ${me ? 'bg-indigo-50/60' : ''}`}>
               <span className={`flex h-9 w-9 items-center justify-center rounded-full text-[13px] font-bold ${r.rank <= 3 ? 'bg-gradient-to-br from-amber-400 to-orange-400 text-white' : 'bg-black/[.05] dark:bg-white/[.07] text-black/50 dark:text-white/50'}`}>
@@ -293,10 +319,17 @@ export function RanksMod() {
 
 export function CalendarMod() {
   const { db } = useStore()
-  const { term, setTerm } = useTerm()
-  const termObj = db.terms.find(t => t.id === term)!
+  const { term, setTerm, termObj } = useActiveTerm()
   const [mi, setMi] = useState(0)
   const events = db.events.filter(e => e.term === term)
+  if (!termObj) {
+    return (
+      <div>
+        <PageHead title="Academic Calendar" sub="Holidays, exams and events" />
+        <Empty text="No terms configured yet." />
+      </div>
+    )
+  }
   const monthIndex = monthIndexFromName(termObj.months[mi])
   const year = termMonthYear(termObj, monthIndex)
   const daysIn = new Date(year, monthIndex + 1, 0).getDate()
@@ -368,14 +401,17 @@ export function CalendarMod() {
 /* ── Teacher directory ─────────────────────────────────── */
 
 export function TeachersMod() {
-  const { db } = useStore()
-  const { term, setTerm } = useTerm()
+  const { db, user } = useStore()
+  const { term, setTerm, termObj } = useActiveTerm()
+  const viewed = useViewedStudent()
+  const who = user?.role === 'student' ? 'you' : viewed ? firstName(viewed.name) : 'students'
   return (
     <div>
-      <PageHead title="Teachers" sub={`Everyone teaching Aarav in ${db.terms.find(t => t.id === term)?.name}`}>
+      <PageHead title="Teachers" sub={`Everyone teaching ${who}${termObj ? ` in ${termObj.name}` : ''}`}>
         <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
       </PageHead>
       <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+        {db.directory.length === 0 && <div className="sm:col-span-2 xl:col-span-3"><Empty text="No teachers in the directory yet." /></div>}
         {db.directory.map((t, i) => (
           <Card key={t.id} className="card-lift">
             <div className="flex items-center gap-4">

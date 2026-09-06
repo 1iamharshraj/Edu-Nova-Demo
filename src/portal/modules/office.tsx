@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, AlertTriangle, BadgeCheck, Briefcase, CalendarPlus, Check, FileBadge, FileText, Pencil, Plus, Save, School, ScrollText, Search, Send, ShieldAlert, Trash2, UserPlus, X } from 'lucide-react'
-import { useStore } from '@/lib/store'
+import { AlertCircle, AlertTriangle, BadgeCheck, Briefcase, CalendarPlus, Check, Copy, FileBadge, FileText, Pencil, Plus, Save, School, ScrollText, Search, Send, ShieldAlert, Trash2, UserPlus, X } from 'lucide-react'
+import { useAcademic, useStore, type CreateUserInput } from '@/lib/store'
+import { api, errorMessage } from '@/lib/api'
 import { canManage, isSuperAdmin } from '@/lib/access'
 import { fmtINR, type Application, type AttendanceStatus, type Board, type BoardDetail, type BoardDetailStatus, type CalEvent, type Contract, type ContractStatus, type Resignation, type Role, type Term, type User } from '@/lib/data'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, TermTabs, inputCls, statusTone } from '../ui'
@@ -13,6 +14,13 @@ const MONTH_ABBR: Record<string, number> = {
 }
 function parseMonthAbbr(s: string): number {
   return MONTH_ABBR[s.trim().toLowerCase().slice(0, 3)] ?? 0
+}
+
+const todayISO = () => new Date().toISOString().slice(0, 10)
+
+/** Current term id from the legacy `db.terms` shape — falls back to the first term, else ''. */
+function defaultTermId(terms: Term[]): string {
+  return terms.find(t => t.current)?.id ?? terms[0]?.id ?? ''
 }
 
 function termBounds(term: Term): { start: string; end: string } {
@@ -30,11 +38,31 @@ function termBounds(term: Term): { start: string; end: string } {
   return { start, end }
 }
 
-export function TakeAttendanceMod() {
+/** Classes the signed-in teacher teaches (or is class teacher of), with a picker when there is more than one. */
+function useMyClass() {
   const { db, user } = useStore()
-  const classStudents = db.users
-    .filter(u => u.role === 'student' && u.class === user?.class)
-    .sort((a, b) => a.name.localeCompare(b.name))
+  const { classesTaughtBy, classOf } = useAcademic()
+  const myClasses = useMemo(() => user ? classesTaughtBy(user.id) : [], [classesTaughtBy, user])
+  const [picked, setPicked] = useState('')
+  const activeId = myClasses.some(c => c.id === picked) ? picked : (myClasses[0]?.id ?? '')
+  const activeClass = myClasses.find(c => c.id === activeId)
+  const classStudents = useMemo(
+    () => activeId ? db.users.filter(u => u.role === 'student' && classOf(u.id)?.id === activeId).sort((a, b) => a.name.localeCompare(b.name)) : [],
+    [db.users, classOf, activeId],
+  )
+  const picker = myClasses.length > 1 ? (
+    <select value={activeId} onChange={e => setPicked(e.target.value)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`}>
+      {myClasses.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+    </select>
+  ) : null
+  const emptyText = myClasses.length === 0
+    ? 'No classes assigned to you yet. Ask the admin to assign you in Academic Setup.'
+    : `No students enrolled in ${activeClass?.label ?? 'this class'} yet.`
+  return { myClasses, activeClass, classStudents, picker, emptyText }
+}
+
+export function TakeAttendanceMod() {
+  const { activeClass, classStudents, picker, emptyText } = useMyClass()
   const defaults = useMemo(() => Object.fromEntries(classStudents.map(s => [s.name, true])), [classStudents])
   const [overrides, setOverrides] = useState<Record<string, boolean>>({})
   const [saved, setSaved] = useState(false)
@@ -45,7 +73,7 @@ export function TakeAttendanceMod() {
   const save = () => { setSaved(true); toast.success(`Attendance saved — ${present}/${classStudents.length} present`) }
   return (
     <div>
-      <PageHead title="Take Attendance" sub={`${user?.class ?? 'Class'} · ${classStudents.length} students · Period 1 · today`} />
+      <PageHead title="Take Attendance" sub={`${activeClass?.label ?? 'No class'} · ${classStudents.length} students · Period 1 · today`}>{picker}</PageHead>
       <Card className="p-0">
         <div className="flex items-center justify-between border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
           <p className="text-[14px] font-semibold">{present} of {classStudents.length} present</p>
@@ -66,9 +94,9 @@ export function TakeAttendanceMod() {
             </div>
           </div>
         ))}
-        {classStudents.length === 0 && <div className="p-6"><Empty text="No students found for your class." /></div>}
+        {classStudents.length === 0 && <div className="p-6"><Empty text={emptyText} /></div>}
         <div className="p-5">
-          <button onClick={save} className="btn-ink flex w-full items-center justify-center gap-2 py-3.5 text-[14.5px] font-semibold">
+          <button onClick={save} disabled={classStudents.length === 0} className="btn-ink flex w-full items-center justify-center gap-2 py-3.5 text-[14.5px] font-semibold disabled:opacity-40">
             {saved ? <Check size={17} /> : <Save size={16} />} {saved ? 'Saved' : 'Save attendance'}
           </button>
         </div>
@@ -80,21 +108,23 @@ export function TakeAttendanceMod() {
 /* ── Teacher: upload grades ────────────────────────────── */
 
 export function GradeUploadMod() {
-  const { db, update, user } = useStore()
+  const { db, update } = useStore()
   const { term, setTerm } = useTerm()
-  const classStudents = db.users
-    .filter(u => u.role === 'student' && u.class === user?.class)
-    .sort((a, b) => a.name.localeCompare(b.name))
-  const [subject, setSubject] = useState('Mathematics')
+  const { activeClass, classStudents, picker, emptyText } = useMyClass()
+  const [subjectPick, setSubject] = useState('')
+  const subject = db.subjects.some(s => s.name === subjectPick) ? subjectPick : (db.subjects[0]?.name ?? '')
   const [assessment, setAssessment] = useState('Term Exam')
   const [max, setMax] = useState(80)
   const [scores, setScores] = useState<Record<string, string>>({})
+  const canPublish = !!subject && !!term && classStudents.length > 0
 
   const save = () => {
+    if (!canPublish) return
     let count = 0
     update(d => {
-      const row = d.marks[term].find(r => r.subject === subject)
-      if (!row) return d
+      if (!d.marks[term]) d.marks[term] = []
+      let row = d.marks[term].find(r => r.subject === subject)
+      if (!row) { row = { subject, assessments: [] }; d.marks[term].push(row) }
       classStudents.forEach(s => {
         const val = parseInt(scores[s.name] || '')
         if (isNaN(val)) return
@@ -110,14 +140,18 @@ export function GradeUploadMod() {
 
   return (
     <div>
-      <PageHead title="Upload Grades" sub={`Publish marks for ${user?.class ?? 'your class'}`}>
-        <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
+      <PageHead title="Upload Grades" sub={`Publish marks for ${activeClass?.label ?? 'your class'}`}>
+        <div className="flex flex-wrap items-center gap-2">
+          {picker}
+          <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
+        </div>
       </PageHead>
       <Card>
         <div className="mb-6 grid gap-3 sm:grid-cols-3">
           <Field label="Subject">
-            <select value={subject} onChange={e => setSubject(e.target.value)} className={inputCls}>
-              {db.subjects.map(s => <option key={s.id}>{s.name}</option>)}
+            <select value={subject} onChange={e => setSubject(e.target.value)} className={inputCls} disabled={db.subjects.length === 0}>
+              {db.subjects.length === 0 && <option value="">No subjects yet — add them in Academic Setup</option>}
+              {db.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
             </select>
           </Field>
           <Field label="Assessment">
@@ -136,9 +170,9 @@ export function GradeUploadMod() {
                 placeholder={`/ ${max}`} className={`${inputCls} w-24 text-center`} inputMode="numeric" />
             </div>
           ))}
-          {classStudents.length === 0 && <Empty text="No students found for your class." />}
+          {classStudents.length === 0 && <Empty text={emptyText} />}
         </div>
-        <button onClick={save} className="btn-ink mt-6 w-full py-3.5 text-[14.5px] font-semibold">Publish grades</button>
+        <button onClick={save} disabled={!canPublish} className="btn-ink mt-6 w-full py-3.5 text-[14.5px] font-semibold disabled:opacity-40">Publish grades</button>
       </Card>
     </div>
   )
@@ -149,18 +183,22 @@ export function GradeUploadMod() {
 export function CreateAssignmentMod() {
   const { db, update } = useStore()
   const { term, setTerm } = useTerm()
-  const [subject, setSubject] = useState('Mathematics')
+  const [subjectPick, setSubject] = useState('')
+  const subject = db.subjects.some(s => s.name === subjectPick) ? subjectPick : (db.subjects[0]?.name ?? '')
   const [title, setTitle] = useState('')
   const [desc, setDesc] = useState('')
-  const [due, setDue] = useState('2026-04-20')
+  const [due, setDue] = useState(() => new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10))
+  const canPost = !!title.trim() && !!subject && !!term
+  const live = db.homework.filter(h => h.term === term)
 
   const create = () => {
+    if (!canPost) return
     update(d => {
       d.homework.unshift({ id: 'h' + Date.now(), subject, title, due, term, status: 'Pending', description: desc || '—' })
       return d
     })
     setTitle(''); setDesc('')
-    toast.success('Assignment posted to Class X-A')
+    toast.success('Assignment posted')
   }
 
   return (
@@ -172,20 +210,22 @@ export function CreateAssignmentMod() {
         <Card>
           <div className="space-y-4">
             <Field label="Subject">
-              <select value={subject} onChange={e => setSubject(e.target.value)} className={inputCls}>
-                {db.subjects.map(s => <option key={s.id}>{s.name}</option>)}
+              <select value={subject} onChange={e => setSubject(e.target.value)} className={inputCls} disabled={db.subjects.length === 0}>
+                {db.subjects.length === 0 && <option value="">No subjects yet — add them in Academic Setup</option>}
+                {db.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
               </select>
             </Field>
             <Field label="Title"><input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Circle theorems — worksheet 3" className={inputCls} /></Field>
             <Field label="Instructions"><textarea value={desc} onChange={e => setDesc(e.target.value)} rows={3} className={inputCls} /></Field>
             <Field label="Due date"><input type="date" value={due} onChange={e => setDue(e.target.value)} className={inputCls} /></Field>
-            <button onClick={create} disabled={!title.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Post assignment</button>
+            <button onClick={create} disabled={!canPost} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Post assignment</button>
           </div>
         </Card>
         <Card>
           <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Live for this term</p>
           <div className="space-y-3">
-            {db.homework.filter(h => h.term === term).map(h => (
+            {live.length === 0 && <Empty text="No assignments posted for this term yet." />}
+            {live.map(h => (
               <div key={h.id} className="flex items-center gap-3 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
                 <div className="flex-1">
                   <p className="text-[13.5px] font-semibold">{h.title}</p>
@@ -269,7 +309,7 @@ export function WorkAssignMod({ manage = false }: { manage?: boolean }) {
   const [title, setTitle] = useState('')
   const [event, setEvent] = useState('Tech Fest ‘26')
   const toggle = (id: string) => {
-    update(d => { const w = d.workAssign.find(x => x.id === id)!; w.status = w.status === 'Done' ? 'Assigned' : 'Done'; return d })
+    update(d => { const w = d.workAssign.find(x => x.id === id); if (w) w.status = w.status === 'Done' ? 'Assigned' : 'Done'; return d })
   }
   const create = () => {
     update(d => { d.workAssign.unshift({ id: 'w' + Date.now(), title, event, due: '2026-04-30', status: 'Assigned' }); return d })
@@ -294,6 +334,7 @@ export function WorkAssignMod({ manage = false }: { manage?: boolean }) {
             <Pill tone={statusTone(w.status)}>{w.status}</Pill>
           </Card>
         ))}
+        {db.workAssign.length === 0 && <div className="md:col-span-2"><Empty text={manage ? 'No duties generated yet.' : 'No event duties assigned to you yet.'} /></div>}
       </div>
       <Modal open={open} onClose={() => setOpen(false)} title="Generate duty">
         <div className="space-y-4">
@@ -382,6 +423,7 @@ export function RegistrationsMod({ kind, title, sub }: { kind: keyof typeof CATA
 
 export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
   const { db, update, user } = useStore()
+  const { classOf, wardsOf } = useAcademic()
   const [open, setOpen] = useState(false)
   const [kind, setKind] = useState<Application['kind']>('Bonafide')
   const [detail, setDetail] = useState('')
@@ -394,12 +436,13 @@ export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
     return db.applications.filter(a => {
       if (user.role === 'student') return a.name.includes(user.name)
       if (user.role === 'parent') {
-        const wards = (user.wards || '').split(',').map(w => w.trim()).filter(Boolean)
+        const wardNames = wardsOf(user.id).map(id => db.users.find(u => u.id === id)?.name).filter((n): n is string => !!n)
+        const wards = [...wardNames, ...(user.wards || '').split(',').map(w => w.trim()).filter(Boolean)]
         return wards.some(w => a.name.includes(w))
       }
       return false
     })
-  }, [db.applications, approver, user])
+  }, [db.applications, db.users, approver, user, wardsOf])
 
   const rows = useMemo(() => {
     if (kindFilter === 'All') return mine
@@ -408,7 +451,8 @@ export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
 
   const setStatus = (id: string, status: Application['status']) => {
     update(d => {
-      const a = d.applications.find(x => x.id === id)!
+      const a = d.applications.find(x => x.id === id)
+      if (!a) return d
       a.status = status
       a.notes = notes[id] ?? a.notes
       return d
@@ -418,8 +462,9 @@ export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
 
   const apply = () => {
     if (!user) return
+    const cls = classOf(user.id)?.label ?? user.class ?? ''
     update(d => {
-      const label = user.role === 'student' ? `${user.name} — ${user.class}${user.section ? '-' + user.section : ''}` : `${user.name} — ${user.title || user.role}`
+      const label = user.role === 'student' ? `${user.name}${cls ? ' — ' + cls : ''}` : `${user.name} — ${user.title || user.role}`
       d.applications.unshift({ id: 'ap' + Date.now(), kind, name: label, detail, date: new Date().toISOString().slice(0, 10), status: 'Pending', notes: '' })
       return d
     })
@@ -504,224 +549,261 @@ export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
 /* ── People management (students, teachers, staff, parents, admins) ── */
 
 type PeopleTabId = 'students' | 'teachers' | 'staff' | 'parents' | 'admins'
-type PeopleTab = { id: PeopleTabId; label: string; roles: Role[] }
+type PeopleTab = { id: PeopleTabId; label: string; singular: string; roles: Role[] }
 
 const ALL_TABS: PeopleTab[] = [
-  { id: 'students', label: 'Students', roles: ['student'] },
-  { id: 'teachers', label: 'Teachers', roles: ['teacher'] },
-  { id: 'staff', label: 'Staff', roles: ['staff'] },
-  { id: 'parents', label: 'Parents', roles: ['parent'] },
-  { id: 'admins', label: 'Admins', roles: ['admin', 'superadmin'] },
+  { id: 'students', label: 'Students', singular: 'student', roles: ['student'] },
+  { id: 'teachers', label: 'Teachers', singular: 'teacher', roles: ['teacher'] },
+  { id: 'staff', label: 'Staff', singular: 'staff', roles: ['staff'] },
+  { id: 'parents', label: 'Parents', singular: 'parent', roles: ['parent'] },
+  { id: 'admins', label: 'Admins', singular: 'admin', roles: ['admin', 'superadmin'] },
 ]
 
-function rolePassword(role: Role) {
-  if (role === 'superadmin') return 'principal123'
-  if (role === 'admin') return 'admin123'
-  if (role === 'staff') return 'staff123'
-  if (role === 'teacher') return 'teacher123'
-  if (role === 'parent') return 'parent123'
-  return 'student123'
+/** Placeholder hint only — the server derives the real default (server/src/userDefaults.ts). */
+function emailHint(name: string, role: Role) {
+  const base = name.trim().toLowerCase().replace(/[^a-z]+/g, '.').replace(/(^\.|\.$)/g, '') || 'first.last'
+  return role === 'parent' ? `parent.${base}@edunova.in` : `${base}@edunova.in`
 }
 
-function makeEmail(name: string, role: Role) {
-  const base = name.toLowerCase().replace(/[^a-z]+/g, '.').replace(/(^\.|\.$)/g, '')
-  if (role === 'parent') return `parent.${base}@edunova.in`
-  return `${base}@edunova.in`
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)
+
+interface PersonForm {
+  name: string
+  email: string
+  role: Role
+  // student
+  classId: string
+  rollNo: string
+  board: Board
+  dob: string
+  parentIds: string[]
+  // parent
+  studentIds: string[]
+  phone: string
+  // teacher
+  classTeacherOf: string
+  joinDate: string
+  salary: number
+  // staff / admin
+  department: string
+  designation: string
+}
+
+const emptyPersonForm = (role: Role): PersonForm => ({
+  name: '', email: '', role,
+  classId: '', rollNo: '', board: 'CBSE', dob: '', parentIds: [],
+  studentIds: [], phone: '',
+  classTeacherOf: '', joinDate: todayISO(), salary: 0,
+  department: '', designation: '',
+})
+
+function PickList({ items, selected, onToggle, empty }: { items: { id: string; label: string; sub?: string }[]; selected: string[]; onToggle: (id: string) => void; empty: string }) {
+  if (items.length === 0) return <p className="rounded-xl border border-dashed border-black/15 dark:border-white/15 px-3 py-2.5 text-[13px] text-black/45 dark:text-white/45">{empty}</p>
+  return (
+    <div className="grid max-h-48 grid-cols-1 gap-2 overflow-y-auto thin-scroll sm:grid-cols-2">
+      {items.map(it => (
+        <label key={it.id} className={`flex cursor-pointer items-center gap-2 rounded-xl border p-2.5 text-[13px] transition-colors ${selected.includes(it.id) ? 'border-indigo-300 bg-indigo-50/60 dark:border-indigo-500/40 dark:bg-indigo-500/10' : 'border-black/10 dark:border-white/15'}`}>
+          <input type="checkbox" checked={selected.includes(it.id)} onChange={() => onToggle(it.id)} />
+          <span className="min-w-0 flex-1 truncate font-medium">{it.label}</span>
+          {it.sub && <span className="shrink-0 text-[11.5px] text-black/45 dark:text-white/45">{it.sub}</span>}
+        </label>
+      ))}
+    </div>
+  )
+}
+
+function CredentialRow({ label, value }: { label: string; value: string }) {
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(value); toast.success(`${label} copied`) }
+    catch { toast.error('Could not copy — select the text manually') }
+  }
+  return (
+    <div className="flex items-center gap-3 rounded-2xl bg-black/[.04] dark:bg-white/[.06] px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-[11.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">{label}</p>
+        <p className="select-all truncate font-mono text-[14px]">{value}</p>
+      </div>
+      <button onClick={copy} className="flex items-center gap-1 rounded-full bg-white dark:bg-[#14141f] px-3 py-1.5 text-[12px] font-semibold ring-1 ring-black/10 dark:ring-white/15 hover:bg-black/[.04] dark:hover:bg-white/[.08]" title={`Copy ${label.toLowerCase()}`}>
+        <Copy size={13} /> Copy
+      </button>
+    </div>
+  )
 }
 
 export function PeopleMod() {
-  const { db, user, update, deleteUser } = useStore()
+  const { db, user, createUser, updateUser, deleteUser, refreshAcademic, refreshDB } = useStore()
+  const academic = useAcademic()
+  const { currentYear, classById, subjectById, classOf, wardsOf, classesTaughtBy } = academic
   const current = user!
   const isSuper = isSuperAdmin(current)
 
   const tabs = ALL_TABS.filter(t => t.id !== 'admins' || isSuper)
-  const [tab, setTab] = useState<PeopleTab['id']>('students')
+  const [tab, setTabState] = useState<PeopleTabId>('students')
 
   const [search, setSearch] = useState('')
   const [cls, setCls] = useState('')
-  const [section, setSection] = useState('')
   const [subject, setSubject] = useState('')
   const [department, setDepartment] = useState('')
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<User | null>(null)
+  const [saving, setSaving] = useState(false)
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [viewReportId, setViewReportId] = useState<string | null>(null)
+  const [created, setCreated] = useState<{ name: string; email: string; password: string } | null>(null)
 
-  const activeRoles = useMemo(() => ALL_TABS.find(t => t.id === tab)?.roles ?? ['student'], [tab])
+  const setTab = (t: PeopleTabId) => { setTabState(t); setCls(''); setSubject(''); setDepartment('') }
 
-  const { classOptions, sectionOptions, subjectOptions, departmentOptions } = useMemo(() => {
-    const pool = db.users.filter(u => activeRoles.includes(u.role))
-    const classes = Array.from(new Set(pool.map(u => u.class).filter(Boolean)))
-    const sections = Array.from(new Set(pool.map(u => u.section).filter(Boolean)))
-    const subjects = Array.from(new Set([...db.subjects.map(s => s.name), ...db.users.flatMap(u => u.subjects ?? [])]))
-    const departments = Array.from(new Set(db.users.map(u => u.department).filter(Boolean)))
-    return { classOptions: classes, sectionOptions: sections, subjectOptions: subjects, departmentOptions: departments }
-  }, [db.users, db.subjects, activeRoles])
+  const activeTab = tabs.find(t => t.id === tab) ?? tabs[0]
+  const activeRoles = activeTab.roles
 
-  const filtered = useMemo(() => {
-    return db.users.filter(u => {
-      if (!activeRoles.includes(u.role)) return false
-      if (cls && u.class !== cls) return false
-      if (section && u.section !== section) return false
-      if (subject && !(u.subjects?.includes(subject))) return false
-      if (department && u.department !== department) return false
-      if (search) {
-        const q = search.toLowerCase()
-        return u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
-      }
-      return true
-    })
-  }, [db.users, activeRoles, cls, section, subject, department, search])
+  /* ── entity lookups ── */
+  const yearClasses = useMemo(
+    () => academic.classes.filter(c => !currentYear || c.academicYearId === currentYear.id).slice().sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })),
+    [academic.classes, currentYear],
+  )
+  const userById = useMemo(() => new Map(db.users.map(u => [u.id, u])), [db.users])
+  const students = useMemo(() => db.users.filter(u => u.role === 'student').sort(byName), [db.users])
+  const parents = useMemo(() => db.users.filter(u => u.role === 'parent').sort(byName), [db.users])
 
-  // form state
-  const [form, setForm] = useState({
-    name: '',
-    role: 'student' as Role,
-    class: '',
-    section: '',
-    roll: '',
-    parentEmail: '',
-    board: 'CBSE' as Board,
-    subjects: [] as string[],
-    classTeacher: '',
-    joinDate: new Date().toISOString().slice(0, 10),
-    salary: 0,
-    department: '',
-    designation: '',
-    phone: '',
-    wards: '',
-  })
+  const enrollmentOf = (studentId: string) =>
+    academic.enrollments.find(e => e.studentId === studentId && e.status === 'active' && (!currentYear || e.academicYearId === currentYear.id))
+    ?? academic.enrollments.find(e => e.studentId === studentId)
+  const guardiansOf = (studentId: string) => academic.guardians.filter(g => g.studentId === studentId)
+  const classTeacherOf = (teacherId: string) => academic.classes.find(c => c.classTeacherId === teacherId)
+  const teachingOf = (teacherId: string) => academic.classSubjects
+    .filter(cs => cs.teacherId === teacherId)
+    .map(cs => ({ id: cs.id, label: `${subjectById.get(cs.subjectId)?.name ?? 'Subject'} · ${classById.get(cs.classId)?.label ?? '—'}` }))
+
+  const departmentOptions = useMemo(
+    () => Array.from(new Set(db.users.map(u => u.department).filter((d): d is string => !!d))).sort(),
+    [db.users],
+  )
+
+  const filtersActive = !!(search || cls || subject || department)
+  // Class option text: "X-A · CBSE" (plus " · Science" when the class has a stream)
+  const classOption = (c: { label: string; boardCode: string; stream?: string }) => `${c.label} · ${c.boardCode}${c.stream ? ' · ' + c.stream : ''}`
+
+  // Plain derivation (no manual useMemo): the React Compiler memoizes it, and the
+  // preserve-manual-memoization rule can't prove `activeRoles` stable otherwise.
+  const q = search.trim().toLowerCase()
+  const filtered = db.users.filter(u => {
+    if (!activeRoles.includes(u.role)) return false
+    if (cls) {
+      if (u.role === 'student' && classOf(u.id)?.id !== cls) return false
+      if (u.role === 'teacher' && !classesTaughtBy(u.id).some(c => c.id === cls)) return false
+    }
+    if (subject && u.role === 'teacher' && !academic.classSubjects.some(cs => cs.teacherId === u.id && cs.subjectId === subject)) return false
+    if (department && u.department !== department) return false
+    if (q) return u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+    return true
+  }).sort(byName)
+
+  /* ── form ── */
+  const [form, setForm] = useState<PersonForm>(() => emptyPersonForm('student'))
+  const patch = (p: Partial<PersonForm>) => setForm(f => ({ ...f, ...p }))
+  const toggleIn = (key: 'parentIds' | 'studentIds', id: string) =>
+    setForm(f => ({ ...f, [key]: f[key].includes(id) ? f[key].filter(x => x !== id) : [...f[key], id] }))
 
   const openAdd = () => {
-    const r = (tab === 'admins' ? 'admin' : tab) as Role
     setEditing(null)
-    setForm({
-      name: '',
-      role: r,
-      class: '',
-      section: '',
-      roll: '',
-      parentEmail: '',
-      board: 'CBSE',
-      subjects: [],
-      classTeacher: '',
-      joinDate: new Date().toISOString().slice(0, 10),
-      salary: 0,
-      department: '',
-      designation: '',
-      phone: '',
-      wards: '',
-    })
+    setForm(emptyPersonForm(tab === 'admins' ? 'admin' : activeTab.singular as Role))
     setModalOpen(true)
   }
 
   const openEdit = (u: User) => {
+    const e = enrollmentOf(u.id)
+    const c = classOf(u.id)
     setEditing(u)
     setForm({
+      ...emptyPersonForm(u.role),
       name: u.name,
-      role: u.role,
-      class: u.class ?? '',
-      section: u.section ?? '',
-      roll: u.roll ?? '',
-      parentEmail: u.parentEmail ?? '',
+      email: u.email,
+      classId: c && yearClasses.some(x => x.id === c.id) ? c.id : '',
+      rollNo: e?.rollNo ?? u.roll ?? '',
       board: u.board ?? 'CBSE',
-      subjects: u.subjects ?? [],
-      classTeacher: u.role === 'teacher' ? (u.class ?? '') : '',
-      joinDate: u.joinDate ?? new Date().toISOString().slice(0, 10),
+      dob: u.dob ?? '',
+      parentIds: guardiansOf(u.id).map(g => g.parentId),
+      studentIds: wardsOf(u.id),
+      phone: u.phone ?? '',
+      classTeacherOf: classTeacherOf(u.id)?.id ?? '',
+      joinDate: u.joinDate ?? todayISO(),
       salary: u.salary ?? 0,
       department: u.department ?? '',
       designation: u.designation ?? '',
-      phone: u.phone ?? '',
-      wards: u.wards ?? '',
     })
     setModalOpen(true)
   }
 
-  const buildTitle = (): string => {
-    switch (form.role) {
-      case 'student':
-        return `Class ${form.class}${form.section ? '-' + form.section : ''} · Roll ${form.roll}`
-      case 'teacher':
-        return `${form.subjects.join(', ') || '—'} · Class Teacher ${form.classTeacher || '—'}`
-      case 'staff':
-        return `${form.designation}${form.department ? ' · ' + form.department : ''}`
-      case 'admin':
-        return `${form.designation}${form.department ? ' · ' + form.department : ''}`
-      case 'parent':
-        return `Parent of ${form.wards || '—'}`
-      default:
-        return form.role
-    }
-  }
+  const noClassForStudent = form.role === 'student' && yearClasses.length === 0
+  const canSave = !!form.name.trim() && !saving && (form.role !== 'student' || !!form.classId)
 
-  const save = () => {
-    if (!form.name.trim()) return
-    const title = buildTitle()
-    if (editing) {
-      update(d => {
-        const u = d.users.find(x => x.id === editing.id)
-        if (!u) return d
-        u.name = form.name.trim()
-        u.title = title
-        u.role = form.role
+  const save = async () => {
+    if (!canSave) return
+    setSaving(true)
+    const name = form.name.trim()
+    try {
+      if (editing) {
+        const id = editing.id
+        let touchedAcademic = false
         if (form.role === 'student') {
-          u.class = form.class
-          u.section = form.section
-          u.roll = form.roll
-          u.parentEmail = form.parentEmail
-          u.board = form.board
-        } else if (form.role === 'teacher') {
-          u.subjects = form.subjects
-          u.class = form.classTeacher
-          u.joinDate = form.joinDate
-          u.salary = form.salary
-        } else if (form.role === 'staff') {
-          u.department = form.department
-          u.designation = form.designation
-          u.joinDate = form.joinDate
-        } else if (form.role === 'admin') {
-          u.designation = form.designation
-          u.department = form.department
+          await updateUser(id, { name, classId: form.classId, rollNo: form.rollNo.trim(), board: form.board, dob: form.dob || undefined })
+          const existing = guardiansOf(id)
+          const want = new Set(form.parentIds)
+          const toAdd = form.parentIds.filter(pid => !existing.some(g => g.parentId === pid))
+          const toRemove = existing.filter(g => !want.has(g.parentId))
+          if (toAdd.length || toRemove.length) {
+            await Promise.all([
+              ...toAdd.map(parentId => api.post('/academic/guardians', { parentId, studentId: id })),
+              ...toRemove.map(g => api.del('/academic/guardians/' + g.id)),
+            ])
+            touchedAcademic = true
+          }
         } else if (form.role === 'parent') {
-          u.phone = form.phone
-          u.wards = form.wards
+          await updateUser(id, { name, phone: form.phone.trim(), studentIds: form.studentIds })
+        } else if (form.role === 'teacher') {
+          const prev = classTeacherOf(id)
+          await updateUser(id, { name, joinDate: form.joinDate, salary: form.salary, classTeacherOf: form.classTeacherOf || undefined })
+          if (prev && !form.classTeacherOf) {
+            // Unassign: PATCH /users can only (re)assign, so clear the class directly.
+            await api.patch('/academic/classes/' + prev.id, { classTeacherId: null })
+            touchedAcademic = true
+          }
+        } else if (form.role === 'staff') {
+          await updateUser(id, { name, department: form.department, designation: form.designation.trim(), joinDate: form.joinDate })
+        } else {
+          await updateUser(id, { name, designation: form.designation.trim(), department: form.department })
         }
-        return d
-      })
-      toast.success(`${form.name} updated`)
-    } else {
-      const newUser: User = {
-        id: `u_${form.role}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        role: form.role,
-        name: form.name.trim(),
-        email: makeEmail(form.name.trim(), form.role),
-        password: rolePassword(form.role),
-        title,
-        avatarHue: Math.floor(Math.random() * 360),
-        verified: true,
-        class: form.role === 'student' ? form.class : form.role === 'teacher' ? form.classTeacher : undefined,
-        section: form.role === 'student' ? form.section : undefined,
-        roll: form.role === 'student' ? form.roll : undefined,
-        parentEmail: form.role === 'student' ? form.parentEmail : undefined,
-        board: form.role === 'student' ? form.board : undefined,
-        subjects: form.role === 'teacher' ? form.subjects : undefined,
-        joinDate: (form.role === 'teacher' || form.role === 'staff') ? form.joinDate : undefined,
-        salary: form.role === 'teacher' ? form.salary : undefined,
-        department: (form.role === 'staff' || form.role === 'admin') ? form.department : undefined,
-        designation: (form.role === 'staff' || form.role === 'admin') ? form.designation : undefined,
-        phone: form.role === 'parent' ? form.phone : undefined,
-        wards: form.role === 'parent' ? form.wards : undefined,
+        if (touchedAcademic) await Promise.all([refreshAcademic(), refreshDB()])
+        toast.success(`${name} updated`)
+      } else {
+        const email = form.email.trim() || undefined
+        const base = { role: form.role, name, email }
+        const input: CreateUserInput =
+          form.role === 'student' ? { ...base, classId: form.classId, rollNo: form.rollNo.trim() || undefined, board: form.board, dob: form.dob || undefined }
+          : form.role === 'parent' ? { ...base, phone: form.phone.trim() || undefined, studentIds: form.studentIds }
+          : form.role === 'teacher' ? { ...base, joinDate: form.joinDate, salary: form.salary, classTeacherOf: form.classTeacherOf || undefined }
+          : form.role === 'staff' ? { ...base, department: form.department || undefined, designation: form.designation.trim() || undefined, joinDate: form.joinDate }
+          : { ...base, designation: form.designation.trim() || undefined, department: form.department || undefined }
+        const res = await createUser(input)
+        if (form.role === 'student' && form.parentIds.length) {
+          await Promise.all(form.parentIds.map(parentId => api.post('/academic/guardians', { parentId, studentId: res.user.id })))
+          await Promise.all([refreshAcademic(), refreshDB()])
+        }
+        setCreated({ name: res.user.name, email: res.user.email, password: res.password })
+        toast.success(`${res.user.name} onboarded as ${res.user.role}`)
       }
-      update(d => { d.users.push(newUser); return d })
-      toast.success(`${newUser.name} onboarded as ${newUser.role}`)
+      setModalOpen(false)
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setSaving(false)
     }
-    setModalOpen(false)
   }
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!confirmId) return
-    const ok = deleteUser(confirmId)
+    const ok = await deleteUser(confirmId)
     if (ok) toast.success('Access revoked')
     else toast.error('Cannot delete yourself or the last superadmin')
     setConfirmId(null)
@@ -729,13 +811,82 @@ export function PeopleMod() {
 
   const canEdit = (u: User) => user ? canManage(user, u, db.users) : false
 
-  const tabLabel = tabs.find(t => t.id === tab)?.label ?? 'People'
+  const tabLabel = activeTab.label
+  const addBlocked = tab === 'students' && yearClasses.length === 0
+  const showClassFilter = (tab === 'students' || tab === 'teachers') && yearClasses.length > 0
+  const showSubjectFilter = tab === 'teachers' && academic.subjects.length > 0
+  const showDeptFilter = (tab === 'staff' || tab === 'admins') && departmentOptions.length > 0
+
+  const emptyText = filtersActive
+    ? 'No people match the filters.'
+    : tab === 'students'
+      ? (yearClasses.length === 0 ? 'No classes yet. Create a class in Academic Setup, then add students.' : 'No students yet. Add the first one.')
+      : `No ${tabLabel.toLowerCase()} yet.`
+
+  const roleTone = (r: Role) => r === 'student' ? 'sky' : r === 'teacher' ? 'indigo' : r === 'parent' ? 'green' : r === 'staff' ? 'amber' : 'rose'
+  const muted = 'text-[12.5px] text-black/50 dark:text-white/50'
+
+  const details = (u: User) => {
+    if (u.role === 'student') {
+      const c = classOf(u.id)
+      const e = enrollmentOf(u.id)
+      const gs = guardiansOf(u.id).map(g => userById.get(g.parentId)?.name).filter(Boolean)
+      return (
+        <>
+          <p className="flex flex-wrap items-center gap-1.5 font-medium">
+            <span>Class {c?.label ?? '—'}</span>
+            {c && <Pill tone="indigo">{c.boardCode}</Pill>}
+            {c?.stream && <Pill tone="sky">{c.stream}</Pill>}
+            <span>· Roll {e?.rollNo || '—'}</span>
+          </p>
+          <p className={muted}>Board: {u.board ?? '—'}{u.dob ? ` · DOB ${u.dob}` : ''}</p>
+          <p className={muted}>Parent(s): {gs.length ? gs.join(', ') : '—'}</p>
+        </>
+      )
+    }
+    if (u.role === 'teacher') {
+      const ct = classTeacherOf(u.id)
+      const t = teachingOf(u.id)
+      return (
+        <>
+          <p className="font-medium">Class teacher of {ct?.label ?? '—'}{u.salary ? ` · ${fmtINR(u.salary)}` : ''}</p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {t.length ? t.map(x => <Pill key={x.id} tone="indigo">{x.label}</Pill>) : <span className={muted}>No subjects assigned</span>}
+          </div>
+        </>
+      )
+    }
+    if (u.role === 'parent') {
+      const wards = wardsOf(u.id).map(id => userById.get(id)).filter((w): w is User => !!w)
+      return (
+        <>
+          <p className="font-medium">{wards.length ? `Parent of ${wards.map(w => w.name).join(', ')}` : 'No wards linked'}</p>
+          {wards.length > 0 && <p className={muted}>{wards.map(w => `${w.name} · ${classOf(w.id)?.label ?? '—'}`).join(' / ')}</p>}
+        </>
+      )
+    }
+    if (u.role === 'staff') {
+      return (
+        <>
+          <p className="font-medium">{u.designation || u.title || '—'}</p>
+          <p className={muted}>{u.department || '—'}{u.joinDate ? ` · since ${u.joinDate}` : ''}</p>
+        </>
+      )
+    }
+    return (
+      <>
+        <p className="font-medium">{u.designation || u.title || u.role}</p>
+        <p className={muted}>Access: {u.department || '—'}</p>
+      </>
+    )
+  }
 
   return (
     <div>
       <PageHead title="People Management" sub={`${tabLabel} · search, filter, add, edit and revoke access`}>
-        <button onClick={openAdd} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
-          <UserPlus size={15} /> Add person
+        <button onClick={openAdd} disabled={addBlocked} title={addBlocked ? 'Create a class first in Academic Setup' : undefined}
+          className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-40">
+          <UserPlus size={15} /> Add {activeTab.singular}
         </button>
       </PageHead>
 
@@ -756,32 +907,26 @@ export function PeopleMod() {
             <Search size={16} className="text-black/40 dark:text-white/40" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or email" className="flex-1 bg-transparent text-[14px] outline-none" />
           </div>
-          {classOptions.length > 0 && (
+          {showClassFilter && (
             <select value={cls} onChange={e => setCls(e.target.value)} className={inputCls + ' w-auto min-w-[120px]'}>
               <option value="">All classes</option>
-              {classOptions.map(c => <option key={c} value={c}>{c}</option>)}
+              {yearClasses.map(c => <option key={c.id} value={c.id}>{classOption(c)}</option>)}
             </select>
           )}
-          {sectionOptions.length > 0 && (
-            <select value={section} onChange={e => setSection(e.target.value)} className={inputCls + ' w-auto min-w-[120px]'}>
-              <option value="">All sections</option>
-              {sectionOptions.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          )}
-          {subjectOptions.length > 0 && (
+          {showSubjectFilter && (
             <select value={subject} onChange={e => setSubject(e.target.value)} className={inputCls + ' w-auto min-w-[140px]'}>
               <option value="">All subjects</option>
-              {subjectOptions.map(s => <option key={s} value={s}>{s}</option>)}
+              {academic.subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           )}
-          {departmentOptions.length > 0 && (
+          {showDeptFilter && (
             <select value={department} onChange={e => setDepartment(e.target.value)} className={inputCls + ' w-auto min-w-[140px]'}>
               <option value="">All departments</option>
               {departmentOptions.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           )}
-          {(search || cls || section || subject || department) && (
-            <button onClick={() => { setSearch(''); setCls(''); setSection(''); setSubject(''); setDepartment('') }}
+          {filtersActive && (
+            <button onClick={() => { setSearch(''); setCls(''); setSubject(''); setDepartment('') }}
               className="flex items-center gap-1 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3 py-1.5 text-[12px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
               <X size={13} /> Clear
             </button>
@@ -808,22 +953,14 @@ export function PeopleMod() {
                     <Avatar name={u.name} hue={u.avatarHue} size={40} />
                     <div>
                       <p className="font-semibold">{u.name}</p>
-                      <Pill tone={u.role === 'student' ? 'sky' : u.role === 'teacher' ? 'indigo' : u.role === 'parent' ? 'green' : u.role === 'staff' ? 'amber' : 'rose'}>{u.role}</Pill>
+                      <Pill tone={roleTone(u.role)}>{u.role}</Pill>
                     </div>
                   </div>
                 </td>
-                <td className="px-6 py-4">
-                  <p className="font-medium">{u.title}</p>
-                  {u.role === 'student' && <p className="text-[12.5px] text-black/50 dark:text-white/50">Board: {u.board ?? '—'} · Roll {u.roll ?? '—'}</p>}
-                  {u.role === 'teacher' && <p className="text-[12.5px] text-black/50 dark:text-white/50">Subjects: {u.subjects?.join(', ') || '—'} · Salary: {u.salary ? fmtINR(u.salary) : '—'}</p>}
-                  {u.role === 'staff' && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.designation}{u.department ? ' · ' + u.department : ''}</p>}
-                  {u.role === 'admin' && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.designation}{u.department ? ' · Access: ' + u.department : ''}</p>}
-                  {u.role === 'parent' && <p className="text-[12.5px] text-black/50 dark:text-white/50">Ward(s): {u.wards ?? '—'}</p>}
-                </td>
+                <td className="px-6 py-4">{details(u)}</td>
                 <td className="px-6 py-4">
                   <p className="text-[13.5px]">{u.email}</p>
-                  {u.phone && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.phone}</p>}
-                  {u.parentEmail && <p className="text-[12.5px] text-black/50 dark:text-white/50">Parent: {u.parentEmail}</p>}
+                  {u.phone && <p className={muted}>{u.phone}</p>}
                 </td>
                 <td className="px-6 py-4 text-right">
                   {canEdit(u) ? (
@@ -831,8 +968,8 @@ export function PeopleMod() {
                       {u.role === 'student' && (
                         <button onClick={() => setViewReportId(u.id)} className="rounded-full bg-indigo-50 dark:bg-indigo-500/10 p-2 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20" title="View full report"><FileBadge size={15} /></button>
                       )}
-                      <button onClick={() => openEdit(u)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15"><Pencil size={15} /></button>
-                      <button onClick={() => setConfirmId(u.id)} className="rounded-full bg-rose-50 p-2 text-rose-500 hover:bg-rose-100"><Trash2 size={15} /></button>
+                      <button onClick={() => openEdit(u)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15" title="Edit"><Pencil size={15} /></button>
+                      <button onClick={() => setConfirmId(u.id)} className="rounded-full bg-rose-50 p-2 text-rose-500 hover:bg-rose-100" title="Revoke access"><Trash2 size={15} /></button>
                     </div>
                   ) : (
                     <span className="text-[12px] text-black/40 dark:text-white/40">Protected</span>
@@ -842,7 +979,7 @@ export function PeopleMod() {
             ))}
           </tbody>
         </table>
-        {filtered.length === 0 && <div className="p-6"><Empty text="No people match the filters." /></div>}
+        {filtered.length === 0 && <div className="p-6"><Empty text={emptyText} /></div>}
       </Card>
 
       {/* mobile card list */}
@@ -853,16 +990,11 @@ export function PeopleMod() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
                 <p className="truncate font-semibold">{u.name}</p>
-                <Pill tone={u.role === 'student' ? 'sky' : u.role === 'teacher' ? 'indigo' : u.role === 'parent' ? 'green' : u.role === 'staff' ? 'amber' : 'rose'}>{u.role}</Pill>
+                <Pill tone={roleTone(u.role)}>{u.role}</Pill>
               </div>
-              <p className="mt-0.5 text-[12.5px] text-black/50 dark:text-white/50">{u.title}</p>
               <p className="truncate text-[13px]">{u.email}</p>
-              {u.phone && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.phone}</p>}
-              {u.role === 'student' && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.class}{u.section ? '-' + u.section : ''} · Roll {u.roll ?? '—'} · {u.board ?? '—'}</p>}
-              {u.role === 'teacher' && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.subjects?.join(', ') || '—'} · {u.salary ? fmtINR(u.salary) : '—'}</p>}
-              {u.role === 'staff' && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.designation}{u.department ? ' · ' + u.department : ''}</p>}
-              {u.role === 'admin' && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.designation}{u.department ? ' · ' + u.department : ''}</p>}
-              {u.role === 'parent' && <p className="text-[12.5px] text-black/50 dark:text-white/50">Ward(s): {u.wards ?? '—'}</p>}
+              {u.phone && <p className={muted}>{u.phone}</p>}
+              <div className="mt-1.5 text-[13px]">{details(u)}</div>
               {canEdit(u) && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {u.role === 'student' && (
@@ -875,55 +1007,103 @@ export function PeopleMod() {
             </div>
           </Card>
         ))}
-        {filtered.length === 0 && <Card><Empty text="No people match the filters." /></Card>}
+        {filtered.length === 0 && <Card><Empty text={emptyText} /></Card>}
       </div>
 
       {/* add/edit modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? `Edit ${form.name}` : 'Add person'} wide>
+      <Modal open={modalOpen} onClose={() => !saving && setModalOpen(false)} title={editing ? `Edit ${editing.name}` : `Add ${form.role}`} wide>
         <div className="space-y-4">
-          <Field label="Full name">
-            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Kavya Nair" className={inputCls} />
-          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Full name">
+              <input value={form.name} onChange={e => patch({ name: e.target.value })} placeholder="e.g. Kavya Nair" className={inputCls} autoFocus />
+            </Field>
+            {editing ? (
+              <Field label="Email"><input value={form.email} readOnly className={`${inputCls} bg-black/[.03] dark:bg-white/[.04] text-black/60 dark:text-white/60`} /></Field>
+            ) : (
+              <Field label="Email (optional)">
+                <input type="email" value={form.email} onChange={e => patch({ email: e.target.value })} placeholder={emailHint(form.name, form.role)} className={inputCls} />
+              </Field>
+            )}
+          </div>
 
-          <Field label="Role">
-            <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value as Role }))} disabled={!!editing} className={inputCls}>
-              {['student', 'teacher', 'staff', 'parent', 'admin'].map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </Field>
+          {!editing && (
+            <Field label="Role">
+              <select value={form.role} onChange={e => setForm(emptyPersonForm(e.target.value as Role))} className={inputCls}>
+                {(['student', 'teacher', 'staff', 'parent', ...(isSuper ? ['admin'] : [])] as Role[]).map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </Field>
+          )}
 
           {form.role === 'student' && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Class"><input value={form.class} onChange={e => setForm(f => ({ ...f, class: e.target.value }))} placeholder="e.g. X" className={inputCls} /></Field>
-              <Field label="Section"><input value={form.section} onChange={e => setForm(f => ({ ...f, section: e.target.value }))} placeholder="e.g. A" className={inputCls} /></Field>
-              <Field label="Roll number"><input value={form.roll} onChange={e => setForm(f => ({ ...f, roll: e.target.value }))} placeholder="e.g. 12" className={inputCls} /></Field>
-              <Field label="Parent email"><input value={form.parentEmail} onChange={e => setForm(f => ({ ...f, parentEmail: e.target.value }))} placeholder="parent@edunova.in" className={inputCls} /></Field>
-              <Field label="Board">
-                <select value={form.board} onChange={e => setForm(f => ({ ...f, board: e.target.value as Board }))} className={inputCls}>
-                  <option value="CBSE">CBSE</option>
-                  <option value="Matric">Matric</option>
-                </select>
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Class">
+                  {noClassForStudent ? (
+                    <p className="rounded-xl border border-dashed border-amber-300 bg-amber-50/50 dark:border-amber-500/40 dark:bg-amber-500/10 px-3 py-2.5 text-[13px] text-amber-800 dark:text-amber-300">Create a class first in Academic Setup.</p>
+                  ) : (
+                    <select value={form.classId} onChange={e => patch({ classId: e.target.value })} className={inputCls}>
+                      <option value="">Select class</option>
+                      {yearClasses.map(c => <option key={c.id} value={c.id}>{classOption(c)}</option>)}
+                    </select>
+                  )}
+                </Field>
+                <Field label="Roll number"><input value={form.rollNo} onChange={e => patch({ rollNo: e.target.value })} placeholder="e.g. 12" className={inputCls} /></Field>
+                <Field label="Board">
+                  <select value={form.board} onChange={e => patch({ board: e.target.value as Board })} className={inputCls}>
+                    <option value="CBSE">CBSE</option>
+                    <option value="Matric">Matric</option>
+                  </select>
+                </Field>
+                <Field label="Date of birth"><input type="date" value={form.dob} onChange={e => patch({ dob: e.target.value })} className={inputCls} /></Field>
+              </div>
+              <Field label="Parent(s) — optional">
+                <PickList
+                  items={parents.map(p => ({ id: p.id, label: p.name, sub: p.phone || p.email }))}
+                  selected={form.parentIds}
+                  onToggle={id => toggleIn('parentIds', id)}
+                  empty="No parent accounts yet. Add parents from the Parents tab and link them here later."
+                />
+              </Field>
+            </div>
+          )}
+
+          {form.role === 'parent' && (
+            <div className="space-y-4">
+              <Field label="Phone"><input value={form.phone} onChange={e => patch({ phone: e.target.value })} placeholder="+91 98765 43210" className={inputCls} /></Field>
+              <Field label="Wards">
+                <PickList
+                  items={students.map(s => ({ id: s.id, label: s.name, sub: classOf(s.id)?.label ?? 'No class' }))}
+                  selected={form.studentIds}
+                  onToggle={id => toggleIn('studentIds', id)}
+                  empty="No students yet. Add students first, then link them here."
+                />
               </Field>
             </div>
           )}
 
           {form.role === 'teacher' && (
             <div className="space-y-4">
-              <Field label="Subjects">
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {db.subjects.map(s => (
-                    <label key={s.id} className="flex items-center gap-2 rounded-xl border border-black/10 dark:border-white/15 p-2.5 text-[13px]">
-                      <input type="checkbox" checked={form.subjects.includes(s.name)} onChange={e => {
-                        setForm(f => ({ ...f, subjects: e.target.checked ? [...f.subjects, s.name] : f.subjects.filter(x => x !== s.name) }))
-                      }} />
-                      {s.name}
-                    </label>
-                  ))}
-                </div>
-              </Field>
               <div className="grid gap-3 sm:grid-cols-3">
-                <Field label="Class teacher of"><input value={form.classTeacher} onChange={e => setForm(f => ({ ...f, classTeacher: e.target.value }))} placeholder="e.g. X-A" className={inputCls} /></Field>
-                <Field label="Joining date"><input type="date" value={form.joinDate} onChange={e => setForm(f => ({ ...f, joinDate: e.target.value }))} className={inputCls} /></Field>
-                <Field label="Salary (₹)"><input type="number" value={form.salary} onChange={e => setForm(f => ({ ...f, salary: +e.target.value }))} className={inputCls} /></Field>
+                <Field label="Class teacher of">
+                  <select value={form.classTeacherOf} onChange={e => patch({ classTeacherOf: e.target.value })} className={inputCls}>
+                    <option value="">{yearClasses.length ? 'None' : 'No classes yet'}</option>
+                    {yearClasses.map(c => {
+                      const other = c.classTeacherId && c.classTeacherId !== editing?.id ? userById.get(c.classTeacherId)?.name : undefined
+                      return <option key={c.id} value={c.id}>{c.label}{other ? ` · currently ${other}` : ''}</option>
+                    })}
+                  </select>
+                </Field>
+                <Field label="Joining date"><input type="date" value={form.joinDate} onChange={e => patch({ joinDate: e.target.value })} className={inputCls} /></Field>
+                <Field label="Salary (₹)"><input type="number" value={form.salary} onChange={e => patch({ salary: +e.target.value })} className={inputCls} /></Field>
+              </div>
+              <div>
+                <span className="text-[13px] font-semibold text-black/60 dark:text-white/60">Subjects taught</span>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {editing && teachingOf(editing.id).length > 0
+                    ? teachingOf(editing.id).map(x => <Pill key={x.id} tone="indigo">{x.label}</Pill>)
+                    : <span className="text-[13px] text-black/45 dark:text-white/45">No subjects assigned yet.</span>}
+                </div>
+                <p className="mt-1.5 text-[12px] text-black/45 dark:text-white/45">Assign subjects in Classes & Sections → Subjects & teachers.</p>
               </div>
             </div>
           )}
@@ -931,25 +1111,21 @@ export function PeopleMod() {
           {form.role === 'staff' && (
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="Department">
-                <select value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} className={inputCls}>
+                <select value={form.department} onChange={e => patch({ department: e.target.value })} className={inputCls}>
                   <option value="">Select department</option>
-                  {departmentOptions.map(d => <option key={d} value={d}>{d}</option>)}
-                  <option value="Administration">Administration</option>
-                  <option value="Finance">Finance</option>
-                  <option value="Admissions">Admissions</option>
-                  <option value="Operations">Operations</option>
+                  {Array.from(new Set([...departmentOptions, 'Administration', 'Finance', 'Admissions', 'Operations'])).map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
               </Field>
-              <Field label="Designation"><input value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} placeholder="e.g. Office Superintendent" className={inputCls} /></Field>
-              <Field label="Joining date"><input type="date" value={form.joinDate} onChange={e => setForm(f => ({ ...f, joinDate: e.target.value }))} className={inputCls} /></Field>
+              <Field label="Designation"><input value={form.designation} onChange={e => patch({ designation: e.target.value })} placeholder="e.g. Office Superintendent" className={inputCls} /></Field>
+              <Field label="Joining date"><input type="date" value={form.joinDate} onChange={e => patch({ joinDate: e.target.value })} className={inputCls} /></Field>
             </div>
           )}
 
-          {form.role === 'admin' && (
+          {(form.role === 'admin' || form.role === 'superadmin') && (
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Designation"><input value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} placeholder="e.g. School Administrator" className={inputCls} /></Field>
+              <Field label="Designation"><input value={form.designation} onChange={e => patch({ designation: e.target.value })} placeholder="e.g. School Administrator" className={inputCls} /></Field>
               <Field label="Access scope">
-                <select value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} className={inputCls}>
+                <select value={form.department} onChange={e => patch({ department: e.target.value })} className={inputCls}>
                   <option value="">Select scope</option>
                   <option value="Full access">Full access</option>
                   <option value="Finance">Finance only</option>
@@ -960,18 +1136,31 @@ export function PeopleMod() {
             </div>
           )}
 
-          {form.role === 'parent' && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Phone"><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+91 98765 43210" className={inputCls} /></Field>
-              <Field label="Ward(s)"><input value={form.wards} onChange={e => setForm(f => ({ ...f, wards: e.target.value }))} placeholder="e.g. Aarav Sharma, Diya Patel" className={inputCls} /></Field>
-            </div>
+          {!editing && (
+            <p className="text-[12.5px] text-black/45 dark:text-white/45">A one-time password is generated on creation and shown once — copy it for the new user.</p>
           )}
 
           <div className="flex gap-3 pt-2">
-            <button onClick={save} disabled={!form.name.trim()} className="btn-ink flex-1 py-3 text-[14px] font-semibold disabled:opacity-40">{editing ? 'Save changes' : 'Create account'}</button>
-            <button onClick={() => setModalOpen(false)} className="rounded-xl bg-black/[.05] dark:bg-white/[.07] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">Cancel</button>
+            <button onClick={save} disabled={!canSave} className="btn-ink flex-1 py-3 text-[14px] font-semibold disabled:opacity-40">
+              {saving ? 'Saving…' : editing ? 'Save changes' : 'Create account'}
+            </button>
+            <button onClick={() => setModalOpen(false)} disabled={saving} className="rounded-xl bg-black/[.05] dark:bg-white/[.07] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:hover:bg-white/15 disabled:opacity-40">Cancel</button>
           </div>
         </div>
+      </Modal>
+
+      {/* one-time credentials */}
+      <Modal open={!!created} onClose={() => setCreated(null)} title="Account created">
+        {created && (
+          <div className="space-y-4">
+            <p className="text-[14px] leading-relaxed text-black/60 dark:text-white/60">
+              Share these credentials with <b>{created.name}</b>. The password is shown only once; they will be asked to change it on first login.
+            </p>
+            <CredentialRow label="Email" value={created.email} />
+            <CredentialRow label="Password" value={created.password} />
+            <button onClick={() => setCreated(null)} className="btn-ink w-full py-3 text-[14px] font-semibold">Done</button>
+          </div>
+        )}
       </Modal>
 
       {/* delete confirmation */}
@@ -996,14 +1185,16 @@ export function PeopleMod() {
 
 export function FeesMod() {
   const { db, update } = useStore()
-  const [label, setLabel] = useState('Lab & Activity Fee — Term 3')
+  const [label, setLabel] = useState('Lab & Activity Fee')
   const [amount, setAmount] = useState(6500)
+  const termId = defaultTermId(db.terms)
   const assign = () => {
+    if (!label.trim()) return
     update(d => {
-      d.receipts.push({ id: 'r' + Date.now(), label, date: new Date().toISOString().slice(0, 10), amount, status: 'Due', term: 't3', kind: 'fee' })
+      d.receipts.push({ id: 'r' + Date.now(), label: label.trim(), date: todayISO(), amount, status: 'Due', term: termId, kind: 'fee' })
       return d
     })
-    toast.success(`Fee assigned to all students: ${label}`)
+    toast.success(`Fee assigned to all students: ${label.trim()}`)
   }
   const fees = db.receipts.filter(r => r.kind === 'fee')
   return (
@@ -1015,11 +1206,13 @@ export function FeesMod() {
           <div className="space-y-4">
             <Field label="Fee head"><input value={label} onChange={e => setLabel(e.target.value)} className={inputCls} /></Field>
             <Field label="Amount (₹)"><input type="number" value={amount} onChange={e => setAmount(+e.target.value)} className={inputCls} /></Field>
-            <button onClick={assign} className="btn-ink w-full py-3 text-[14px] font-semibold">Assign to all classes</button>
+            <button onClick={assign} disabled={!label.trim() || !termId} title={termId ? undefined : 'Create a term first in Academic Setup'} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Assign to all classes</button>
+            {!termId && <p className="text-[12.5px] text-black/45 dark:text-white/45">Fees are tied to a term — create one in Academic Setup first.</p>}
           </div>
         </Card>
         <Card className="p-0">
           <p className="border-b border-black/[.06] dark:border-white/[.08] px-6 py-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Active fee heads</p>
+          {fees.length === 0 && <div className="p-6"><Empty text="No fee heads assigned yet." /></div>}
           {fees.map(f => (
             <div key={f.id} className="flex items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3.5 last:border-0">
               <span className="flex-1 text-[14px] font-medium">{f.label}</span>
@@ -1038,18 +1231,21 @@ export function FeesMod() {
 export function CalendarAdminMod() {
   const { db, update } = useStore()
   const [title, setTitle] = useState('')
-  const [date, setDate] = useState('2026-04-15')
+  const [date, setDate] = useState(todayISO)
   const [type, setType] = useState<'holiday' | 'exam' | 'event'>('event')
-  const [term, setTerm] = useState('t3')
+  const [termPick, setTerm] = useState('')
+  // Fall back to the current term whenever the picked one is unset or no longer exists.
+  const term = db.terms.some(t => t.id === termPick) ? termPick : defaultTermId(db.terms)
   const [editing, setEditing] = useState<CalEvent | null>(null)
 
   const reset = () => {
-    setTitle(''); setDate('2026-04-15'); setType('event'); setTerm('t3'); setEditing(null)
+    setTitle(''); setDate(todayISO()); setType('event'); setTerm(''); setEditing(null)
   }
 
   const matches = (a: CalEvent, b: CalEvent) => a.date === b.date && a.title === b.title && a.type === b.type && a.term === b.term
 
   const save = () => {
+    if (!title.trim() || !term) return
     update(d => {
       if (editing) {
         const idx = d.events.findIndex(e => matches(e, editing))
@@ -1096,13 +1292,15 @@ export function CalendarAdminMod() {
                 </select>
               </Field>
               <Field label="Term">
-                <select value={term} onChange={e => setTerm(e.target.value)} className={inputCls}>
+                <select value={term} onChange={e => setTerm(e.target.value)} className={inputCls} disabled={db.terms.length === 0}>
+                  {db.terms.length === 0 && <option value="">No terms yet</option>}
                   {db.terms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </Field>
             </div>
+            {db.terms.length === 0 && <p className="text-[12.5px] text-black/45 dark:text-white/45">Events belong to a term — create one in Academic Setup first.</p>}
             <div className="flex gap-2">
-              <button onClick={save} disabled={!title.trim()} className="btn-ink flex flex-1 items-center justify-center gap-2 py-3 text-[14px] font-semibold disabled:opacity-40">
+              <button onClick={save} disabled={!title.trim() || !term} className="btn-ink flex flex-1 items-center justify-center gap-2 py-3 text-[14px] font-semibold disabled:opacity-40">
                 <CalendarPlus size={16} /> {editing ? 'Update event' : 'Add to calendar'}
               </button>
               {editing && (
@@ -1114,6 +1312,7 @@ export function CalendarAdminMod() {
         <Card className="p-0">
           <p className="border-b border-black/[.06] dark:border-white/[.08] px-6 py-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Upcoming</p>
           <div className="max-h-[380px] overflow-y-auto thin-scroll">
+            {db.events.length === 0 && <div className="p-6"><Empty text="No calendar entries yet." /></div>}
             {db.events.map(e => (
               <div key={e.date + e.title + e.type} className="flex items-center gap-3 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3 last:border-0">
                 <span className="flex-1 text-[13.5px] font-medium">{e.title}</span>
@@ -1143,6 +1342,7 @@ function boardDetailStatusTone(s: BoardDetailStatus): 'amber' | 'green' | 'sky' 
 
 export function MarksheetMod() {
   const { db, update, user } = useStore()
+  const { currentYear, classOf, wardsOf, classesTaughtBy } = useAcademic()
   const [search, setSearch] = useState('')
   const [boardFilter, setBoardFilter] = useState<'All' | Board>('All')
   const [statusFilter, setStatusFilter] = useState<BoardDetailStatus | 'All'>('All')
@@ -1154,14 +1354,16 @@ export function MarksheetMod() {
     if (!user) return []
     if (user.role === 'student') return all.filter(s => s.id === user.id)
     if (user.role === 'parent') {
+      const wardIds = new Set(wardsOf(user.id))
       const wards = (user.wards || '').split(',').map(w => w.trim()).filter(Boolean)
-      return all.filter(s => s.parentEmail === user.email || wards.some(w => s.name.includes(w)))
+      return all.filter(s => wardIds.has(s.id) || s.parentEmail === user.email || wards.some(w => s.name.includes(w)))
     }
     if (user.role === 'teacher') {
-      return all.filter(s => s.class && user.class && s.class === user.class)
+      const mine = new Set(classesTaughtBy(user.id).map(c => c.id))
+      return all.filter(s => { const c = classOf(s.id); return !!c && mine.has(c.id) })
     }
     return all
-  }, [db.users, user])
+  }, [db.users, user, classOf, wardsOf, classesTaughtBy])
 
   const students = visibleStudents
   const selected = selectedId ? students.find(s => s.id === selectedId) : null
@@ -1184,17 +1386,18 @@ export function MarksheetMod() {
   const ensureDetail = (s: User): BoardDetail => {
     const existing = db.boardDetails[s.id]
     if (existing) return existing
+    const c = classOf(s.id)
     const created: BoardDetail = {
       studentId: s.id,
       name: s.name,
-      board: 'CBSE',
+      board: s.board ?? 'CBSE',
       registrationNo: '',
       schoolName: 'EduNova Senior Secondary School',
-      dob: '2010-01-01',
-      rollNo: '',
-      class: s.class ?? 'X',
-      section: s.section ?? 'A',
-      year: '2025-26',
+      dob: s.dob ?? '',
+      rollNo: s.roll ?? '',
+      class: c?.grade ?? s.class ?? '',
+      section: c?.section ?? s.section ?? '',
+      year: currentYear?.label ?? '',
       status: 'Draft',
     }
     update(d => { d.boardDetails[s.id] = created; return d })
@@ -1231,7 +1434,7 @@ export function MarksheetMod() {
           <div className="border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
             <p className="text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Students ({filtered.length})</p>
           </div>
-          {filtered.length === 0 && <div className="p-6"><Empty text="No students match the filters." /></div>}
+          {filtered.length === 0 && <div className="p-6"><Empty text={students.length === 0 ? 'No students yet.' : 'No students match the filters.'} /></div>}
           <div className="divide-y divide-black/[.05] dark:divide-white/[.07]">
             {filtered.map(s => {
               const d = db.boardDetails[s.id]
@@ -1241,7 +1444,7 @@ export function MarksheetMod() {
                   <Avatar name={s.name} hue={s.avatarHue} size={42} />
                   <div className="min-w-0 flex-1">
                     <p className="text-[15px] font-semibold">{s.name}</p>
-                    <p className="text-[12.5px] text-black/50 dark:text-white/50">{s.class}{s.section ? '-' + s.section : ''} · Roll {s.roll ?? '–'} · {d?.board}</p>
+                    <p className="text-[12.5px] text-black/50 dark:text-white/50">{classOf(s.id)?.label ?? s.class ?? '—'} · Roll {s.roll ?? '–'} · {d?.board}</p>
                   </div>
                   <Pill tone={boardDetailStatusTone(d?.status ?? 'Draft')}>{d?.status === 'SentToBoard' ? 'Sent' : d?.status}</Pill>
                 </button>
@@ -1276,6 +1479,7 @@ export function MarksheetMod() {
 
 function BoardDetailView({ student, detail, onEdit }: { student: User; detail: BoardDetail; onEdit: () => void }) {
   const { update, user } = useStore()
+  const { classOf } = useAcademic()
   const [mismatchNote, setMismatchNote] = useState(detail.mismatchNote || '')
 
   const nameMatch = detail.name.trim().toLowerCase() === student.name.trim().toLowerCase()
@@ -1337,7 +1541,7 @@ function BoardDetailView({ student, detail, onEdit }: { student: User; detail: B
           <Avatar name={student.name} hue={student.avatarHue} size={48} />
           <div>
             <p className="text-[17px] font-semibold">{student.name}</p>
-            <p className="text-[13px] text-black/50 dark:text-white/50">{student.class}{student.section ? '-' + student.section : ''} · Roll {student.roll ?? '–'}</p>
+            <p className="text-[13px] text-black/50 dark:text-white/50">{classOf(student.id)?.label ?? student.class ?? '—'} · Roll {student.roll ?? '–'}</p>
           </div>
         </div>
         <Pill tone={boardDetailStatusTone(detail.status)}>{detail.status === 'SentToBoard' ? 'Sent to board' : detail.status}</Pill>
@@ -1527,9 +1731,10 @@ function EditBoardDetailModal({ open, onClose, student, detail }: { open: boolea
 
 export function AttendanceMgmtMod() {
   const { db, update } = useStore()
+  const { classOf } = useAcademic()
   const { term, setTerm } = useTerm()
-  const termObj = db.terms.find(t => t.id === term)!
-  const bounds = termBounds(termObj)
+  const termObj = db.terms.find(t => t.id === term) ?? db.terms.find(t => t.id === defaultTermId(db.terms))
+  const bounds = termObj ? termBounds(termObj) : { start: todayISO(), end: '' }
 
   const [roleFilter, setRoleFilter] = useState<Role | 'all'>('all')
   const [groupFilter, setGroupFilter] = useState<string>('all')
@@ -1538,28 +1743,28 @@ export function AttendanceMgmtMod() {
   useEffect(() => { setDate(bounds.start) }, [bounds.start]) // eslint-disable-line react-hooks/set-state-in-effect
   useEffect(() => { setGroupFilter('all') }, [roleFilter]) // eslint-disable-line react-hooks/set-state-in-effect
 
+  // Students group by their enrolled class; teachers by legacy class-teacher label; others by department.
+  const groupOf = (u: User) => u.role === 'student' ? (classOf(u.id)?.label ?? u.class) : u.role === 'teacher' ? u.class : u.department
+
   const groupOptions = useMemo(() => {
     const groups = new Set<string>()
     db.users.forEach(u => {
       if (u.role === 'parent' || u.role === 'superadmin') return
       if (roleFilter !== 'all' && u.role !== roleFilter) return
-      const group = u.role === 'student' || u.role === 'teacher' ? u.class : u.department
+      const group = groupOf(u)
       if (group) groups.add(group)
     })
     return ['all', ...Array.from(groups).sort()]
-  }, [db.users, roleFilter])
+  }, [db.users, roleFilter, classOf]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const people = useMemo(() => {
     return db.users.filter(u => {
       if (u.role === 'parent' || u.role === 'superadmin') return false
       if (roleFilter !== 'all' && u.role !== roleFilter) return false
-      if (groupFilter !== 'all') {
-        const group = u.role === 'student' || u.role === 'teacher' ? u.class : u.department
-        return group === groupFilter
-      }
+      if (groupFilter !== 'all') return groupOf(u) === groupFilter
       return true
     })
-  }, [db.users, roleFilter, groupFilter])
+  }, [db.users, roleFilter, groupFilter, classOf]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const personStatus = useMemo(() => {
     const map: Record<string, AttendanceStatus> = {}
@@ -1598,14 +1803,14 @@ export function AttendanceMgmtMod() {
 
   return (
     <div>
-      <PageHead title="Attendance Management" sub={`Daily attendance · ${termObj.name}`}>
+      <PageHead title="Attendance Management" sub={`Daily attendance · ${termObj?.name ?? 'No term set up yet'}`}>
         <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
       </PageHead>
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
         <Card>
           <Field label="Date">
-            <input type="date" value={date} min={bounds.start} max={bounds.end} onChange={e => setDate(e.target.value)} className={inputCls} />
+            <input type="date" value={date} min={termObj ? bounds.start : undefined} max={termObj ? bounds.end : undefined} onChange={e => setDate(e.target.value)} className={inputCls} />
           </Field>
         </Card>
         <Card>
@@ -1648,7 +1853,7 @@ export function AttendanceMgmtMod() {
             <p className="text-[14px] font-semibold">{people.length} people</p>
             {isHoliday && <Pill tone="rose">Holiday</Pill>}
           </div>
-          <button onClick={save} className="btn-ink px-5 py-2.5 text-[13.5px] font-semibold">Save attendance</button>
+          <button onClick={save} disabled={people.length === 0} className="btn-ink px-5 py-2.5 text-[13.5px] font-semibold disabled:opacity-40">Save attendance</button>
         </div>
         {people.map((p, i) => (
           <div key={p.id} className="flex flex-wrap items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3.5 last:border-0">
@@ -1656,7 +1861,7 @@ export function AttendanceMgmtMod() {
             <Avatar name={p.name} hue={p.avatarHue} size={36} />
             <div className="flex-1">
               <p className="text-[14px] font-semibold">{p.name}</p>
-              <p className="text-[12px] text-black/45 dark:text-white/45">{p.role}{p.class ? ` · ${p.class}` : p.department ? ` · ${p.department}` : ''}</p>
+              <p className="text-[12px] text-black/45 dark:text-white/45">{p.role}{groupOf(p) ? ` · ${groupOf(p)}` : ''}</p>
             </div>
             <div className="flex gap-1">
               {(['P', 'A', 'L', 'H'] as AttendanceStatus[]).map(s => (

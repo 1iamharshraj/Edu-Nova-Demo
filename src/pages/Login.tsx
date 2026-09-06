@@ -32,11 +32,16 @@ export default function Login() {
     setRole(r); setEmail(cfg.email); setPass(cfg.pass); setError('')
   }
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const u = login(email, pass)
-    if (u) navigate('/portal')
-    else setError('Those credentials don’t match any EduNova account. Try the demo login.')
+    setError('')
+    try {
+      const u = await login(email, pass)
+      if (u) navigate('/portal')
+      else setError('Those credentials don’t match any EduNova account. Try the demo login.')
+    } catch {
+      setError('Those credentials don’t match any EduNova account. Try the demo login.')
+    }
   }
 
   return (
@@ -60,7 +65,7 @@ export default function Login() {
             One login.<br />The whole <span className="text-grad">school day</span>.
           </h1>
           <p className="mt-5 max-w-md text-lg leading-relaxed text-black/60 dark:text-white/60">
-            Pick a role to step into its portal — demo credentials are filled in for you.
+            Pick a role to prefill its demo account. Demo accounts exist once a superadmin loads the sample school from Settings; a fresh school has only the principal.
           </p>
           <div className="mt-8 space-y-3">
             {ROLES.map((r) => (
@@ -117,7 +122,7 @@ export default function Login() {
               Sign in <ArrowRight size={17} />
             </button>
             <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-[12.5px] text-black/45 dark:text-white/45">
-              <ShieldCheck size={14} className="text-emerald-600" /> Demo build — all data stays in your browser.
+              <ShieldCheck size={14} className="text-emerald-600" /> Signed in securely — data is stored on the EduNova server.
             </p>
           </form>
         </div>

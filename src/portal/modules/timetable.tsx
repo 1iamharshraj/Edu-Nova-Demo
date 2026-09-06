@@ -1,9 +1,9 @@
 import { Fragment, useMemo, useState } from 'react'
-import { useStore } from '@/lib/store'
+import { useAcademic, useStore } from '@/lib/store'
 import { DAYS, TIMESLOTS } from '@/lib/data'
 import type { Subject, TTCell } from '@/lib/data'
-import { Card, PageHead, TermTabs } from '../ui'
-import { useTerm } from '../Portal'
+import { Card, Empty, PageHead, TermTabs } from '../ui'
+import { useActiveTerm, useViewedStudent } from './viewer'
 import { Coffee, Sun, Utensils, Clock, MapPin, User } from 'lucide-react'
 
 const BREAK_META: Record<string, { icon: React.ReactNode; bg: string; text: string }> = {
@@ -18,10 +18,22 @@ function isBreak(cell: TTCell | undefined) {
 }
 
 export function TimetableMod() {
-  const { db } = useStore()
-  const { term, setTerm } = useTerm()
+  const { db, user } = useStore()
+  const { term, setTerm } = useActiveTerm()
+  const { classOf } = useAcademic()
+  const viewed = useViewedStudent()
   const grid = db.timetable[term] ?? []
   const [dayIdx, setDayIdx] = useState(0)
+
+  const who = (() => {
+    if (user?.role === 'teacher') return 'My timetable'
+    if (user?.role === 'student' || user?.role === 'parent') {
+      const label = viewed ? (classOf(viewed.id)?.label ?? viewed.class) : undefined
+      return label ? `Class ${label}` : 'Timetable'
+    }
+    return 'Timetable'
+  })()
+  const hasGrid = grid.some(day => day && day.length > 0)
 
   const subjects = useMemo(() => {
     const map = new Map<string, Subject>()
@@ -34,12 +46,14 @@ export function TimetableMod() {
 
   return (
     <div>
-      <PageHead title="Timetable" sub="Class X-A · 09:00 to 17:00 · breaks highlighted">
+      <PageHead title="Timetable" sub={`${who} · 09:00 to 17:00 · breaks highlighted`}>
         <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
       </PageHead>
 
+      {!hasGrid && <Empty text="No timetable published for this term yet." />}
+
       {/* Desktop */}
-      <Card className="hidden md:block overflow-hidden p-0">
+      {hasGrid && <Card className="hidden md:block overflow-hidden p-0">
         <div className="overflow-x-auto thin-scroll">
           <div className="min-w-[980px] p-4 lg:min-w-0">
             {/* header */}
@@ -74,14 +88,14 @@ export function TimetableMod() {
                   </div>
                   {TIMESLOTS.map(slot => {
                     const cell = grid[di]?.find(c => c.time === slot.time)
-                    if (!cell) return <div key={`${day}-${slot.time}`} className="rounded-xl border border-dashed border-black/[.08] dark:border-white/[.10] bg-black/[.02] dark:bg-white/[.03]" />
+                    if (!cell) return <div key={`${day}-${slot.time}`} className="min-h-[92px] rounded-xl border border-dashed border-black/[.08] dark:border-white/[.10] bg-black/[.02] dark:bg-white/[.03]" />
 
                     if (isBreak(cell)) {
                       const meta = BREAK_META[cell.subject]
                       return (
                         <div
                           key={`${day}-${slot.time}`}
-                          className={`flex flex-col items-center justify-center gap-1 rounded-xl border border-transparent ${meta.bg} py-4 text-center`}
+                          className={`flex min-h-[92px] flex-col items-center justify-center gap-1 rounded-xl border border-transparent ${meta.bg} py-4 text-center`}
                         >
                           <span className={meta.text}>{meta.icon}</span>
                           <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.text}`}>{cell.subject}</span>
@@ -94,41 +108,26 @@ export function TimetableMod() {
                     return (
                       <div
                         key={`${day}-${slot.time}`}
-                        className="group relative overflow-hidden rounded-xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-3 transition-all hover:shadow-md"
+                        title={`${cell.subject} · ${slot.time}${slot.duration ? ` (${slot.duration})` : ''} · ${cell.room} · ${sub?.teacher ?? '—'}`}
+                        className="relative flex min-h-[92px] flex-col overflow-hidden rounded-xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-3 transition-shadow hover:shadow-md"
                       >
                         <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: col }} />
-                        {/* default compact view */}
-                        <div className="transition-opacity group-hover:opacity-0">
-                          <p className="pl-2.5 text-[13px] font-semibold leading-tight" style={{ color: col }}>
-                            {cell.subject}
-                          </p>
-                          <p className="mt-1 pl-2.5 text-[11px] text-black/50 dark:text-white/50 truncate">
-                            {sub?.teacher ?? '—'}
-                          </p>
-                          <div className="mt-2 pl-2.5">
-                            <span className="inline-block rounded-md bg-black/[.04] dark:bg-white/[.06] px-1.5 py-0.5 text-[10px] font-semibold text-black/50 dark:text-white/50">
-                              {cell.room}
-                            </span>
-                          </div>
-                        </div>
-                        {/* hover detail overlay */}
-                        <div className="absolute inset-0 z-10 flex flex-col justify-center gap-1.5 rounded-xl bg-white/95 dark:bg-[#14141f]/95 p-3 opacity-0 transition-opacity group-hover:opacity-100">
-                          <div className="flex items-center gap-2">
-                            <div className="h-2 w-2 rounded-full" style={{ background: col }} />
-                            <p className="text-[13px] font-semibold" style={{ color: col }}>{cell.subject}</p>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-[11px] text-black/60 dark:text-white/60">
-                            <Clock size={12} />
-                            <span>{slot.time}{slot.duration ? ` · ${slot.duration}` : ''}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-[11px] text-black/60 dark:text-white/60">
-                            <MapPin size={12} />
-                            <span>{cell.room}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-[11px] text-black/60 dark:text-white/60">
-                            <User size={12} />
-                            <span className="truncate">{sub?.teacher ?? '—'}</span>
-                          </div>
+                        <p className="pl-2.5 text-[13px] font-semibold leading-tight" style={{ color: col }} title={cell.subject}>
+                          {cell.subject}
+                        </p>
+                        <p className="mt-1 flex items-center gap-1 pl-2.5 text-[11px] text-black/50 dark:text-white/50 truncate">
+                          <User size={11} className="shrink-0" />
+                          <span className="truncate">{sub?.teacher ?? '—'}</span>
+                        </p>
+                        <div className="mt-auto flex items-center gap-1.5 pl-2.5 pt-2">
+                          <span className="inline-flex items-center gap-1 rounded-md bg-black/[.04] dark:bg-white/[.06] px-1.5 py-0.5 text-[10px] font-semibold text-black/50 dark:text-white/50">
+                            <MapPin size={10} />
+                            {cell.room}
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[10px] text-black/40 dark:text-white/40">
+                            <Clock size={10} />
+                            {slot.time}
+                          </span>
                         </div>
                       </div>
                     )
@@ -138,10 +137,10 @@ export function TimetableMod() {
             </div>
           </div>
         </div>
-      </Card>
+      </Card>}
 
       {/* Mobile */}
-      <div className="md:hidden">
+      {hasGrid && <div className="md:hidden">
         <div className="mb-4 grid grid-cols-5 gap-2">
           {DAYS.map((d, i) => (
             <button
@@ -189,7 +188,7 @@ export function TimetableMod() {
             )
           })}
         </div>
-      </div>
+      </div>}
 
       {/* Legend */}
       <div className="mt-4 flex flex-wrap gap-2 rounded-2xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-4">
@@ -199,10 +198,12 @@ export function TimetableMod() {
             <span className="text-[12px] font-medium text-black/70 dark:text-white/70">{s.name}</span>
           </div>
         ))}
-        <div className="flex items-center gap-2 rounded-full bg-amber-50 dark:bg-amber-500/10 px-3 py-1.5">
-          <Sun size={12} className="text-amber-600 dark:text-amber-400" />
-          <span className="text-[12px] font-medium text-amber-700 dark:text-amber-300">Break</span>
-        </div>
+        {Object.entries(BREAK_META).map(([label, meta]) => (
+          <div key={label} className={`flex items-center gap-2 rounded-full px-3 py-1.5 ${meta.bg}`}>
+            <span className={meta.text}>{meta.icon}</span>
+            <span className={`text-[12px] font-medium ${meta.text}`}>{label}</span>
+          </div>
+        ))}
       </div>
     </div>
   )

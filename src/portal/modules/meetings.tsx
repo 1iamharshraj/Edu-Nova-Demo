@@ -3,6 +3,7 @@ import { Calendar, Check, Link as LinkIcon, Plus, Video, X } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import type { MeetingRequest, MeetingStatus, Role } from '@/lib/data'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, inputCls, statusTone } from '../ui'
+import { useViewedStudents } from './viewer'
 import { toast } from 'sonner'
 
 const canRequest: Role[] = ['parent', 'student', 'teacher']
@@ -29,7 +30,12 @@ export function MeetingsMod() {
   const [filter, setFilter] = useState<MeetingStatus | 'All'>('All')
 
   const teachers = useMemo(() => db.users.filter(u => u.role === 'teacher'), [db.users])
-  const students = useMemo(() => db.users.filter(u => u.role === 'student'), [db.users])
+  const ownStudents = useViewedStudents()
+  // students/parents can only request meetings about themselves / their wards; staff pick from everyone
+  const students = useMemo(
+    () => (ownStudents.length ? ownStudents : db.users.filter(u => u.role === 'student')),
+    [db.users, ownStudents],
+  )
 
   const role = user?.role
   const requester = canRequest.includes(role ?? 'parent')
@@ -173,11 +179,13 @@ export function MeetingsMod() {
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Teacher">
               <select value={teacherId} onChange={e => setTeacherId(e.target.value)} className={inputCls}>
+                {teachers.length === 0 && <option value="">No teachers yet</option>}
                 {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </Field>
             <Field label="Student">
               <select value={studentId} onChange={e => setStudentId(e.target.value)} className={inputCls}>
+                {students.length === 0 && <option value="">No students yet</option>}
                 {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </Field>

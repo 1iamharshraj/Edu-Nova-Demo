@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Check, ChevronRight, FileText, Gavel, Lock, Plus, ShieldAlert, Upload } from 'lucide-react'
-import { useStore } from '@/lib/store'
+import { useAcademic, useStore } from '@/lib/store'
 import { canManageDisciplinary } from '@/lib/access'
 import { type DisciplinaryAction, type DisciplinaryCase, type DisciplinaryStatus } from '@/lib/data'
 import { Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
@@ -28,6 +28,7 @@ function statusToneDisciplinary(s: DisciplinaryStatus): 'amber' | 'rose' | 'gree
 
 export function DisciplinaryCommitteeMod() {
   const { db, user, update } = useStore()
+  const { wardsOf } = useAcademic()
   const [createOpen, setCreateOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState<DisciplinaryCase | null>(null)
   const [editStatus, setEditStatus] = useState<DisciplinaryStatus | null>(null)
@@ -53,11 +54,12 @@ export function DisciplinaryCommitteeMod() {
     if (canManage) return db.disciplinaryCases
     if (user.role === 'student') return db.disciplinaryCases.filter(c => c.studentId === user.id)
     if (user.role === 'parent') {
-      const children = students.filter(s => s.parentEmail === user.email).map(s => s.id)
+      const wards = wardsOf(user.id)
+      const children = wards.length ? wards : students.filter(s => s.parentEmail === user.email).map(s => s.id)
       return db.disciplinaryCases.filter(c => children.includes(c.studentId))
     }
     return []
-  }, [db.disciplinaryCases, user, canManage, students])
+  }, [db.disciplinaryCases, user, canManage, students, wardsOf])
 
   const resetForm = () => {
     setFormStudent('')

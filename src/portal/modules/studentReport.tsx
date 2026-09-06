@@ -3,9 +3,12 @@ import { Download, FileText, HeartPulse, Phone, School, TrendingUp, Users } from
 import { useStore } from '@/lib/store'
 import { fmtINR, gradeFor, pctFor } from '@/lib/data'
 import { Card, Empty, PageHead, Pill, Progress } from '../ui'
+import { useViewedStudents } from './viewer'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar, Legend,
 } from 'recharts'
+
+const HEALTH_PRIVACY_NOTE = 'Health records are shared only with the student and guardians'
 
 interface StudentReportModProps {
   studentId: string
@@ -13,8 +16,11 @@ interface StudentReportModProps {
 
 export function StudentReportMod({ studentId }: StudentReportModProps) {
   const { db } = useStore()
+  const viewedStudents = useViewedStudents()
   const student = db.users.find(u => u.id === studentId && u.role === 'student')
   const board = db.boardDetails[studentId]
+  // Health records carry no studentId yet (Phase 8) — only the student themself or their guardians may see them.
+  const canSeeHealth = viewedStudents.some(s => s.id === studentId)
 
   const attendanceRecords = db.attendanceRecords.filter(r => r.userId === studentId)
   const attendanceSummary = useMemo(() => {
@@ -78,7 +84,7 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
   const calls = db.aiParentCalls.filter(c => c.studentId === studentId)
   const disciplinary = db.disciplinaryCases.filter(c => c.studentId === studentId)
   const certificates = db.applications.filter(a => a.studentId === studentId)
-  const healthRecords = db.health
+  const healthRecords = canSeeHealth ? db.health : []
 
   if (!student) {
     return (
@@ -138,7 +144,7 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
       ...(certificates.length ? certificates.map(c => `  ${c.kind} · ${c.name} · ${c.status}`) : ['  None']),
       ``,
       `Health records`,
-      ...(healthRecords.length ? healthRecords.map(h => `  ${h.date}: ${h.label} — ${h.detail}`) : ['  None']),
+      ...(!canSeeHealth ? [`  ${HEALTH_PRIVACY_NOTE}`] : healthRecords.length ? healthRecords.map(h => `  ${h.date}: ${h.label} — ${h.detail}`) : ['  None']),
     ]
     const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
@@ -404,7 +410,9 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
         </Card>
         <Card>
           <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><HeartPulse size={15} /> Health records</p>
-          {healthRecords.length > 0 ? (
+          {!canSeeHealth ? (
+            <Empty text={HEALTH_PRIVACY_NOTE} />
+          ) : healthRecords.length > 0 ? (
             <div className="space-y-3">
               {healthRecords.map(h => (
                 <div key={h.id} className="flex items-center justify-between rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">

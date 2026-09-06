@@ -294,6 +294,55 @@ export interface DB {
   studentProfileReports: StudentProfileReport[]
 }
 
+// ─────────────────────────────────────────────────────────────
+// Phase 1 — real academic entities (server-backed). See .agents/edunova/phase-0-1-contract.md
+// ─────────────────────────────────────────────────────────────
+export interface AcademicYear { id: string; label: string; startDate: string; endDate: string; isCurrent: boolean }
+export interface TermRec { id: string; academicYearId: string; name: string; startDate: string; endDate: string; isCurrent: boolean }
+export interface BoardRec { id: string; name: string; code: string }
+export interface Grade { id: string; label: string; order: number }
+export interface Stream { id: string; name: string }
+export type CurriculumKind = 'core' | 'elective' | 'language'
+export interface CurriculumSubject { id: string; boardId: string; gradeId: string; streamId?: string; subjectId: string; kind: CurriculumKind; textbook?: string; syllabusRef?: string }
+export interface ClassRec {
+  id: string
+  academicYearId: string
+  boardId: string
+  boardCode: string
+  gradeId: string
+  grade: string
+  streamId?: string
+  stream?: string
+  section: string
+  label: string
+  classTeacherId?: string
+  capacity?: number
+}
+export interface SubjectRec { id: string; name: string; code: string; color: string }
+export interface ClassSubject { id: string; classId: string; subjectId: string; teacherId?: string; periodsPerWeek: number }
+export type RoomKind = 'classroom' | 'lab' | 'ground' | 'hall' | 'other'
+export interface Room { id: string; name: string; kind: RoomKind; capacity?: number }
+export interface Enrollment { id: string; studentId: string; classId: string; academicYearId: string; rollNo?: string; status: 'active' | 'transferred' | 'graduated' }
+export interface Guardian { id: string; parentId: string; studentId: string; relation: string }
+export interface AcademicState {
+  years: AcademicYear[]
+  terms: TermRec[]
+  boards: BoardRec[]
+  grades: Grade[]
+  streams: Stream[]
+  curriculum: CurriculumSubject[]
+  classes: ClassRec[]
+  subjects: SubjectRec[]
+  classSubjects: ClassSubject[]
+  rooms: Room[]
+  enrollments: Enrollment[]
+  guardians: Guardian[]
+}
+export const emptyAcademic = (): AcademicState => ({
+  years: [], terms: [], boards: [], grades: [], streams: [], curriculum: [],
+  classes: [], subjects: [], classSubjects: [], rooms: [], enrollments: [], guardians: [],
+})
+
 export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 export const TIMESLOTS = [
   { time: '09:00', label: '09:00', kind: 'class' as const },
@@ -751,11 +800,7 @@ export function seedDB(): DB {
   }
 }
 
-export const HIGHLIGHTS = [
-  { id: 'y1', title: 'Annual Sports Day 2026 — Official Aftermovie', yt: 'dQw4w9WgXcQ', date: 'Apr 2026' },
-  { id: 'y2', title: 'Tech Fest ‘26 — Drone Show Finale', yt: 'dQw4w9WgXcQ', date: 'Apr 2026' },
-  { id: 'y3', title: 'Founders’ Day — Choir & Orchestra', yt: 'dQw4w9WgXcQ', date: 'Dec 2025' },
-  { id: 'y4', title: 'Science Exhibition Walkthrough', yt: 'dQw4w9WgXcQ', date: 'Feb 2026' },
-]
+// Event highlights become an admin-managed CMS in Phase 9. Until then there is no placeholder media.
+export const HIGHLIGHTS: { id: string; title: string; yt: string; date: string }[] = []
 
 export const fmtINR = (n: number) => '₹' + n.toLocaleString('en-IN')

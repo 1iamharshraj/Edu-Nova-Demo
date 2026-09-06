@@ -3,14 +3,15 @@ import { Award, CheckCircle2, CloudUpload, Download, FileSignature, FileText, Pl
 import { useStore } from '@/lib/store'
 import { fmtINR } from '@/lib/data'
 import { Card, Empty, Field, Modal, PageHead, Pill, TermTabs, VerifyButton, inputCls, statusTone } from '../ui'
-import { useTerm } from '../Portal'
+import { firstName, useActiveTerm, useViewedStudents } from './viewer'
 import { toast } from 'sonner'
 
 /* ── Homework ──────────────────────────────────────────── */
 
 export function HomeworkMod({ uploader = false }: { uploader?: boolean }) {
   const { db, update } = useStore()
-  const { term, setTerm } = useTerm()
+  const { term, setTerm } = useActiveTerm()
+  const ward = useViewedStudents()[0]
   const [subject, setSubject] = useState('All')
   const items = db.homework.filter(h => h.term === term && (subject === 'All' || h.subject === subject))
   const subjects = ['All', ...new Set(db.homework.filter(h => h.term === term).map(h => h.subject))]
@@ -22,7 +23,7 @@ export function HomeworkMod({ uploader = false }: { uploader?: boolean }) {
 
   return (
     <div>
-      <PageHead title="Homework & Assignments" sub={uploader ? 'Upload your work before the deadline' : 'Track Aarav’s submission status'}>
+      <PageHead title="Homework & Assignments" sub={uploader ? 'Upload your work before the deadline' : ward ? `Track ${firstName(ward.name)}’s submission status` : 'Track submission status'}>
         <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
       </PageHead>
       <div className="mb-5 flex flex-wrap gap-2">
@@ -70,6 +71,7 @@ export function SlipsMod() {
     <div>
       <PageHead title="Permission Slips" sub="Each approval is stamped with your verified identity" />
       <div className="grid gap-4 md:grid-cols-2">
+        {db.slips.length === 0 && <div className="md:col-span-2"><Empty text="No permission slips yet." /></div>}
         {db.slips.map(s => (
           <Card key={s.id}>
             <div className="flex items-start justify-between gap-3">
@@ -101,15 +103,20 @@ export function SlipsMod() {
 
 export function LeaveMod({ approver = false }: { approver?: boolean }) {
   const { db, update, user } = useStore()
+  const wards = useViewedStudents()
   const [open, setOpen] = useState(false)
   const [from, setFrom] = useState('2026-04-27')
   const [to, setTo] = useState('2026-04-28')
   const [reason, setReason] = useState('')
   const [pendingId, setPendingId] = useState<string | null>(null)
+  const [wardId, setWardId] = useState('')
+  const ward = wards.find(w => w.id === wardId) ?? wards[0]
+  const wardNames = wards.map(w => w.name)
 
   const create = () => {
+    if (!ward) { toast.error('No student is linked to your account yet'); return }
     update(d => {
-      d.leaves.unshift({ id: 'l' + Date.now(), student: 'Aarav Sharma', from, to, reason, status: 'Pending', by: user?.name ?? 'Parent' })
+      d.leaves.unshift({ id: 'l' + Date.now(), student: ward.name, from, to, reason, status: 'Pending', by: user?.name ?? 'Parent' })
       return d
     })
     setOpen(false); setReason('')
@@ -121,7 +128,7 @@ export function LeaveMod({ approver = false }: { approver?: boolean }) {
     setPendingId(null)
   }
 
-  const mine = approver ? db.leaves : db.leaves.filter(l => l.student === 'Aarav Sharma')
+  const mine = approver ? db.leaves : db.leaves.filter(l => wardNames.includes(l.student))
 
   return (
     <div>
@@ -154,17 +161,24 @@ export function LeaveMod({ approver = false }: { approver?: boolean }) {
             )}
           </div>
         ))}
-        {mine.length === 0 && <div className="p-6"><Empty text="No requests yet." /></div>}
+        {mine.length === 0 && <div className="p-6"><Empty text={approver || wards.length ? 'No requests yet.' : 'No student is linked to your account yet.'} /></div>}
       </Card>
 
       <Modal open={open} onClose={() => setOpen(false)} title="Request holiday">
         <div className="space-y-4">
+          {wards.length > 1 && (
+            <Field label="Student">
+              <select value={ward?.id ?? ''} onChange={e => setWardId(e.target.value)} className={inputCls}>
+                {wards.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </Field>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <Field label="From"><input type="date" value={from} onChange={e => setFrom(e.target.value)} className={inputCls} /></Field>
             <Field label="To"><input type="date" value={to} onChange={e => setTo(e.target.value)} className={inputCls} /></Field>
           </div>
           <Field label="Reason">
-            <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} placeholder="Why does Aarav need leave?" className={inputCls} />
+            <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} placeholder={ward ? `Why does ${firstName(ward.name)} need leave?` : 'Reason for leave'} className={inputCls} />
           </Field>
           {user && !user.verified
             ? <VerifyButton label="Verify & submit" onVerified={create} className="w-full justify-center" />
@@ -200,6 +214,7 @@ export function HealthMod() {
         </button>
       </PageHead>
       <div className="grid gap-4 md:grid-cols-2">
+        {db.health.length === 0 && <div className="md:col-span-2"><Empty text="No health records yet." /></div>}
         {db.health.map(h => (
           <Card key={h.id}>
             <div className="flex items-start justify-between">
@@ -236,14 +251,17 @@ export function HealthMod() {
 
 export function AchievementsMod() {
   const { db, update, user } = useStore()
+  const wards = useViewedStudents()
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [detail, setDetail] = useState('')
-  const mine = db.achievements.filter(a => (user?.role === 'teacher' ? a.kind === 'teacher' : a.by === 'Aarav Sharma'))
+  const myNames = user?.role === 'student' ? [user.name] : wards.map(w => w.name)
+  const mine = db.achievements.filter(a => (user?.role === 'teacher' ? a.kind === 'teacher' : myNames.includes(a.by)))
 
   const save = () => {
+    const by = user?.role === 'parent' && wards[0] ? wards[0].name : (user?.name ?? 'Student')
     update(d => {
-      d.achievements.unshift({ id: 'a' + Date.now(), title, detail, date: new Date().toISOString().slice(0, 10), by: user?.name ?? 'Aarav Sharma', kind: user?.role === 'teacher' ? 'teacher' : 'student' })
+      d.achievements.unshift({ id: 'a' + Date.now(), title, detail, date: new Date().toISOString().slice(0, 10), by, kind: user?.role === 'teacher' ? 'teacher' : 'student' })
       return d
     })
     setOpen(false); setTitle(''); setDetail('')
@@ -258,6 +276,7 @@ export function AchievementsMod() {
         </button>
       </PageHead>
       <div className="grid gap-4 md:grid-cols-2">
+        {db.achievements.length === 0 && <div className="md:col-span-2"><Empty text="No achievements published yet." /></div>}
         {[...mine, ...db.achievements.filter(a => !mine.includes(a))].map(a => (
           <Card key={a.id} className="card-lift">
             <div className="flex items-center gap-3.5">
@@ -288,8 +307,12 @@ export function AchievementsMod() {
 
 export function PaymentsMod({ salary = false }: { salary?: boolean }) {
   const { db, update } = useStore()
-  const { term, setTerm } = useTerm()
-  const rows = db.receipts.filter(r => r.kind === (salary ? 'salary' : 'fee') && r.term === term)
+  const { term, setTerm } = useActiveTerm()
+  const wards = useViewedStudents()
+  const wardIds = wards.map(w => w.id)
+  // fee receipts are scoped to the viewer's own student(s) when the viewer is a student/parent
+  const rows = db.receipts.filter(r => r.kind === (salary ? 'salary' : 'fee') && r.term === term
+    && (salary || wardIds.length === 0 || !r.studentId || wardIds.includes(r.studentId)))
   const total = rows.reduce((a, r) => a + r.amount, 0)
 
   const download = (label: string) => {
@@ -305,7 +328,7 @@ export function PaymentsMod({ salary = false }: { salary?: boolean }) {
 
   return (
     <div>
-      <PageHead title={salary ? 'Salary Receipts' : 'Payments & Receipts'} sub={salary ? 'Monthly payslips with leave-based deductions' : 'Fees for Aarav Sharma · download anytime'}>
+      <PageHead title={salary ? 'Salary Receipts' : 'Payments & Receipts'} sub={salary ? 'Monthly payslips with leave-based deductions' : `Fees${wards[0] ? ` for ${wards[0].name}` : ''} · download anytime`}>
         <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
       </PageHead>
       <div className="mb-5 grid gap-4 sm:grid-cols-3">

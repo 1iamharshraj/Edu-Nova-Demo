@@ -4,7 +4,7 @@ import { useStore } from '@/lib/store'
 import { HIGHLIGHTS } from '@/lib/data'
 import type { Message, Thread, User } from '@/lib/data'
 import { Avatar, Card, Empty, PageHead, Pill, inputCls } from '../ui'
-import { useTerm } from '../Portal'
+import { useActiveTerm } from './viewer'
 
 /* ── helpers for viewer-relative threads ───────────────── */
 
@@ -131,7 +131,7 @@ export function FeedMod() {
 
 export function MessagesMod() {
   const { db, update, user } = useStore()
-  const { term, setTerm } = useTerm()
+  const { term, setTerm } = useActiveTerm()
   const isTeacher = user?.role === 'teacher'
   const [tab, setTab] = useState<'parent' | 'teacher'>('parent')
 
@@ -316,6 +316,17 @@ export function MessagesMod() {
     </div>
   )
 
+  if (db.threads.length === 0) {
+    return (
+      <div>
+        <PageHead title={title} sub={sub}>
+          <TermBar term={term} setTerm={setTerm} />
+        </PageHead>
+        <Empty text="No conversations yet." />
+      </div>
+    )
+  }
+
   return (
     <div>
       <PageHead title={title} sub={sub}>
@@ -356,6 +367,7 @@ export function HighlightsMod() {
   return (
     <div>
       <PageHead title="Event Highlights" sub="Official aftermovies and recordings" />
+      {HIGHLIGHTS.length === 0 && <Empty text="No highlights published yet" />}
       <div className="grid gap-5 sm:grid-cols-2">
         {HIGHLIGHTS.map((h) => (
           <Card key={h.id} className="overflow-hidden p-0">

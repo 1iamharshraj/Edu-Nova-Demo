@@ -1,136 +1,188 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { seedDB } from './data'
-import { canManage } from './access'
-import type { DB, Role, User } from './data'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { api, getToken, setToken } from './api'
+import { emptyAcademic } from './data'
+import type { AcademicState, DB, Role, User } from './data'
 
-const DB_KEY = 'edunova_db_v1'
-const SESSION_KEY = 'edunova_session_v1'
+export { API_BASE } from './api'
 
-function uid(prefix: string) {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+function emptyDB(): DB {
+  return {
+    users: [], terms: [], subjects: [], timetable: {}, attendance: {}, marks: {}, feed: [], threads: [],
+    homework: [], receipts: [], events: [], slips: [], leaves: [], achievements: [], ranks: {}, health: [],
+    directory: [], applications: [], workAssign: [], marksheets: [], contracts: [], resignations: [],
+    meetings: [], workUploads: [], attendanceRecords: [], boardDetails: {}, aiParentCalls: [],
+    disciplinaryCases: [], studentProfileReports: [],
+  }
 }
 
-function makeEmail(name: string, role: Role) {
-  const base = name.toLowerCase().replace(/[^a-z]+/g, '.').replace(/(^\.|\.$)/g, '')
-  if (role === 'student') return `${base}@edunova.in`
-  if (role === 'parent') return `parent.${base}@edunova.in`
-  if (role === 'teacher') return `${base}@edunova.in`
-  if (role === 'staff') return `${base}@edunova.in`
-  if (role === 'admin') return `${base}@edunova.in`
-  return `${base}@edunova.in`
+async function fetchFullDB(): Promise<DB> {
+  const [usersRes, dataRes] = await Promise.all([api.get('/users'), api.get('/data')])
+  return { ...emptyDB(), ...dataRes.data, users: usersRes.users } as DB
 }
 
-function rolePassword(role: Role) {
-  if (role === 'superadmin') return 'principal123'
-  if (role === 'admin') return 'admin123'
-  if (role === 'staff') return 'staff123'
-  if (role === 'teacher') return 'teacher123'
-  if (role === 'parent') return 'parent123'
-  return 'student123'
+async function fetchAcademic(): Promise<AcademicState> {
+  const res = await api.get<AcademicState>('/academic/bootstrap')
+  return { ...emptyAcademic(), ...res }
 }
 
-function loadDB(): DB {
-  try {
-    const raw = localStorage.getItem(DB_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw) as DB
-      if (parsed && parsed.users && parsed.terms) return parsed
-    }
-  } catch { /* fall through to reseed */ }
-  const fresh = seedDB()
-  localStorage.setItem(DB_KEY, JSON.stringify(fresh))
-  return fresh
+export interface CreateUserInput extends Omit<Partial<User>, 'id' | 'password'> {
+  name: string
+  role: Role
+  password?: string
+  classId?: string
+  rollNo?: string
+  studentIds?: string[]
+  classTeacherOf?: string
 }
+export type UpdateUserInput = Partial<CreateUserInput>
 
 interface StoreCtx {
   db: DB
+  academic: AcademicState
+  /** Legacy optimistic mutation of the JSON blob — new screens should use the API directly. */
   update: (fn: (db: DB) => DB) => void
   user: User | null
-  login: (email: string, password: string) => User | null
+  login: (email: string, password: string) => Promise<User | null>
   logout: () => void
   setUser: (u: User) => void
-  resetAll: () => void
-  createUser: (partial: Omit<Partial<User>, 'id'> & { name: string; role: Role }) => User
-  deleteUser: (id: string) => boolean
+  refreshDB: () => Promise<void>
+  refreshAcademic: () => Promise<void>
+  createUser: (input: CreateUserInput) => Promise<{ user: User; password: string }>
+  updateUser: (id: string, input: UpdateUserInput) => Promise<User>
+  deleteUser: (id: string) => Promise<boolean>
+  loadSampleData: () => Promise<void>
+  resetSchool: () => Promise<void>
+  loading: boolean
 }
 
 const Ctx = createContext<StoreCtx | null>(null)
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [db, setDb] = useState<DB>(loadDB)
-  const [user, setUserState] = useState<User | null>(() => {
-    try {
-      const id = localStorage.getItem(SESSION_KEY)
-      if (!id) return null
-      return loadDB().users.find(u => u.id === id) ?? null
-    } catch { return null }
-  })
+  const [db, setDb] = useState<DB>(emptyDB)
+  const [academic, setAcademic] = useState<AcademicState>(emptyAcademic)
+  const [user, setUserState] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
+  const dbRef = useRef(db)
+  dbRef.current = db
+
+  const loadAll = useCallback(async () => {
+    const [fresh, acad] = await Promise.all([fetchFullDB(), fetchAcademic()])
+    setDb(fresh)
+    setAcademic(acad)
+  }, [])
 
   useEffect(() => {
-    localStorage.setItem(DB_KEY, JSON.stringify(db))
-  }, [db])
-
-  const api = useMemo<StoreCtx>(() => ({
-    db,
-    update: (fn) => setDb(prev => fn(structuredClone(prev))),
-    user,
-    login: (email, password) => {
-      const found = db.users.find(u => u.email.toLowerCase() === email.trim().toLowerCase() && u.password === password)
-      if (found) {
-        localStorage.setItem(SESSION_KEY, found.id)
-        setUserState(found)
-        return found
+    let cancelled = false
+    async function boot() {
+      if (!getToken()) { setLoading(false); return }
+      try {
+        const me = await api.get('/auth/me')
+        if (cancelled) return
+        setUserState(me.user)
+        await loadAll()
+      } catch {
+        setToken(null)
+        setUserState(null)
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-      return null
+    }
+    boot()
+    return () => { cancelled = true }
+  }, [loadAll])
+
+  // Legacy blob sync — fire-and-forget, last write wins. The server ignores users/terms/subjects.
+  function syncData(next: DB) {
+    const { users: _u, terms: _t, subjects: _s, ...rest } = next
+    void _u; void _t; void _s
+    api.put('/data', rest).catch(err => console.error('Failed to sync data to server', err))
+  }
+
+  // A few legacy call sites mutate db.users directly via update() (self-verification, inline edits).
+  function syncChangedUsers(prev: DB, next: DB) {
+    const prevById = new Map(prev.users.map(u => [u.id, u]))
+    for (const u of next.users) {
+      const before = prevById.get(u.id)
+      if (!before) continue // creation must go through createUser
+      if (JSON.stringify(before) !== JSON.stringify(u)) {
+        api.patch(`/users/${u.id}`, { ...u, password: undefined }).catch(err => console.error('Failed to sync user', err))
+      }
+    }
+  }
+
+  const refreshDB = useCallback(async () => { setDb(await fetchFullDB()) }, [])
+  const refreshAcademic = useCallback(async () => { setAcademic(await fetchAcademic()) }, [])
+
+  const value: StoreCtx = useMemo(() => ({
+    db,
+    academic,
+    loading,
+    user,
+    update: (fn) => {
+      setDb(prev => {
+        const next = fn(structuredClone(prev))
+        syncData(next)
+        if (next.users !== prev.users) syncChangedUsers(prev, next)
+        return next
+      })
+    },
+    login: async (email, password) => {
+      const res = await api.post('/auth/login', { email, password })
+      setToken(res.token)
+      setUserState(res.user)
+      await loadAll()
+      return res.user
     },
     logout: () => {
-      localStorage.removeItem(SESSION_KEY)
+      api.post('/auth/logout').catch(() => {})
+      setToken(null)
       setUserState(null)
+      setDb(emptyDB())
+      setAcademic(emptyAcademic())
     },
     setUser: (u) => setUserState(u),
-    resetAll: () => {
-      const fresh = seedDB()
-      setDb(fresh)
-      localStorage.setItem(DB_KEY, JSON.stringify(fresh))
+    refreshDB,
+    refreshAcademic,
+    createUser: async (input) => {
+      const res = await api.post<{ user: User; password: string }>('/users', input)
+      await loadAll()
+      return res
     },
-    createUser: (partial) => {
-      const id = uid(partial.role === 'student' ? 'u-s' : partial.role === 'parent' ? 'u-p' : partial.role === 'teacher' ? 'u-t' : partial.role === 'staff' ? 'u-st' : 'u-a')
-      const email = partial.email ?? makeEmail(partial.name, partial.role)
-      const password = rolePassword(partial.role)
-      const user: User = {
-        id,
-        role: partial.role,
-        name: partial.name,
-        email,
-        password,
-        title: partial.title ?? `${partial.role} · onboarded`,
-        avatarHue: partial.avatarHue ?? Math.floor(Math.random() * 360),
-        verified: partial.verified ?? true,
-        class: partial.class,
-        section: partial.section,
-        roll: partial.roll,
-        subjects: partial.subjects,
-        department: partial.department,
-        designation: partial.designation,
-        joinDate: partial.joinDate ?? new Date().toISOString().slice(0, 10),
-        phone: partial.phone,
-        parentEmail: partial.parentEmail,
-        board: partial.board,
+    updateUser: async (id, input) => {
+      const res = await api.patch<{ user: User }>(`/users/${id}`, input)
+      await loadAll()
+      if (user && user.id === id) setUserState(res.user)
+      return res.user
+    },
+    deleteUser: async (id) => {
+      try {
+        await api.del(`/users/${id}`)
+        await loadAll()
+        return true
+      } catch {
+        return false
       }
-      setDb(prev => ({ ...prev, users: [...prev.users, user] }))
-      return user
     },
-    deleteUser: (id) => {
-      const current = user
-      const target = db.users.find(u => u.id === id)
-      if (!current || !target) return false
-      if (!canManage(current, target, db.users)) return false
-      setDb(prev => ({ ...prev, users: prev.users.filter(u => u.id !== id) }))
-      return true
+    loadSampleData: async () => {
+      await api.post('/admin/load-sample-data')
+      await loadAll()
     },
-  }), [db, user])
+    resetSchool: async () => {
+      await api.post('/admin/reset', { confirm: 'RESET' })
+      await loadAll()
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [db, academic, user, loading, loadAll, refreshDB, refreshAcademic])
 
-  return <Ctx.Provider value={api}>{children}</Ctx.Provider>
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#f6f6f4] text-[14px] text-black/50 dark:bg-[#090911] dark:text-white/50">
+        Loading EduNova…
+      </div>
+    )
+  }
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
 export function useStore() {
@@ -139,7 +191,36 @@ export function useStore() {
   return ctx
 }
 
-// per-user scratch persistence (verification state, uploads, etc.)
+/** Convenience selectors over the academic slice. */
+export function useAcademic() {
+  const { academic } = useStore()
+  return useMemo(() => {
+    const currentYear = academic.years.find(y => y.isCurrent) ?? academic.years[0]
+    const currentTerm = academic.terms.find(t => t.isCurrent) ?? academic.terms[0]
+    const classById = new Map(academic.classes.map(c => [c.id, c]))
+    const subjectById = new Map(academic.subjects.map(s => [s.id, s]))
+    const boardById = new Map(academic.boards.map(b => [b.id, b]))
+    const gradeById = new Map(academic.grades.map(g => [g.id, g]))
+    const streamById = new Map(academic.streams.map(s => [s.id, s]))
+    /** Curriculum rows that apply to a class: its board + grade, for its stream or no stream. */
+    const curriculumFor = (c: { boardId: string; gradeId: string; streamId?: string }) =>
+      academic.curriculum.filter(r => r.boardId === c.boardId && r.gradeId === c.gradeId && (!r.streamId || r.streamId === c.streamId))
+    const classOf = (studentId: string) => {
+      const e = academic.enrollments.find(x => x.studentId === studentId && x.status === 'active' && (!currentYear || x.academicYearId === currentYear.id))
+        ?? academic.enrollments.find(x => x.studentId === studentId)
+      return e ? classById.get(e.classId) : undefined
+    }
+    const wardsOf = (parentId: string) => academic.guardians.filter(g => g.parentId === parentId).map(g => g.studentId)
+    const classesTaughtBy = (teacherId: string) => {
+      const ids = new Set(academic.classSubjects.filter(cs => cs.teacherId === teacherId).map(cs => cs.classId))
+      academic.classes.filter(c => c.classTeacherId === teacherId).forEach(c => ids.add(c.id))
+      return academic.classes.filter(c => ids.has(c.id))
+    }
+    return { ...academic, currentYear, currentTerm, classById, subjectById, boardById, gradeById, streamById, curriculumFor, classOf, wardsOf, classesTaughtBy }
+  }, [academic])
+}
+
+// per-user scratch persistence (browser-only conveniences)
 export function useLocalState<T>(key: string, initial: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const full = 'edunova_x_' + key
   const [val, setVal] = useState<T>(() => {

@@ -4,7 +4,7 @@ import { toDataURL } from 'qrcode'
 import { useStore } from '@/lib/store'
 import { fmtINR, type Receipt } from '@/lib/data'
 import { Card, Empty, Field, Modal, PageHead, Pill, TermTabs, inputCls, statusTone } from '../ui'
-import { useTerm } from '../Portal'
+import { useActiveTerm, useViewedStudents } from './viewer'
 import { toast } from 'sonner'
 
 /* ── helpers ───────────────────────────────────────────── */
@@ -46,10 +46,14 @@ const UPI_APPS = ['Google Pay', 'PhonePe', 'Paytm', 'Amazon Pay']
 /* ── module: payment gateway (desktop only) ──────────────── */
 
 export function PaymentGatewayMod() {
-  const { db, update, user } = useStore()
-  const { term, setTerm } = useTerm()
+  const { db, update } = useStore()
+  const { term, setTerm } = useActiveTerm()
   const isMobile = useIsMobile()
-  const rows = db.receipts.filter(r => r.kind === 'fee' && r.term === term)
+  const wards = useViewedStudents()
+  const wardIds = wards.map(w => w.id)
+  // scope fee receipts to the viewer's own student(s) (student → self, parent → wards); admins/staff see all
+  const rows = db.receipts.filter(r => r.kind === 'fee' && r.term === term
+    && (wardIds.length === 0 || !r.studentId || wardIds.includes(r.studentId)))
   const total = rows.reduce((a, r) => a + r.amount, 0)
   const dueTotal = rows.filter(r => r.status === 'Due').reduce((a, r) => a + r.amount, 0)
 
@@ -71,14 +75,8 @@ export function PaymentGatewayMod() {
   const [bank, setBank] = useState(BANKS[0])
   const [nbProcessing, setNbProcessing] = useState(false)
 
-  const studentName = useMemo(() => {
-    if (user?.role === 'student') return user.name
-    if (user?.role === 'parent') {
-      const child = db.users.find(u => u.role === 'student' && u.parentEmail === user.email)
-      return child?.name ?? 'Aarav Sharma'
-    }
-    return 'Aarav Sharma'
-  }, [user, db.users])
+  const studentName = useMemo(() => wards[0]?.name ?? '', [wards])
+  const studentFor = (r: Receipt) => (r.studentId && db.users.find(u => u.id === r.studentId)?.name) || studentName
 
   const openPay = (r: Receipt) => {
     setSelectedReceipt(r)
@@ -109,7 +107,7 @@ export function PaymentGatewayMod() {
       'EduNova School · Official Payment Receipt',
       '----------------------------------------',
       `Receipt #: ${r.id}`,
-      `Student: ${studentName}`,
+      `Student: ${studentFor(r) || '—'}`,
       `Fee head: ${r.label}`,
       `Amount: ${fmtINR(r.amount)}`,
       `Status: ${r.status}`,
@@ -179,7 +177,7 @@ export function PaymentGatewayMod() {
 
   return (
     <div>
-      <PageHead title="Payment Gateway" sub={isMobile ? 'View dues and receipts. Payments are enabled on desktop.' : `Pay fees securely for ${studentName}`}>
+      <PageHead title="Payment Gateway" sub={isMobile ? 'View dues and receipts. Payments are enabled on desktop.' : studentName ? `Pay fees securely for ${studentName}` : 'Pay fees securely'}>
         <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
       </PageHead>
 
@@ -246,7 +244,7 @@ export function PaymentGatewayMod() {
               <ReceiptIcon className="text-indigo-600" size={22} />
               <div className="flex-1">
                 <p className="text-[13.5px] font-semibold text-indigo-900 dark:text-indigo-100">{selectedReceipt.label}</p>
-                <p className="text-[12.5px] text-indigo-700/80 dark:text-indigo-200/70">{studentName} · {fmtINR(selectedReceipt.amount)}</p>
+                <p className="text-[12.5px] text-indigo-700/80 dark:text-indigo-200/70">{studentFor(selectedReceipt) ? `${studentFor(selectedReceipt)} · ` : ''}{fmtINR(selectedReceipt.amount)}</p>
               </div>
             </div>
 

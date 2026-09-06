@@ -1,13 +1,13 @@
 import React, { createContext, useContext, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
-  Award, Banknote, BookOpen, BrainCircuit, CalendarDays, CalendarPlus, ClipboardCheck,
-  CloudUpload, CreditCard, FileBadge, Gavel, HeartPulse, Home, Landmark, LayoutGrid,
-  LogOut, Megaphone, MessagesSquare, PartyPopper, PencilLine, Play, RotateCcw, School, ScrollText,
+  Award, Banknote, BookMarked, BookOpen, BrainCircuit, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck,
+  CloudUpload, CreditCard, DoorOpen, FileBadge, Gavel, GraduationCap, HeartPulse, Home, Landmark, LayoutGrid, Layers,
+  LogOut, Megaphone, MessagesSquare, PartyPopper, PencilLine, Play, School, ScrollText, Settings,
   ShieldCheck, Sparkles, Trophy, Umbrella, Users, Video, Wallet, type LucideIcon,
 } from 'lucide-react'
 import { Logo } from '@/components/Logo'
-import { useStore } from '@/lib/store'
+import { useAcademic, useStore } from '@/lib/store'
 import { ThemeToggle } from '@/lib/theme'
 import { InstallButton } from '@/lib/pwa'
 import type { Role } from '@/lib/data'
@@ -25,11 +25,13 @@ import { FeeDefaultersAndCallsMod } from './modules/feeDefaulters'
 import { DisciplinaryCommitteeMod } from './modules/disciplinary'
 import { PaymentGatewayMod } from './modules/paymentGateway'
 import { StudentReportMod } from './modules/studentReport'
+import { AcademicYearsMod, BoardsMod, ClassesMod, CurriculumMod, RoomsMod } from './modules/academic'
+import { SettingsMod } from './modules/settings'
 import { toast } from 'sonner'
 
 /* ── term context ──────────────────────────────────────── */
 
-const TermCtx = createContext<{ term: string; setTerm: (t: string) => void }>({ term: 't3', setTerm: () => {} })
+const TermCtx = createContext<{ term: string; setTerm: (t: string) => void }>({ term: '', setTerm: () => {} })
 // eslint-disable-next-line react-refresh/only-export-components
 export const useTerm = () => useContext(TermCtx)
 
@@ -125,6 +127,11 @@ function modulesFor(role: Role): Mod[] {
     ]
     case 'admin': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
+      M('years', 'Years & Terms', CalendarRange, <AcademicYearsMod />, 'Academic Setup'),
+      M('boards', 'Boards & Grades', Layers, <BoardsMod />, 'Academic Setup'),
+      M('curriculum', 'Curriculum', BookMarked, <CurriculumMod />, 'Academic Setup'),
+      M('classes', 'Classes & Sections', GraduationCap, <ClassesMod />, 'Academic Setup'),
+      M('rooms', 'Rooms', DoorOpen, <RoomsMod />, 'Academic Setup'),
       M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
       M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Manage'),
@@ -140,9 +147,15 @@ function modulesFor(role: Role): Mod[] {
       M('fees', 'Fees', CreditCard, <FeesMod />, 'Finance'),
       M('pay', 'Fee Gateway', Landmark, <PaymentGatewayMod />, 'Finance'),
       M('salary', 'Faculty Salary', Wallet, <PaymentsMod salary />, 'Finance'),
+      M('settings', 'Settings', Settings, <SettingsMod />, 'System'),
     ]
     case 'superadmin': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
+      M('years', 'Years & Terms', CalendarRange, <AcademicYearsMod />, 'Academic Setup'),
+      M('boards', 'Boards & Grades', Layers, <BoardsMod />, 'Academic Setup'),
+      M('curriculum', 'Curriculum', BookMarked, <CurriculumMod />, 'Academic Setup'),
+      M('classes', 'Classes & Sections', GraduationCap, <ClassesMod />, 'Academic Setup'),
+      M('rooms', 'Rooms', DoorOpen, <RoomsMod />, 'Academic Setup'),
       M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
       M('admins', 'Admin Management', ShieldCheck, <AdminManagementMod />, 'Manage'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
@@ -159,6 +172,7 @@ function modulesFor(role: Role): Mod[] {
       M('fees', 'Fees', CreditCard, <FeesMod />, 'Finance'),
       M('pay', 'Fee Gateway', Landmark, <PaymentGatewayMod />, 'Finance'),
       M('salary', 'Faculty Salary', Wallet, <PaymentsMod salary />, 'Finance'),
+      M('settings', 'Settings', Settings, <SettingsMod />, 'System'),
     ]
   }
 }
@@ -168,10 +182,12 @@ function modulesFor(role: Role): Mod[] {
 function StudentReportsMod() {
   const { db, user } = useStore()
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const { wardsOf } = useAcademic()
   if (!user) return null
   if (user.role === 'student') return <StudentReportMod studentId={user.id} />
   if (user.role === 'parent') {
-    const child = db.users.find(u => u.role === 'student' && u.parentEmail === user.email)
+    const wardIds = wardsOf(user.id)
+    const child = db.users.find(u => wardIds.includes(u.id)) ?? db.users.find(u => u.role === 'student' && u.parentEmail === user.email)
     if (!child) {
       return (
         <div>
@@ -221,7 +237,7 @@ function AdminManagementMod() {
               <p className="text-[13px] text-black/50 dark:text-white/50 capitalize">{a.role} · {a.title}</p>
             </div>
             {a.id !== user?.id && (
-              <button onClick={() => deleteUser(a.id) && toast.success('Admin access revoked')} className="rounded-full bg-rose-50 dark:bg-rose-500/10 px-4 py-2 text-[13px] font-semibold text-rose-500">Revoke</button>
+              <button onClick={() => { deleteUser(a.id).then(ok => { if (ok) toast.success('Admin access revoked') }) }} className="rounded-full bg-rose-50 dark:bg-rose-500/10 px-4 py-2 text-[13px] font-semibold text-rose-500">Revoke</button>
             )}
           </div>
         ))}
@@ -270,69 +286,93 @@ function TeacherLeaveMod() {
 /* ── overview dashboards ───────────────────────────────── */
 
 function Overview() {
-  const { db, user } = useStore()
-  const { setTerm: _st } = useTerm()
-  void _st
+  const { db, user, academic } = useStore()
+  const { term } = useTerm()
+  const { currentTerm, classOf, wardsOf, classesTaughtBy } = useAcademic()
   const role = user!.role
   const hour = new Date().getHours()
   const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+  const termId = term || currentTerm?.id || ''
+  const termName = db.terms.find(t => t.id === termId)?.name ?? 'this term'
 
   const cards: { k: string; v: string; s: string; tone: string }[] = useMemo(() => {
-    const att = db.attendance.t3
-    const overall = Math.round(att.bySubject.reduce((a, s) => a + s.present, 0) / att.bySubject.reduce((a, s) => a + s.total, 0) * 100)
-    const pendingHw = db.homework.filter(h => h.term === 't3' && (h.status === 'Pending' || h.status === 'Late')).length
+    const att = db.attendance[termId]
+    const totalSessions = att?.bySubject.reduce((a, s) => a + s.total, 0) ?? 0
+    const overall = totalSessions > 0 ? Math.round((att!.bySubject.reduce((a, s) => a + s.present, 0) / totalSessions) * 100) + '%' : '—'
+    const pendingHw = db.homework.filter(h => h.term === termId && (h.status === 'Pending' || h.status === 'Late')).length
     const slips = db.slips.filter(s => s.status === 'Pending').length
-    const defaulters = db.receipts.filter(r => r.kind === 'fee' && r.status === 'Due').length
+    const dueReceipts = db.receipts.filter(r => r.kind === 'fee' && r.status === 'Due')
+    const defaulters = new Set(dueReceipts.map(r => r.studentId).filter(Boolean)).size
     const pendingDisciplinary = db.disciplinaryCases.filter(d => d.status !== 'Closed').length
     const pendingResignations = db.resignations.filter(r => r.status === 'Pending').length
     const pendingCalls = db.aiParentCalls.filter(c => c.status === 'Scheduled').length
+    const pendingApps = db.applications.filter(a => a.status === 'Pending').length
+    const students = db.users.filter(u => u.role === 'student').length
+    const teachers = db.users.filter(u => u.role === 'teacher').length
+    const fmt = (n: number) => '₹' + n.toLocaleString('en-IN')
     switch (role) {
-      case 'parent': return [
-        { k: 'Attendance', v: overall + '%', s: 'Term 3 · Aarav', tone: 'from-emerald-500 to-teal-400' },
-        { k: 'Pending homework', v: String(pendingHw), s: 'due this week', tone: 'from-amber-500 to-orange-400' },
-        { k: 'Slips to sign', v: String(slips), s: 'need parent verify', tone: 'from-indigo-500 to-violet-500' },
-        { k: 'Fees due', v: '₹6,500', s: 'lab & activity fee', tone: 'from-rose-500 to-pink-400' },
-      ]
-      case 'student': return [
-        { k: 'Attendance', v: overall + '%', s: 'keep it above 90', tone: 'from-emerald-500 to-teal-400' },
-        { k: 'To submit', v: String(pendingHw), s: 'assignments open', tone: 'from-amber-500 to-orange-400' },
-        { k: 'Class rank', v: '#3', s: 'Term 2 · X-A', tone: 'from-indigo-500 to-violet-500' },
-        { k: 'Next class', v: 'Physics', s: 'Lab-2 · 11:15', tone: 'from-sky-500 to-cyan-400' },
-      ]
-      case 'teacher': return [
-        { k: 'Classes today', v: '5', s: '2 in X-A', tone: 'from-indigo-500 to-violet-500' },
-        { k: 'Leave requests', v: String(db.leaves.filter(l => l.status === 'Pending').length), s: 'awaiting approval', tone: 'from-amber-500 to-orange-400' },
-        { k: 'Fee defaulters', v: String(defaulters), s: 'students with dues', tone: 'from-rose-500 to-pink-400' },
-        { k: 'Disciplinary', v: String(pendingDisciplinary), s: 'open cases', tone: 'from-sky-500 to-cyan-400' },
-      ]
+      case 'parent': {
+        const wardIds = wardsOf(user!.id)
+        const ward = db.users.find(u => wardIds.includes(u.id)) ?? db.users.find(u => u.role === 'student' && u.parentEmail === user!.email)
+        const due = dueReceipts.filter(r => ward && r.studentId === ward.id).reduce((a, r) => a + r.amount, 0)
+        return [
+          { k: 'Attendance', v: overall, s: ward ? `${termName} · ${ward.name.split(' ')[0]}` : 'No ward linked yet', tone: 'from-emerald-500 to-teal-400' },
+          { k: 'Pending homework', v: String(pendingHw), s: termName, tone: 'from-amber-500 to-orange-400' },
+          { k: 'Slips to sign', v: String(slips), s: 'awaiting your decision', tone: 'from-indigo-500 to-violet-500' },
+          { k: 'Fees due', v: due > 0 ? fmt(due) : '₹0', s: due > 0 ? 'outstanding' : 'nothing outstanding', tone: 'from-rose-500 to-pink-400' },
+        ]
+      }
+      case 'student': {
+        const cls = classOf(user!.id)
+        const rank = db.ranks[termId]?.overall.find(r => r.name === user!.name)?.rank
+        return [
+          { k: 'Attendance', v: overall, s: termName, tone: 'from-emerald-500 to-teal-400' },
+          { k: 'To submit', v: String(pendingHw), s: 'assignments open', tone: 'from-amber-500 to-orange-400' },
+          { k: 'Class rank', v: rank ? `#${rank}` : '—', s: cls ? `${termName} · ${cls.label}` : 'not enrolled yet', tone: 'from-indigo-500 to-violet-500' },
+          { k: 'My class', v: cls?.label ?? '—', s: cls ? `${academic.enrollments.filter(e => e.classId === cls.id && e.status === 'active').length} students` : 'ask the office to enrol you', tone: 'from-sky-500 to-cyan-400' },
+        ]
+      }
+      case 'teacher': {
+        const mine = classesTaughtBy(user!.id)
+        return [
+          { k: 'My classes', v: String(mine.length), s: mine.map(c => c.label).join(', ') || 'no assignments yet', tone: 'from-indigo-500 to-violet-500' },
+          { k: 'Leave requests', v: String(db.leaves.filter(l => l.status === 'Pending').length), s: 'awaiting approval', tone: 'from-amber-500 to-orange-400' },
+          { k: 'Fee defaulters', v: String(defaulters), s: 'students with dues', tone: 'from-rose-500 to-pink-400' },
+          { k: 'Disciplinary', v: String(pendingDisciplinary), s: 'open cases', tone: 'from-sky-500 to-cyan-400' },
+        ]
+      }
       case 'staff': return [
         { k: 'Fee defaulters', v: String(defaulters), s: 'students with dues', tone: 'from-rose-500 to-pink-400' },
-        { k: 'Applications', v: String(db.applications.filter(a => a.status === 'Pending').length), s: 'need a decision', tone: 'from-amber-500 to-orange-400' },
+        { k: 'Applications', v: String(pendingApps), s: 'need a decision', tone: 'from-amber-500 to-orange-400' },
         { k: 'Disciplinary', v: String(pendingDisciplinary), s: 'open cases', tone: 'from-indigo-500 to-violet-500' },
         { k: 'AI calls', v: String(pendingCalls), s: 'scheduled', tone: 'from-sky-500 to-cyan-400' },
       ]
       case 'admin': return [
+        { k: 'Students', v: String(students), s: `${academic.classes.length} classes`, tone: 'from-sky-500 to-cyan-400' },
+        { k: 'Teachers', v: String(teachers), s: `${academic.subjects.length} subjects`, tone: 'from-indigo-500 to-violet-500' },
         { k: 'Fee defaulters', v: String(defaulters), s: 'students with dues', tone: 'from-rose-500 to-pink-400' },
-        { k: 'Resignations', v: String(pendingResignations), s: 'pending approval', tone: 'from-amber-500 to-orange-400' },
-        { k: 'Disciplinary', v: String(pendingDisciplinary), s: 'open cases', tone: 'from-indigo-500 to-violet-500' },
-        { k: 'Applications', v: String(db.applications.filter(a => a.status === 'Pending').length), s: 'need a decision', tone: 'from-sky-500 to-cyan-400' },
+        { k: 'Applications', v: String(pendingApps), s: 'need a decision', tone: 'from-amber-500 to-orange-400' },
       ]
       case 'superadmin': return [
+        { k: 'Students', v: String(students), s: `${academic.classes.length} classes`, tone: 'from-sky-500 to-cyan-400' },
+        { k: 'Teachers', v: String(teachers), s: `${academic.subjects.length} subjects`, tone: 'from-indigo-500 to-violet-500' },
         { k: 'Admins', v: String(db.users.filter(u => u.role === 'admin').length), s: 'school administrators', tone: 'from-fuchsia-500 to-pink-500' },
         { k: 'Resignations', v: String(pendingResignations), s: 'pending approval', tone: 'from-amber-500 to-orange-400' },
-        { k: 'Fee defaulters', v: String(defaulters), s: 'students with dues', tone: 'from-rose-500 to-pink-400' },
-        { k: 'Disciplinary', v: String(pendingDisciplinary), s: 'open cases', tone: 'from-indigo-500 to-violet-500' },
       ]
-      default: return [
-        { k: 'Students present', v: '95.5%', s: 'whole school today', tone: 'from-emerald-500 to-teal-400' },
-        { k: 'Applications', v: String(db.applications.filter(a => a.status === 'Pending').length), s: 'need a decision', tone: 'from-amber-500 to-orange-400' },
-        { k: 'Fees collected', v: '₹1.2Cr', s: 'this term', tone: 'from-indigo-500 to-violet-500' },
-        { k: 'Events', v: '3', s: 'next 30 days', tone: 'from-sky-500 to-cyan-400' },
-      ]
+      default: return []
     }
-  }, [db, role])
+  }, [db, academic, role, termId, termName, user, classOf, wardsOf, classesTaughtBy])
 
-  const nextEvents = db.events.filter(e => e.term === 't3').slice(0, 4)
+  const nextEvents = db.events.filter(e => !termId || e.term === termId).slice(0, 4)
+  const isSetupRole = role === 'admin' || role === 'superadmin'
+  const setupSteps = [
+    { done: academic.years.length > 0, label: 'Create the academic year and its terms', where: 'Years & Terms' },
+    { done: academic.boards.length > 0 && academic.grades.length > 0, label: 'Add the boards you run and the grade ladder', where: 'Boards & Grades' },
+    { done: academic.curriculum.length > 0, label: 'Define each board’s grade-wise subjects', where: 'Curriculum' },
+    { done: academic.classes.length > 0, label: 'Create sections and assign teachers', where: 'Classes & Sections' },
+    { done: db.users.some(u => u.role === 'student'), label: 'Enrol students and link parents', where: 'People & Roles' },
+  ]
+  const setupComplete = setupSteps.every(s => s.done)
 
   return (
     <div>
@@ -354,28 +394,45 @@ function Overview() {
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         <div className="rounded-3xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-6">
           <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Coming up</p>
-          <div className="space-y-3">
-            {nextEvents.map(e => (
-              <div key={e.date + e.title} className="flex items-center gap-3.5">
-                <span className={`flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-xl text-[11px] font-bold leading-none ${e.type === 'holiday' ? 'bg-rose-100 text-rose-600' : e.type === 'exam' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-600'}`}>
-                  {new Date(e.date).getDate()}<span className="text-[8px] uppercase">{new Date(e.date).toLocaleString('en', { month: 'short' })}</span>
-                </span>
-                <span className="flex-1 text-[14px] font-medium">{e.title}</span>
-                <span className="text-[11.5px] capitalize text-black/40 dark:text-white/40">{e.type}</span>
-              </div>
-            ))}
+          {nextEvents.length === 0 ? (
+            <Empty text="No events on the calendar yet." />
+          ) : (
+            <div className="space-y-3">
+              {nextEvents.map(e => (
+                <div key={e.date + e.title} className="flex items-center gap-3.5">
+                  <span className={`flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-xl text-[11px] font-bold leading-none ${e.type === 'holiday' ? 'bg-rose-100 text-rose-600' : e.type === 'exam' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-600'}`}>
+                    {new Date(e.date).getDate()}<span className="text-[8px] uppercase">{new Date(e.date).toLocaleString('en', { month: 'short' })}</span>
+                  </span>
+                  <span className="flex-1 text-[14px] font-medium">{e.title}</span>
+                  <span className="text-[11.5px] capitalize text-black/40 dark:text-white/40">{e.type}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {isSetupRole && !setupComplete ? (
+          <div className="rounded-3xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/60 dark:bg-indigo-500/10 p-6">
+            <p className="text-[13px] font-semibold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Set up your school</p>
+            <ol className="mt-4 space-y-3">
+              {setupSteps.map((s, i) => (
+                <li key={s.label} className="flex items-start gap-3 text-[14px]">
+                  <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${s.done ? 'bg-emerald-500 text-white' : 'bg-white dark:bg-[#14141f] text-black/50 dark:text-white/50 border border-black/10 dark:border-white/15'}`}>
+                    {s.done ? '✓' : i + 1}
+                  </span>
+                  <span className={s.done ? 'text-black/40 dark:text-white/40 line-through' : ''}>
+                    {s.label} <span className="text-black/40 dark:text-white/40">· {s.where}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
           </div>
-        </div>
-        <div className="grain relative overflow-hidden rounded-3xl bg-[#0b0b10] p-6 text-white">
-          <div className="pointer-events-none absolute inset-0 opacity-50" style={{ background: 'radial-gradient(24rem 14rem at 90% 110%, rgba(99,102,241,.55), transparent 60%)' }} />
-          <p className="text-[13px] font-semibold uppercase tracking-wider text-white/40">Did you know</p>
-          <p className="font-display mt-3 text-2xl font-medium leading-snug">
-            {role === 'parent' ? 'Every slip you approve is stamped with Aadhaar + face verification — students can’t sign for themselves.'
-              : role === 'student' ? 'Nova Tutor is awake at 2 AM too. Ask it anything from this term’s syllabus.'
-              : role === 'teacher' ? 'Grades you publish appear instantly in the parent and student portals.'
-              : 'Timetable changes you make propagate to every portal in real time.'}
-          </p>
-        </div>
+        ) : (
+          <div className="rounded-3xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-6">
+            <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">This term</p>
+            <p className="font-display text-2xl font-medium">{termName}</p>
+            <p className="mt-1 text-[13.5px] text-black/50 dark:text-white/50">{db.terms.find(t => t.id === termId)?.range ?? 'No term selected'}</p>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -390,11 +447,14 @@ const ROLE_GRAD: Record<Role, string> = {
 }
 
 export default function Portal() {
-  const { user, logout, resetAll } = useStore()
+  const { user, logout } = useStore()
+  const { currentTerm } = useAcademic()
   const navigate = useNavigate()
   const mods = useMemo(() => modulesFor(user?.role ?? 'parent'), [user?.role])
   const [active, setActive] = useState('home')
-  const [term, setTerm] = useState('t3')
+  // '' means "follow the school's current term" until the user picks one explicitly.
+  const [pickedTerm, setTerm] = useState('')
+  const term = pickedTerm || currentTerm?.id || ''
   const current = mods.find(m => m.id === active) ?? mods[0]
   const groups = useMemo(() => {
     const g: Record<string, Mod[]> = {}
@@ -428,10 +488,6 @@ export default function Portal() {
             <div className="mb-1 px-1">
               <InstallButton variant="pill" className="w-full justify-center" />
             </div>
-            <button onClick={() => { resetAll(); toast.success('Demo data reset') }}
-              className="mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium text-black/45 dark:text-white/45 hover:bg-black/[.04] dark:hover:bg-white/[.08]">
-              <RotateCcw size={15} /> Reset demo data
-            </button>
             <button onClick={() => { logout(); navigate('/') }}
               className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium text-rose-500 hover:bg-rose-50">
               <LogOut size={15} /> Sign out
@@ -470,7 +526,7 @@ export default function Portal() {
 
 function MobileNav({ mods, active, setActive }: { mods: Mod[]; active: string; setActive: (id: string) => void }) {
   const [more, setMore] = useState(false)
-  const { logout, resetAll, user } = useStore()
+  const { logout, user } = useStore()
   const navigate = useNavigate()
   const primary = mods.slice(0, 4)
   const activeInPrimary = primary.some(m => m.id === active)
@@ -522,10 +578,6 @@ function MobileNav({ mods, active, setActive }: { mods: Mod[]; active: string; s
               </div>
             ))}
             <div className="mt-2 flex gap-2 px-1">
-              <button onClick={() => { resetAll(); setMore(false); toast.success('Demo data reset') }}
-                className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-black/[.05] dark:bg-white/[.07] py-3 text-[13px] font-semibold">
-                <RotateCcw size={15} /> Reset demo
-              </button>
               <button onClick={() => { logout(); navigate('/') }}
                 className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-rose-50 dark:bg-rose-500/10 py-3 text-[13px] font-semibold text-rose-500">
                 <LogOut size={15} /> Sign out
