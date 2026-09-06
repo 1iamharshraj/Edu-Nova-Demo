@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: edunova_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: edunova
+      POSTGRES_USER: edunova
+      POSTGRES_PASSWORD: edunova_dev_pw
+    ports:
+      - '5434:5432'
+    volumes:
+      - edunova_pgdata:/var/lib/postgresql/data
+
+volumes:
+  edunova_pgdata:

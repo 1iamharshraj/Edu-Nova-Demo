@@ -1,0 +1,308 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model School {
+  id        String     @id @default(cuid())
+  name      String
+  createdAt DateTime   @default(now())
+  users     User[]
+  data      SchoolData?
+
+  years         AcademicYear[]
+  terms         Term[]
+  boards        Board[]
+  grades        Grade[]
+  streams       Stream[]
+  curriculum    CurriculumSubject[]
+  classes       Class[]
+  subjects      Subject[]
+  classSubjects ClassSubject[]
+  rooms         Room[]
+  enrollments   Enrollment[]
+  guardians     Guardian[]
+  auditLogs     AuditLog[]
+}
+
+model User {
+  id                 String   @id
+  schoolId           String
+  school             School   @relation(fields: [schoolId], references: [id])
+  role               String
+  name               String
+  email              String   @unique
+  passwordHash       String
+  mustChangePassword Boolean  @default(false)
+  title              String
+  avatarHue          Int
+  verified           Boolean  @default(false)
+
+  // Legacy denormalised columns — kept in sync by src/lib/legacySync.ts (see phase-0-1-contract.md).
+  class          String?
+  section        String?
+  roll           String?
+  subjects       Json?
+  department     String?
+  designation    String?
+  reportsTo      String?
+  joinDate       String?
+  phone          String?
+  parentEmail    String?
+  board          String?
+  dob            String?
+  salary         Int?
+  wards          String?
+  contract       Json?
+  resignation    Json?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  enrollments    Enrollment[]
+  wardLinks      Guardian[]     @relation("GuardianParent")
+  guardianLinks  Guardian[]     @relation("GuardianStudent")
+  teaching       ClassSubject[]
+  classTeacherOf Class[]
+
+  @@index([schoolId])
+}
+
+model SchoolData {
+  id        String   @id @default(cuid())
+  schoolId  String   @unique
+  school    School   @relation(fields: [schoolId], references: [id])
+  data      Json
+  updatedAt DateTime @updatedAt
+}
+
+// ───────────────────────── Phase 1 academic entities ─────────────────────────
+
+model AcademicYear {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  label     String
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  isCurrent Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  terms       Term[]
+  classes     Class[]
+  enrollments Enrollment[]
+
+  @@index([schoolId])
+}
+
+model Term {
+  id             String       @id @default(cuid())
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  name           String
+  startDate      DateTime     @db.Date
+  endDate        DateTime     @db.Date
+  isCurrent      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  @@index([schoolId])
+  @@index([academicYearId])
+}
+
+// ───────────────────── Phase 1b: boards, grades, streams, curriculum ─────────────────────
+
+model Board {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name      String
+  code      String
+  createdAt DateTime @default(now())
+
+  curriculum CurriculumSubject[]
+  classes    Class[]
+
+  @@unique([schoolId, code])
+  @@index([schoolId])
+}
+
+model Grade {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  label     String
+  order     Int
+  createdAt DateTime @default(now())
+
+  curriculum CurriculumSubject[]
+  classes    Class[]
+
+  @@unique([schoolId, label])
+  @@index([schoolId])
+}
+
+model Stream {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name      String
+  createdAt DateTime @default(now())
+
+  curriculum CurriculumSubject[]
+  classes    Class[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+}
+
+// Which subjects a board teaches in a grade (optionally per stream). Uniqueness on
+// (boardId, gradeId, streamId, subjectId) is enforced in the service because streamId is nullable.
+model CurriculumSubject {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  boardId     String
+  board       Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  gradeId     String
+  grade       Grade    @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  streamId    String?
+  stream      Stream?  @relation(fields: [streamId], references: [id], onDelete: Cascade)
+  subjectId   String
+  subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  kind        String   @default("core")
+  textbook    String?
+  syllabusRef String?
+  createdAt   DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([boardId, gradeId])
+}
+
+model Class {
+  id             String       @id @default(cuid())
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  boardId        String
+  board          Board        @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  gradeId        String
+  grade          Grade        @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  streamId       String?
+  stream         Stream?      @relation(fields: [streamId], references: [id], onDelete: SetNull)
+  section        String
+  classTeacherId String?
+  classTeacher   User?        @relation(fields: [classTeacherId], references: [id], onDelete: SetNull)
+  capacity       Int?
+  createdAt      DateTime     @default(now())
+
+  enrollments   Enrollment[]
+  classSubjects ClassSubject[]
+
+  @@unique([schoolId, academicYearId, boardId, gradeId, section])
+  @@index([schoolId])
+  @@index([classTeacherId])
+}
+
+model Subject {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name      String
+  code      String
+  color     String
+  createdAt DateTime @default(now())
+
+  classSubjects ClassSubject[]
+  curriculum    CurriculumSubject[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+}
+
+model ClassSubject {
+  id             String  @id @default(cuid())
+  schoolId       String
+  school         School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classId        String
+  class          Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subjectId      String
+  subject        Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  teacherId      String?
+  teacher        User?   @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  periodsPerWeek Int     @default(5)
+  createdAt      DateTime @default(now())
+
+  @@unique([classId, subjectId])
+  @@index([schoolId])
+  @@index([teacherId])
+}
+
+model Room {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name      String
+  kind      String   @default("classroom")
+  capacity  Int?
+  createdAt DateTime @default(now())
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+}
+
+model Enrollment {
+  id             String       @id @default(cuid())
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  studentId      String
+  student        User         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classId        String
+  class          Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  rollNo         String?
+  status         String       @default("active")
+  createdAt      DateTime     @default(now())
+
+  @@unique([studentId, academicYearId])
+  @@index([schoolId])
+  @@index([classId])
+}
+
+model Guardian {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  parentId  String
+  parent    User     @relation("GuardianParent", fields: [parentId], references: [id], onDelete: Cascade)
+  studentId String
+  student   User     @relation("GuardianStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  relation  String   @default("guardian")
+  createdAt DateTime @default(now())
+
+  @@unique([parentId, studentId])
+  @@index([schoolId])
+  @@index([studentId])
+}
+
+model AuditLog {
+  id       String   @id @default(cuid())
+  schoolId String
+  school   School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  actorId  String
+  action   String
+  entity   String
+  entityId String
+  before   Json?
+  after    Json?
+  at       DateTime @default(now())
+
+  @@index([schoolId, at])
+}
