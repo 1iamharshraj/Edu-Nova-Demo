@@ -1,74 +1,37 @@
-# React + TypeScript + Vite
+# EduNova — School OS
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + Vite frontend, Express + Prisma + Postgres backend. A school starts empty (one superadmin) and everything else is created from the admin portal; a sample school can be loaded from **Settings** for walkthroughs.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install && npm --prefix server install
+npm run db:up        # Postgres 16 in Docker on :5434
+npm run db:migrate    # apply Prisma migrations
+npm run db:seed       # one school + principal@edunova.in / principal123
+npm run server:dev    # API on http://localhost:4000
+npm run dev            # frontend on http://localhost:3000 (separate terminal)
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Sign in as `principal@edunova.in` / `principal123`. Then either set the school up by hand (**Academic Setup → Years & Terms → Classes → Subjects**, then **People**) or load the demo school from **Settings → Load sample school**, which also creates the demo accounts (`admin@`, `staff@`, `teacher@`, `parent@`, `student@edunova.in`, passwords `<role>123`).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+**Settings → Danger zone → Reset school** wipes everything except your own account (typed confirmation).
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Where things are
+
+| Path | What |
+|---|---|
+| `server/` | API — see `server/README.md` for routes and env |
+| `src/lib/api.ts` | Typed fetch client (`api.get/post/patch/put/del`) |
+| `src/lib/store.tsx` | Session, `db` (legacy JSON blob), `academic` (real entities), `useAcademic()` selectors |
+| `src/lib/hooks/useEntity.ts` | CRUD hook for `/api/academic/*` collections |
+| `src/portal/modules/` | One file per feature area; `academic.tsx` and `settings.tsx` are Phase 1 |
+| `.agents/edunova/rebuild-plan.md` | The phase-by-phase rebuild plan |
+| `.agents/edunova/phase-0-1-contract.md` | API contract for what's built so far |
+
+## Quality gates
+
+```bash
+npx tsc -b --noEmit && npx eslint .          # frontend
+cd server && npx tsc --noEmit                 # backend
 ```
-# Edu-Nova-Demo

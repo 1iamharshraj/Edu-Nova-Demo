@@ -1,8 +1,22 @@
 # EduNova Demo — Current State
 
-> Last updated: 2026-08-08
+> Last updated: 2026-09-07 — Phase 0 + 1 of `rebuild-plan.md` landed (real backend, empty-by-default school, academic structure). Sections below the banner describe the legacy demo modules and are being rewritten phase by phase.
 
-## Build & quality gates
+## Rebuild status (read this first)
+
+| Phase | Status | What landed |
+|---|---|---|
+| 0 · Reset & conventions | **Done** | Empty seed (one school + principal), `POST /api/admin/load-sample-data`, typed-confirm `POST /api/admin/reset`, `AuditLog` + Settings viewer, `server/src/modules/<entity>/{router,service,schema}` pattern with zod + `requireRole`, `src/lib/api.ts` + `useEntity`, hardcoded Overview tiles / Rickroll highlights / "Did you know" copy removed, sidebar reset buttons removed. |
+| 1 · Academic structure | **Done** | Prisma: `AcademicYear`, `Term`, `Class`, `Subject`, `ClassSubject`, `Room`, `Enrollment`, `Guardian`. `/api/academic/*` CRUD (contract in `phase-0-1-contract.md`). Admin UI: Years & Terms, Classes & Sections (roster, class teacher), Subjects (+ per-class teacher assignment), Rooms. People rewritten on real entities (class dropdown, ward picker, one-time password modal). Server denormalises legacy `user.class/section/roll/subjects/wards/parentEmail` so old screens keep working. `db.terms`/`db.subjects` are derived from the tables. All legacy modules survive an empty school; `'Aarav Sharma'` / `'X-A'` / `'t3'` literals removed. |
+| 1b · Boards & curriculum | **Done** | `Board`, `Grade`, `Stream`, `CurriculumSubject`; `Class` is board + grade (+ stream) + section, unique per board so CBSE X-A and ICSE X-A coexist; class subjects seeded from the curriculum with `POST /classes/:id/sync-curriculum`. UI: Boards & Grades, Curriculum (replaces Subjects), Classes with a board pill and a per-class Subjects & teachers modal. Spec: `phase-1b-boards-curriculum.md`. |
+| 2 · Timetable | Not started | Still the global per-term JSON grid with no write path. |
+| 3+ | Not started | See `rebuild-plan.md`. |
+
+**Auth is real now**: bcrypt + JWT (`/api/auth/login`, `/api/auth/me`). Sample-school demo accounts exist only after loading sample data.
+
+**Quality gates**: `npx tsc -b --noEmit && npx eslint .` (frontend) and `cd server && npx tsc --noEmit` — all clean at this checkpoint. No automated tests yet (Phase 10).
+
+## Build & quality gates (legacy)
 
 | Gate | Status |
 |------|--------|
@@ -66,15 +80,15 @@
 
 | Feature | Simulation |
 |---------|------------|
-| Authentication | Plain string comparison; no real auth. |
+| Authentication | ~~Plain string comparison~~ Real bcrypt + JWT since Phase 0. |
 | AI doubt clearing | Hardcoded regex → answer map. |
 | AI parent calls | Simulated voice-bot transcript and status. |
 | Face scan / Aadhaar verify | Timed animation + any 4+ digit OTP. |
 | File uploads | Visual only; no backend storage. |
 | Receipts | `.txt` download, not PDF. |
-| YouTube highlights | Rickroll placeholder for all videos. |
+| YouTube highlights | Removed; empty until the Phase 9 CMS. |
 | Payments | No real money is deducted; simulated gateway. |
-| Backend / API | None. |
+| Backend / API | Express + Prisma + Postgres (`server/`); legacy data still in a JSONB blob, academic entities in real tables. |
 
 ## Known bugs & rough edges
 
