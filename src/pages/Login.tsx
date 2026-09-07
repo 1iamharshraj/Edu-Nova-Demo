@@ -37,7 +37,7 @@ export default function Login() {
     setError('')
     try {
       const u = await login(email, pass)
-      if (u) navigate('/portal')
+      if (u) navigate(u.mustChangePassword ? '/change-password' : '/portal')
       else setError('Those credentials don’t match any EduNova account. Try the demo login.')
     } catch {
       setError('Those credentials don’t match any EduNova account. Try the demo login.')
@@ -109,7 +109,10 @@ export default function Login() {
             <label className="block text-[13px] font-semibold text-black/60 dark:text-white/60">Email</label>
             <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required
               className="mt-1.5 w-full rounded-xl border border-black/10 dark:border-white/15 bg-white dark:bg-[#14141f] px-4 py-3 text-[15px] outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100" />
-            <label className="mt-4 block text-[13px] font-semibold text-black/60 dark:text-white/60">Password</label>
+            <div className="mt-4 flex items-center justify-between">
+              <label className="block text-[13px] font-semibold text-black/60 dark:text-white/60">Password</label>
+              <Link to="/forgot" className="text-[12.5px] font-semibold text-indigo-600 hover:underline dark:text-indigo-400">Forgot password?</Link>
+            </div>
             <div className="relative mt-1.5">
               <input value={pass} onChange={(e) => setPass(e.target.value)} type={show ? 'text' : 'password'} required
                 className="w-full rounded-xl border border-black/10 dark:border-white/15 bg-white dark:bg-[#14141f] px-4 py-3 pr-11 text-[15px] outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100" />
