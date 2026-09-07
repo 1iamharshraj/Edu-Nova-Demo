@@ -4,7 +4,8 @@ import { api, errorMessage } from '../api'
 import { useStore } from '../store'
 import type { AcademicState } from '../data'
 
-// Maps a slice of AcademicState to its REST collection under /api/academic.
+// Maps a slice of AcademicState to its REST collection under /api/academic. A value starting with '/'
+// is a full path under /api instead (for slices served by another router).
 const COLLECTION: Record<keyof AcademicState, string> = {
   years: 'years',
   terms: 'terms',
@@ -18,6 +19,7 @@ const COLLECTION: Record<keyof AcademicState, string> = {
   rooms: 'rooms',
   enrollments: 'enrollments',
   guardians: 'guardians',
+  periodTemplates: '/timetable/period-templates',
 }
 
 /**
@@ -28,7 +30,8 @@ export function useEntity<K extends keyof AcademicState>(key: K) {
   type Item = AcademicState[K][number]
   const { academic, refreshAcademic } = useStore()
   const [busy, setBusy] = useState(false)
-  const base = `/academic/${COLLECTION[key]}`
+  const path = COLLECTION[key]
+  const base = path.startsWith('/') ? path : `/academic/${path}`
 
   const run = useCallback(async <T,>(fn: () => Promise<T>, okMsg?: string): Promise<T | null> => {
     setBusy(true)

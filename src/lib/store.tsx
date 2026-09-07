@@ -47,6 +47,8 @@ interface StoreCtx {
   setUser: (u: User) => void
   refreshDB: () => Promise<void>
   refreshAcademic: () => Promise<void>
+  /** Re-reads `/auth/me` (after a profile edit, password change or verification) and updates `user`. */
+  refreshMe: () => Promise<User | null>
   createUser: (input: CreateUserInput) => Promise<{ user: User; password: string }>
   updateUser: (id: string, input: UpdateUserInput) => Promise<User>
   deleteUser: (id: string) => Promise<boolean>
@@ -112,6 +114,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const refreshDB = useCallback(async () => { setDb(await fetchFullDB()) }, [])
   const refreshAcademic = useCallback(async () => { setAcademic(await fetchAcademic()) }, [])
+  const refreshMe = useCallback(async () => {
+    try {
+      const me = await api.get<{ user: User }>('/auth/me')
+      setUserState(me.user)
+      return me.user
+    } catch {
+      return null
+    }
+  }, [])
 
   const value: StoreCtx = useMemo(() => ({
     db,
@@ -143,6 +154,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setUser: (u) => setUserState(u),
     refreshDB,
     refreshAcademic,
+    refreshMe,
     createUser: async (input) => {
       const res = await api.post<{ user: User; password: string }>('/users', input)
       await loadAll()
@@ -172,7 +184,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       await loadAll()
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [db, academic, user, loading, loadAll, refreshDB, refreshAcademic])
+  }), [db, academic, user, loading, loadAll, refreshDB, refreshAcademic, refreshMe])
 
   if (loading) {
     return (
@@ -216,7 +228,13 @@ export function useAcademic() {
       academic.classes.filter(c => c.classTeacherId === teacherId).forEach(c => ids.add(c.id))
       return academic.classes.filter(c => ids.has(c.id))
     }
-    return { ...academic, currentYear, currentTerm, classById, subjectById, boardById, gradeById, streamById, curriculumFor, classOf, wardsOf, classesTaughtBy }
+    const defaultTemplate = academic.periodTemplates.find(t => t.isDefault) ?? academic.periodTemplates[0]
+    /** Effective period template for a class: its override, else the school default (else the first template). */
+    const templateFor = (classId?: string) => {
+      const c = classId ? classById.get(classId) : undefined
+      return (c?.periodTemplateId ? academic.periodTemplates.find(t => t.id === c.periodTemplateId) : undefined) ?? defaultTemplate
+    }
+    return { ...academic, currentYear, currentTerm, classById, subjectById, boardById, gradeById, streamById, curriculumFor, classOf, wardsOf, classesTaughtBy, defaultTemplate, templateFor }
   }, [academic])
 }
 

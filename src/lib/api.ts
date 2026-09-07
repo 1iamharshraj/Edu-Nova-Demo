@@ -1,17 +1,22 @@
 // Typed fetch client for the EduNova API. Every module talks to the server through this —
 // never through raw fetch — so auth headers, error shapes and the base URL live in one place.
 
+import type { FileRec } from './data'
+
 export const API_BASE = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE || 'http://localhost:4000/api'
 const TOKEN_KEY = 'edunova_token_v1'
 
 export class ApiError extends Error {
   status: number
   details?: unknown
-  constructor(status: number, message: string, details?: unknown) {
+  /** The full error body — some endpoints add top-level keys next to `error` (e.g. timetable `conflicts`). */
+  body?: unknown
+  constructor(status: number, message: string, details?: unknown, body?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.details = details
+    this.body = body
   }
 }
 
@@ -33,7 +38,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
   if (res.status === 204) return null as T
   const json = await res.json().catch(() => ({}))
-  if (!res.ok) throw new ApiError(res.status, json.error || `Request failed (${res.status})`, json.details)
+  if (!res.ok) throw new ApiError(res.status, json.error || `Request failed (${res.status})`, json.details, json)
   return json as T
 }
 
@@ -47,6 +52,61 @@ export const api = {
   patch: <T = Loose>(path: string, body: unknown) => request<T>('PATCH', path, body),
   put: <T = Loose>(path: string, body: unknown) => request<T>('PUT', path, body),
   del: <T = Loose>(path: string) => request<T>('DELETE', path),
+}
+
+/** `POST /files` (multipart, field `file`, ≤ 10 MB). Returns the stored file's record. */
+export async function uploadFile(file: File): Promise<FileRec> {
+  const body = new FormData()
+  body.append('file', file)
+  const headers: Record<string, string> = {}
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  const res = await fetch(`${API_BASE}/files`, { method: 'POST', headers, body })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApiError(res.status, json.error || `Upload failed (${res.status})`, json.details, json)
+  return json.item as FileRec
+}
+
+/** Fetches `GET /files/:id` with the bearer token (a plain link can't carry it) and hands the browser a download. */
+export async function downloadFile(id: string, name = 'file') {
+  const headers: Record<string, string> = {}
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  const res = await fetch(`${API_BASE}/files/${encodeURIComponent(id)}`, { headers })
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}))
+    throw new ApiError(res.status, json.error || `Download failed (${res.status})`, json.details, json)
+  }
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+/** Authenticated GET of any API path as a Response (for PDFs / images the server streams). Throws `ApiError` on failure. */
+export async function fetchAuthed(path: string): Promise<Response> {
+  const headers: Record<string, string> = {}
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  const res = await fetch(`${API_BASE}${path}`, { headers })
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}))
+    throw new ApiError(res.status, json.error || `Request failed (${res.status})`, json.details, json)
+  }
+  return res
+}
+
+/** Downloads whatever `path` streams (e.g. `/certificates/:id/pdf`) with the bearer token attached. */
+export async function downloadPath(path: string, name = 'file') {
+  const res = await fetchAuthed(path)
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 export function errorMessage(e: unknown): string {

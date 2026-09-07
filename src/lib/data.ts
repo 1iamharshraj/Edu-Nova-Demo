@@ -32,6 +32,12 @@ export interface User {
   wards?: string
   contract?: Contract
   resignation?: Resignation
+  // Phase 4 — account hygiene & profile (see phase-4-admissions-identity.md)
+  mustChangePassword?: boolean
+  photoFileId?: string | null
+  emergencyContact?: string | null
+  address?: string | null
+  lastLoginAt?: string | null
 }
 
 export interface Term { id: string; name: string; range: string; months: string[]; current?: boolean }
@@ -317,6 +323,8 @@ export interface ClassRec {
   label: string
   classTeacherId?: string
   capacity?: number
+  /** Overrides the school's default period template. See phase-2-timetable.md */
+  periodTemplateId?: string
 }
 export interface SubjectRec { id: string; name: string; code: string; color: string }
 export interface ClassSubject { id: string; classId: string; subjectId: string; teacherId?: string; periodsPerWeek: number }
@@ -324,6 +332,86 @@ export type RoomKind = 'classroom' | 'lab' | 'ground' | 'hall' | 'other'
 export interface Room { id: string; name: string; kind: RoomKind; capacity?: number }
 export interface Enrollment { id: string; studentId: string; classId: string; academicYearId: string; rollNo?: string; status: 'active' | 'transferred' | 'graduated' }
 export interface Guardian { id: string; parentId: string; studentId: string; relation: string }
+
+// Phase 2 — timetable (server-backed, entries fetched per screen). See .agents/edunova/phase-2-timetable.md
+export type PeriodKind = 'class' | 'break'
+export interface PeriodDef { idx: number; label: string; start: string; end: string; kind: PeriodKind }
+export interface PeriodTemplate { id: string; name: string; isDefault: boolean; periods: PeriodDef[] }
+/** dayOfWeek is ISO-style: 1 = Monday … 6 = Saturday. */
+export interface TimetableEntry { id: string; classId: string; termId: string; dayOfWeek: number; periodIdx: number; classSubjectId: string; roomId?: string; teacherId?: string }
+export interface Substitution { id: string; timetableEntryId: string; date: string; substituteTeacherId: string; reason?: string }
+
+// Phase 3 — attendance, assessment, homework, files (server-backed, fetched per screen).
+// See .agents/edunova/phase-3-attendance-assessment.md. Legacy names (`Homework`, `AttendanceRecord`, `RankRow`)
+// still describe the old JSON blob, so the real entities take the `Rec` suffix where they would clash.
+export interface FileRec { id: string; uploaderId: string; name: string; mime: string; size: number; createdAt: string }
+/** Student session status. H (holiday) is only ever written by the server. */
+export type SessionStatus = 'P' | 'A' | 'L' | 'E' | 'H'
+export type StaffStatus = 'P' | 'A' | 'L' | 'H'
+export interface AttendanceRecordRec { id: string; sessionId: string; studentId: string; status: SessionStatus; note?: string }
+/** `periodIdx` null/undefined = whole-day attendance. `records` is present on `/attendance/sessions` responses. */
+export interface AttendanceSession { id: string; classId: string; date: string; periodIdx?: number | null; markedById: string; lockedAt?: string | null; records: AttendanceRecordRec[] }
+export interface StaffAttendance { id: string; userId: string; date: string; status: StaffStatus; markedById: string }
+export interface AttendanceSummary {
+  bySubject?: { subjectId?: string; subject: string; present: number; total: number; pct?: number }[]
+  overall: { present: number; total: number; pct: number }
+  days: { date: string; status: SessionStatus }[]
+}
+export interface GradeBand { min: number; grade: string; points?: number }
+export interface GradeScale { id: string; name: string; boardId?: string | null; bands: GradeBand[] }
+export interface Mark { id: string; assessmentId: string; studentId: string; score: number; remark?: string }
+/** `marks` is attached when the caller may see them (teacher/admin: all; student/parent: own, published only). */
+export interface Assessment { id: string; classSubjectId: string; classId?: string; subjectId?: string; subjectName?: string; termId: string; name: string; maxMarks: number; weight: number; date?: string | null; publishedAt?: string | null; marks?: Mark[] }
+export interface ReportCardSubject {
+  classSubjectId?: string
+  subjectId?: string
+  subject: string
+  color?: string
+  assessments: { id: string; name: string; maxMarks: number; weight?: number; date?: string | null; score?: number | null }[]
+  total: number
+  max: number
+  pct: number
+  grade: string
+}
+export interface ReportCard { subjects: ReportCardSubject[]; overall: { total?: number; max?: number; pct: number; grade: string; rank?: number | null; classSize?: number } }
+export interface RankEntry { studentId: string; name: string; rollNo?: string; total: number; max?: number; pct: number; rank: number; grade?: string }
+export type SubmissionStatus = 'Submitted' | 'Late' | 'Graded' | 'Returned'
+export interface HomeworkSubmission { id: string; homeworkId: string; studentId: string; submittedAt: string; files: string[]; status: SubmissionStatus; grade?: string | null; feedback?: string | null; note?: string | null }
+/** `submissions`: teacher/admin see every student's, a student sees only their own. */
+export interface HomeworkRec { id: string; classSubjectId: string; classId?: string; subjectId?: string; subjectName?: string; title: string; description: string; dueDate: string; createdById: string; attachments: string[]; submissions?: HomeworkSubmission[]; createdAt?: string }
+
+// Phase 5 — fees, payments, payroll (server-backed, fetched per screen). See .agents/edunova/phase-5-finance.md
+export type PaymentMethod = 'UPI' | 'Card' | 'NetBanking' | 'Cash' | 'Cheque'
+export type InvoiceStatus = 'Due' | 'PartiallyPaid' | 'Paid' | 'Waived'
+export type ReminderChannel = 'InApp' | 'Email' | 'SMS'
+export interface FeeHead { id: string; name: string; isRecurring: boolean; createdAt?: string }
+export interface FeeStructureLine { feeHeadId: string; amount: number }
+export interface FeeStructure { id: string; classId: string; termId: string; dueDate: string; lines: FeeStructureLine[] }
+export interface InvoiceLine { feeHeadId: string; name: string; amount: number }
+export interface Payment { id: string; invoiceId: string; amount: number; method: PaymentMethod; reference?: string | null; paidAt: string; recordedById: string; receiptNo: string; note?: string | null }
+/** `paid` / `payments` / `studentName` are decorations the server may attach; the UI falls back when they are absent. */
+export interface FeeInvoice {
+  id: string; studentId: string; studentName?: string; classLabel?: string; feeStructureId?: string | null; termId: string
+  lines: InvoiceLine[]; total: number; concession: number; dueDate: string; status: InvoiceStatus; invoiceNo: string; createdAt?: string
+  paid?: number; payments?: Payment[]
+}
+export interface FeeReminder { id: string; invoiceId: string; sentById: string; channel: ReminderChannel; sentAt: string; note?: string | null }
+export interface FeeDefaulter {
+  studentId: string; name: string; classLabel: string; parent?: { name?: string; phone?: string; email?: string } | null
+  outstanding: number; oldestDue: string; reminders: number
+  /** Optional detail some servers attach — the UI fetches the student's invoices when it is missing. */
+  invoices?: { id: string; invoiceNo: string; outstanding: number; dueDate: string }[]
+}
+export interface FeeSummary { collected: number; outstanding: number; invoiced: number; byHead: { feeHeadId?: string; name: string; invoiced: number; collected: number }[] }
+export interface SalaryComponent { name: string; amount: number }
+export interface SalaryStructure { id: string; userId: string; basic: number; allowances: SalaryComponent[]; deductions: SalaryComponent[]; effectiveFrom: string }
+export type PayslipStatus = 'Generated' | 'Paid'
+/** `allowances` / `deductions` are the component lists copied at run time (a total is accepted too). */
+export interface Payslip {
+  id: string; userId: string; userName?: string; month: string; basic: number; allowances: SalaryComponent[] | number; deductions: SalaryComponent[] | number
+  gross: number; net: number; status: PayslipStatus; paidAt?: string | null; paidById?: string | null; slipNo: string
+}
+
 export interface AcademicState {
   years: AcademicYear[]
   terms: TermRec[]
@@ -337,12 +425,16 @@ export interface AcademicState {
   rooms: Room[]
   enrollments: Enrollment[]
   guardians: Guardian[]
+  periodTemplates: PeriodTemplate[]
 }
 export const emptyAcademic = (): AcademicState => ({
   years: [], terms: [], boards: [], grades: [], streams: [], curriculum: [],
   classes: [], subjects: [], classSubjects: [], rooms: [], enrollments: [], guardians: [],
+  periodTemplates: [],
 })
 
+// Legacy timetable constants. No screen reads these any more — they only feed `seedDB()` (the legacy JSON
+// blob the server's sample loader still imports) and the sample "Standard day" period template.
 export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 export const TIMESLOTS = [
   { time: '09:00', label: '09:00', kind: 'class' as const },
@@ -804,3 +896,56 @@ export function seedDB(): DB {
 export const HIGHLIGHTS: { id: string; title: string; yt: string; date: string }[] = []
 
 export const fmtINR = (n: number) => '₹' + n.toLocaleString('en-IN')
+
+// ─────────────────────────────────────────────────────────────
+// Phase 4 — admissions, certificates, board registration, identity (server-backed, fetched per screen).
+// See .agents/edunova/phase-4-admissions-identity.md. The legacy `Application` / `BoardDetail` / `Marksheet`
+// shapes above still describe the old JSON blob (studentReport.tsx reads them), so these take the `Rec` suffix.
+// ─────────────────────────────────────────────────────────────
+export type ApplicationKind = 'Admission' | 'TC' | 'Bonafide' | 'Character'
+export type ApplicationStatus = 'Pending' | 'Verified' | 'Approved' | 'Declined'
+export interface ApplicationGuardian { name: string; phone?: string; email?: string; relation?: string }
+export interface ApplicationRec {
+  id: string
+  kind: ApplicationKind
+  applicantName: string
+  dob?: string | null
+  gender?: string | null
+  guardian?: ApplicationGuardian | null
+  targetClassId?: string | null
+  targetBoardId?: string | null
+  /** TC/Bonafide/Character: the existing student; Admission: set when approved. */
+  studentId?: string | null
+  /** File ids. */
+  documents: string[]
+  status: ApplicationStatus
+  notes?: string | null
+  submittedById?: string | null
+  decidedById?: string | null
+  decidedAt?: string | null
+  createdAt: string
+}
+/** `POST /applications/:id/approve` on an Admission returns the accounts it created, with plain passwords shown once. */
+export interface AdmissionCreated { student: { email: string; password: string }; parent?: { email: string; password: string } | null }
+export type CertificateKind = 'TC' | 'Bonafide' | 'Character'
+export interface Certificate { id: string; kind: CertificateKind; studentId: string; serialNo: string; issuedById: string; issuedAt: string; pdfFileId: string; applicationId?: string | null }
+export type BoardRegistrationStatus = 'Draft' | 'Pending' | 'Validated' | 'SentToBoard'
+export interface BoardRegistration {
+  id: string
+  studentId: string
+  boardId: string
+  academicYearId: string
+  registrationNo?: string | null
+  rollNo?: string | null
+  nameOnCertificate: string
+  dob: string
+  affiliationNo?: string | null
+  status: BoardRegistrationStatus
+  validatedById?: string | null
+  validatedAt?: string | null
+  sentAt?: string | null
+  mismatchNote?: string | null
+}
+export type VerificationMethod = 'Document' | 'InPerson' | 'Aadhaar'
+export type VerificationStatus = 'Pending' | 'Verified' | 'Rejected'
+export interface ParentVerification { id: string; parentId: string; method: VerificationMethod; status: VerificationStatus; documentFileId?: string | null; verifiedById?: string | null; verifiedAt?: string | null; note?: string | null; createdAt?: string }
