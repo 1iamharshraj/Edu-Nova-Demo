@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import { Download, FileText, HeartPulse, Phone, School, TrendingUp, Users } from 'lucide-react'
 import { useStore } from '@/lib/store'
-import { fmtINR, gradeFor, pctFor } from '@/lib/data'
+import { fmtINR, type AttendanceSummary, type ReportCard } from '@/lib/data'
+import { qs, useFetchMany } from '@/lib/hooks/useAcademics'
 import { Card, Empty, PageHead, Pill, Progress } from '../ui'
 import { useViewedStudents } from './viewer'
 import {
@@ -22,57 +23,54 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
   // Health records carry no studentId yet (Phase 8) — only the student themself or their guardians may see them.
   const canSeeHealth = viewedStudents.some(s => s.id === studentId)
 
-  const attendanceRecords = db.attendanceRecords.filter(r => r.userId === studentId)
+  // Phase 3: attendance, marks and ranks come from the server per term (one summary + one report card per term).
+  const termIds = useMemo(() => db.terms.map(t => t.id), [db.terms])
+  const { data: summaries } = useFetchMany<AttendanceSummary>(useMemo(() => termIds.map(t => `/attendance/summary${qs({ studentId, termId: t })}`), [termIds, studentId]))
+  const { data: reportCards } = useFetchMany<ReportCard>(useMemo(() => termIds.map(t => `/assessments/report-card${qs({ studentId, termId: t })}`), [termIds, studentId]))
+
+  const allDays = useMemo(() => (summaries ?? []).flatMap(s => s?.days ?? []), [summaries])
   const attendanceSummary = useMemo(() => {
-    const p = attendanceRecords.filter(r => r.status === 'P').length
-    const a = attendanceRecords.filter(r => r.status === 'A').length
-    const l = attendanceRecords.filter(r => r.status === 'L').length
-    const h = attendanceRecords.filter(r => r.status === 'H').length
-    const total = p + a + l // exclude holidays from working days
-    const pct = total ? Math.round((p / total) * 100) : 0
+    const count = (st: string) => allDays.filter(d => d.status === st).length
+    const p = count('P'), a = count('A'), l = count('L') + count('E'), h = count('H')
+    const fromServer = (summaries ?? []).reduce((acc, s) => ({ present: acc.present + (s?.overall.present ?? 0), total: acc.total + (s?.overall.total ?? 0) }), { present: 0, total: 0 })
+    const total = fromServer.total || p + a + l
+    const present = fromServer.total ? fromServer.present : p
+    const pct = total ? Math.round((present / total) * 100) : 0
     return { p, a, l, h, total, pct }
-  }, [attendanceRecords])
+  }, [allDays, summaries])
 
   const attendanceByMonth = useMemo(() => {
     const map: Record<string, { month: string; present: number; absent: number; leave: number }> = {}
-    attendanceRecords.forEach(r => {
+    allDays.forEach(r => {
       const month = r.date.slice(0, 7)
       if (!map[month]) map[month] = { month, present: 0, absent: 0, leave: 0 }
       if (r.status === 'P') map[month].present += 1
       else if (r.status === 'A') map[month].absent += 1
-      else if (r.status === 'L') map[month].leave += 1
+      else if (r.status === 'L' || r.status === 'E') map[month].leave += 1
     })
     return Object.values(map).sort((a, b) => a.month.localeCompare(b.month))
-  }, [attendanceRecords])
+  }, [allDays])
 
-  const marksByTerm = useMemo(() => {
-    return db.terms.map(term => {
-      const rows = db.marks[term.id] ?? []
-      const subjects = rows.map(row => {
-        const pct = pctFor(row)
-        return { subject: row.subject, grade: gradeFor(row), pct, score: row.assessments.reduce((a, x) => a + x.score, 0), max: row.assessments.reduce((a, x) => a + x.max, 0) }
-      })
-      const totalScore = subjects.reduce((a, s) => a + s.score, 0)
-      const totalMax = subjects.reduce((a, s) => a + s.max, 0)
-      return {
-        termId: term.id,
-        termName: term.name,
-        subjects,
-        totalScore,
-        totalMax,
-        overallPct: totalMax ? Math.round((totalScore / totalMax) * 100) : 0,
-        overallGrade: totalMax ? gradeFor({ subject: 'Overall', assessments: [{ name: 'Total', score: totalScore, max: totalMax }] }) : '—',
-      }
-    })
-  }, [db.marks, db.terms])
+  const marksByTerm = useMemo(() => db.terms.map((term, i) => {
+    const rc = reportCards?.[i]
+    const subjects = (rc?.subjects ?? []).map(r => ({ subject: r.subject, grade: r.grade, pct: Math.round(r.pct), score: r.total, max: r.max }))
+    const totalScore = subjects.reduce((a, s) => a + s.score, 0)
+    const totalMax = subjects.reduce((a, s) => a + s.max, 0)
+    return {
+      termId: term.id,
+      termName: term.name,
+      subjects,
+      totalScore,
+      totalMax,
+      overallPct: rc ? Math.round(rc.overall.pct) : 0,
+      overallGrade: rc && subjects.length ? rc.overall.grade : '—',
+    }
+  }).filter(t => t.subjects.length > 0), [db.terms, reportCards])
 
-  const rankHistory = useMemo(() => {
-    return db.terms.map(term => {
-      const overall = db.ranks[term.id]?.overall ?? []
-      const row = overall.find(r => r.name === student?.name)
-      return { term: term.name, rank: row?.rank ?? null, score: row?.score ?? null }
-    })
-  }, [db.ranks, db.terms, student?.name])
+  const rankHistory = useMemo(() => db.terms.map((term, i) => {
+    const rc = reportCards?.[i]
+    return { term: term.name, rank: rc?.overall.rank ?? null, score: rc ? Math.round(rc.overall.pct) : null }
+  }), [db.terms, reportCards])
 
   const achievements = db.achievements.filter(a => a.by === student?.name)
   const receipts = db.receipts.filter(r => r.studentId === studentId && r.kind === 'fee')
@@ -238,6 +236,7 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
       <Card>
         <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><TrendingUp size={15} /> Marks & grades</p>
         <div className="space-y-5">
+          {marksByTerm.length === 0 && <Empty text="No marks published yet." />}
           {marksByTerm.map(t => (
             <div key={t.termId}>
               <div className="mb-2 flex items-center justify-between">

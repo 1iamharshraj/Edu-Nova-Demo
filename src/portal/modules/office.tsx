@@ -1,244 +1,31 @@
-import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, AlertTriangle, BadgeCheck, Briefcase, CalendarPlus, Check, Copy, FileBadge, FileText, Pencil, Plus, Save, School, ScrollText, Search, Send, ShieldAlert, Trash2, UserPlus, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import {
+  AlertCircle, AlertTriangle, BadgeCheck, Briefcase, CalendarPlus, Check, Copy, Download, FileBadge, FileText, Paperclip, Pencil, Plus,
+  School, ScrollText, Search, Send, ShieldAlert, Sparkles, Trash2, UserPlus, X,
+} from 'lucide-react'
 import { useAcademic, useStore, type CreateUserInput } from '@/lib/store'
-import { api, errorMessage } from '@/lib/api'
-import { canManage, isSuperAdmin } from '@/lib/access'
-import { fmtINR, type Application, type AttendanceStatus, type Board, type BoardDetail, type BoardDetailStatus, type CalEvent, type Contract, type ContractStatus, type Resignation, type Role, type Term, type User } from '@/lib/data'
-import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, TermTabs, inputCls, statusTone } from '../ui'
+import { api, downloadFile, downloadPath, errorMessage, uploadFile } from '@/lib/api'
+import { canManage, isAdmin, isStaffOrAdmin, isSuperAdmin } from '@/lib/access'
+import { fmtINR, type Board, type BoardRegistration, type BoardRegistrationStatus, type CalEvent, type Certificate, type CertificateKind, type Contract, type ContractStatus, type ParentVerification, type Resignation, type Role, type Term, type User, type VerificationStatus } from '@/lib/data'
+import {
+  APPLICATION_KINDS, APPLICATION_STATUSES, BOARD_REG_STATUSES, CERTIFICATE_KINDS, KIND_LABEL, boardRegLabel, boardRegTone, certificateFileName,
+  isCertificateKind, kindTone, useApplications, useBoardRegistrations, useFileUrl, useVerifications, verificationTone,
+  type AdmissionCreated, type ApplicationKind, type ApplicationRec, type ApplicationStatus,
+} from '@/lib/hooks/useIdentity'
+import { fmtDate, qs, useFetchMany } from '@/lib/hooks/useAcademics'
+import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, UploadField, inputCls, statusTone, type UploadedFile } from '../ui'
 import { StudentReportMod } from './studentReport'
-import { useTerm } from '../Portal'
+import { useViewedStudents } from './viewer'
 import { toast } from 'sonner'
 
-const MONTH_ABBR: Record<string, number> = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-}
-function parseMonthAbbr(s: string): number {
-  return MONTH_ABBR[s.trim().toLowerCase().slice(0, 3)] ?? 0
-}
+// Phase 3 classroom screens live in classroom.tsx; re-exported here so the Portal registry keeps one import.
+export { AttendanceMgmtMod, CreateAssignmentMod, GradebookMod, TakeAttendanceMod } from './classroom'
 
 const todayISO = () => new Date().toISOString().slice(0, 10)
 
 /** Current term id from the legacy `db.terms` shape — falls back to the first term, else ''. */
 function defaultTermId(terms: Term[]): string {
   return terms.find(t => t.current)?.id ?? terms[0]?.id ?? ''
-}
-
-function termBounds(term: Term): { start: string; end: string } {
-  const parts = term.range.split('–').map(s => s.trim())
-  if (parts.length !== 2) return { start: '2025-01-01', end: '2026-12-31' }
-  const [startStr, endStr] = parts
-  const endMatch = endStr.match(/^([A-Za-z]+)\s+(\d{4})$/)
-  if (!endMatch) return { start: '2025-01-01', end: '2026-12-31' }
-  const endMonth = parseMonthAbbr(endMatch[1])
-  const endYear = parseInt(endMatch[2])
-  const end = new Date(endYear, endMonth + 1, 0).toISOString().slice(0, 10)
-  const startMonth = parseMonthAbbr(startStr)
-  const startYear = startMonth > endMonth ? endYear - 1 : endYear
-  const start = `${startYear}-${String(startMonth + 1).padStart(2, '0')}-01`
-  return { start, end }
-}
-
-/** Classes the signed-in teacher teaches (or is class teacher of), with a picker when there is more than one. */
-function useMyClass() {
-  const { db, user } = useStore()
-  const { classesTaughtBy, classOf } = useAcademic()
-  const myClasses = useMemo(() => user ? classesTaughtBy(user.id) : [], [classesTaughtBy, user])
-  const [picked, setPicked] = useState('')
-  const activeId = myClasses.some(c => c.id === picked) ? picked : (myClasses[0]?.id ?? '')
-  const activeClass = myClasses.find(c => c.id === activeId)
-  const classStudents = useMemo(
-    () => activeId ? db.users.filter(u => u.role === 'student' && classOf(u.id)?.id === activeId).sort((a, b) => a.name.localeCompare(b.name)) : [],
-    [db.users, classOf, activeId],
-  )
-  const picker = myClasses.length > 1 ? (
-    <select value={activeId} onChange={e => setPicked(e.target.value)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`}>
-      {myClasses.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-    </select>
-  ) : null
-  const emptyText = myClasses.length === 0
-    ? 'No classes assigned to you yet. Ask the admin to assign you in Academic Setup.'
-    : `No students enrolled in ${activeClass?.label ?? 'this class'} yet.`
-  return { myClasses, activeClass, classStudents, picker, emptyText }
-}
-
-export function TakeAttendanceMod() {
-  const { activeClass, classStudents, picker, emptyText } = useMyClass()
-  const defaults = useMemo(() => Object.fromEntries(classStudents.map(s => [s.name, true])), [classStudents])
-  const [overrides, setOverrides] = useState<Record<string, boolean>>({})
-  const [saved, setSaved] = useState(false)
-  const marks = useMemo(() => ({ ...defaults, ...overrides }), [defaults, overrides])
-  const present = Object.values(marks).filter(Boolean).length
-  const setMark = (name: string, value: boolean) => { setOverrides(o => ({ ...o, [name]: value })); setSaved(false) }
-  const markAllPresent = () => { setOverrides(Object.fromEntries(classStudents.map(s => [s.name, true]))); setSaved(false) }
-  const save = () => { setSaved(true); toast.success(`Attendance saved — ${present}/${classStudents.length} present`) }
-  return (
-    <div>
-      <PageHead title="Take Attendance" sub={`${activeClass?.label ?? 'No class'} · ${classStudents.length} students · Period 1 · today`}>{picker}</PageHead>
-      <Card className="p-0">
-        <div className="flex items-center justify-between border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
-          <p className="text-[14px] font-semibold">{present} of {classStudents.length} present</p>
-          <button onClick={markAllPresent} className="text-[12.5px] font-semibold text-indigo-600 hover:underline">Mark all present</button>
-        </div>
-        {classStudents.map((s, i) => (
-          <div key={s.id} className="flex items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3.5 last:border-0">
-            <span className="w-7 text-[13px] font-semibold text-black/35 dark:text-white/35">{i + 1}</span>
-            <Avatar name={s.name} hue={s.avatarHue} size={34} />
-            <span className="flex-1 text-[14.5px] font-medium">{s.name}</span>
-            <div className="flex rounded-full bg-black/[.05] dark:bg-white/[.07] p-1">
-              {([true, false] as const).map(v => (
-                <button key={String(v)} onClick={() => setMark(s.name, v)}
-                  className={`rounded-full px-4 py-1.5 text-[12.5px] font-bold transition-all ${marks[s.name] === v ? (v ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white') : 'text-black/40 dark:text-white/40'}`}>
-                  {v ? 'P' : 'A'}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-        {classStudents.length === 0 && <div className="p-6"><Empty text={emptyText} /></div>}
-        <div className="p-5">
-          <button onClick={save} disabled={classStudents.length === 0} className="btn-ink flex w-full items-center justify-center gap-2 py-3.5 text-[14.5px] font-semibold disabled:opacity-40">
-            {saved ? <Check size={17} /> : <Save size={16} />} {saved ? 'Saved' : 'Save attendance'}
-          </button>
-        </div>
-      </Card>
-    </div>
-  )
-}
-
-/* ── Teacher: upload grades ────────────────────────────── */
-
-export function GradeUploadMod() {
-  const { db, update } = useStore()
-  const { term, setTerm } = useTerm()
-  const { activeClass, classStudents, picker, emptyText } = useMyClass()
-  const [subjectPick, setSubject] = useState('')
-  const subject = db.subjects.some(s => s.name === subjectPick) ? subjectPick : (db.subjects[0]?.name ?? '')
-  const [assessment, setAssessment] = useState('Term Exam')
-  const [max, setMax] = useState(80)
-  const [scores, setScores] = useState<Record<string, string>>({})
-  const canPublish = !!subject && !!term && classStudents.length > 0
-
-  const save = () => {
-    if (!canPublish) return
-    let count = 0
-    update(d => {
-      if (!d.marks[term]) d.marks[term] = []
-      let row = d.marks[term].find(r => r.subject === subject)
-      if (!row) { row = { subject, assessments: [] }; d.marks[term].push(row) }
-      classStudents.forEach(s => {
-        const val = parseInt(scores[s.name] || '')
-        if (isNaN(val)) return
-        const a = row.assessments.find(x => x.name === assessment)
-        if (a) { a.score = Math.min(val, max); a.max = max }
-        else row.assessments.push({ name: assessment, score: Math.min(val, max), max })
-        count++
-      })
-      return d
-    })
-    toast.success(`Grades published for ${subject} · ${assessment} · ${count} students`)
-  }
-
-  return (
-    <div>
-      <PageHead title="Upload Grades" sub={`Publish marks for ${activeClass?.label ?? 'your class'}`}>
-        <div className="flex flex-wrap items-center gap-2">
-          {picker}
-          <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
-        </div>
-      </PageHead>
-      <Card>
-        <div className="mb-6 grid gap-3 sm:grid-cols-3">
-          <Field label="Subject">
-            <select value={subject} onChange={e => setSubject(e.target.value)} className={inputCls} disabled={db.subjects.length === 0}>
-              {db.subjects.length === 0 && <option value="">No subjects yet — add them in Academic Setup</option>}
-              {db.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Assessment">
-            <select value={assessment} onChange={e => setAssessment(e.target.value)} className={inputCls}>
-              {['Unit Test', 'Mid Term', 'Term Exam'].map(a => <option key={a}>{a}</option>)}
-            </select>
-          </Field>
-          <Field label="Max marks"><input type="number" value={max} onChange={e => setMax(+e.target.value)} className={inputCls} /></Field>
-        </div>
-        <div className="space-y-2.5">
-          {classStudents.map((s) => (
-            <div key={s.id} className="flex items-center gap-4">
-              <Avatar name={s.name} hue={s.avatarHue} size={32} />
-              <span className="flex-1 text-[14px] font-medium">{s.name}</span>
-              <input value={scores[s.name] ?? ''} onChange={e => setScores(sc => ({ ...sc, [s.name]: e.target.value.replace(/\D/g, '') }))}
-                placeholder={`/ ${max}`} className={`${inputCls} w-24 text-center`} inputMode="numeric" />
-            </div>
-          ))}
-          {classStudents.length === 0 && <Empty text={emptyText} />}
-        </div>
-        <button onClick={save} disabled={!canPublish} className="btn-ink mt-6 w-full py-3.5 text-[14.5px] font-semibold disabled:opacity-40">Publish grades</button>
-      </Card>
-    </div>
-  )
-}
-
-/* ── Teacher: create assignment ────────────────────────── */
-
-export function CreateAssignmentMod() {
-  const { db, update } = useStore()
-  const { term, setTerm } = useTerm()
-  const [subjectPick, setSubject] = useState('')
-  const subject = db.subjects.some(s => s.name === subjectPick) ? subjectPick : (db.subjects[0]?.name ?? '')
-  const [title, setTitle] = useState('')
-  const [desc, setDesc] = useState('')
-  const [due, setDue] = useState(() => new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10))
-  const canPost = !!title.trim() && !!subject && !!term
-  const live = db.homework.filter(h => h.term === term)
-
-  const create = () => {
-    if (!canPost) return
-    update(d => {
-      d.homework.unshift({ id: 'h' + Date.now(), subject, title, due, term, status: 'Pending', description: desc || '—' })
-      return d
-    })
-    setTitle(''); setDesc('')
-    toast.success('Assignment posted')
-  }
-
-  return (
-    <div>
-      <PageHead title="Create Assignment" sub="Homework lands instantly in parent & student portals">
-        <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
-      </PageHead>
-      <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
-        <Card>
-          <div className="space-y-4">
-            <Field label="Subject">
-              <select value={subject} onChange={e => setSubject(e.target.value)} className={inputCls} disabled={db.subjects.length === 0}>
-                {db.subjects.length === 0 && <option value="">No subjects yet — add them in Academic Setup</option>}
-                {db.subjects.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Title"><input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Circle theorems — worksheet 3" className={inputCls} /></Field>
-            <Field label="Instructions"><textarea value={desc} onChange={e => setDesc(e.target.value)} rows={3} className={inputCls} /></Field>
-            <Field label="Due date"><input type="date" value={due} onChange={e => setDue(e.target.value)} className={inputCls} /></Field>
-            <button onClick={create} disabled={!canPost} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Post assignment</button>
-          </div>
-        </Card>
-        <Card>
-          <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Live for this term</p>
-          <div className="space-y-3">
-            {live.length === 0 && <Empty text="No assignments posted for this term yet." />}
-            {live.map(h => (
-              <div key={h.id} className="flex items-center gap-3 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
-                <div className="flex-1">
-                  <p className="text-[13.5px] font-semibold">{h.title}</p>
-                  <p className="text-[11.5px] text-black/45 dark:text-white/45">{h.subject} · due {new Date(h.due).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
-                </div>
-                <Pill tone={statusTone(h.status)}>{h.status}</Pill>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-    </div>
-  )
 }
 
 /* ── Teacher: contract & notice period ─────────────────── */
@@ -419,129 +206,442 @@ export function RegistrationsMod({ kind, title, sub }: { kind: keyof typeof CATA
   )
 }
 
-/* ── Applications: admissions / TC / bonafide / discipline ─ */
+/* ── Applications: admissions & certificates (Phase 4) ── */
+// Staff/admin run the pipeline (Pending → Verified → Approved / Declined); parents and students apply for
+// TC / Bonafide / Character certificates for themselves or their wards and download the PDF once issued.
+// See .agents/edunova/phase-4-admissions-identity.md
+
+type AppTab = 'All' | ApplicationKind | 'Issued'
+type AppModal =
+  | { t: 'admission' } | { t: 'cert' } | { t: 'issue' }
+  | { t: 'decline'; app: ApplicationRec } | { t: 'approve'; app: ApplicationRec }
+
+const pillBtn = 'rounded-full px-4 py-1.5 text-[12.5px] font-semibold disabled:opacity-40'
+const ghostPill = `${pillBtn} bg-black/[.06] dark:bg-white/[.08] hover:bg-black/10 dark:hover:bg-white/15`
+const unwrapList = <T,>(d: { items?: T[] } | T[] | undefined) => (!d ? [] : Array.isArray(d) ? d : d.items ?? [])
+
+function DocumentLinks({ ids }: { ids: string[] }) {
+  if (!ids.length) return null
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      {ids.map((id, i) => (
+        <button key={id} onClick={() => downloadFile(id, `document-${i + 1}`).catch(e => toast.error(errorMessage(e)))}
+          className="flex items-center gap-1 rounded-full bg-black/[.05] dark:bg-white/[.07] px-2.5 py-1 text-[11.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
+          <Paperclip size={11} /> Doc {i + 1}
+        </button>
+      ))}
+    </span>
+  )
+}
+
+function CertificateDownload({ cert, studentName, compact = false }: { cert: Certificate; studentName?: string; compact?: boolean }) {
+  const [busy, setBusy] = useState(false)
+  const run = async () => {
+    setBusy(true)
+    try { await downloadPath(`/certificates/${cert.id}/pdf`, certificateFileName(cert, studentName)) }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <button onClick={run} disabled={busy} title={cert.serialNo}
+      className={`flex items-center gap-1.5 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 ${compact ? 'px-3 py-1.5 text-[12px]' : 'px-4 py-2 text-[13px]'} font-semibold`}>
+      <Download size={13} /> {busy ? 'Preparing…' : compact ? 'PDF' : 'Download certificate'}
+    </button>
+  )
+}
 
 export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
-  const { db, update, user } = useStore()
-  const { classOf, wardsOf } = useAcademic()
-  const [open, setOpen] = useState(false)
-  const [kind, setKind] = useState<Application['kind']>('Bonafide')
-  const [detail, setDetail] = useState('')
-  const [kindFilter, setKindFilter] = useState<'All' | Application['kind']>('All')
-  const [notes, setNotes] = useState<Record<string, string>>({})
+  const { db, user } = useStore()
+  const { classById, classOf, boardById } = useAcademic()
+  const viewed = useViewedStudents()
+  const adminRole = isAdmin(user)
+  const [tab, setTab] = useState<AppTab>('All')
+  const [status, setStatus] = useState<ApplicationStatus | ''>('')
+  const [modal, setModal] = useState<AppModal | null>(null)
+  const apps = useApplications({ kind: tab === 'All' || tab === 'Issued' ? '' : tab, status })
 
-  const mine = useMemo(() => {
-    if (approver) return db.applications
-    if (!user) return []
-    return db.applications.filter(a => {
-      if (user.role === 'student') return a.name.includes(user.name)
-      if (user.role === 'parent') {
-        const wardNames = wardsOf(user.id).map(id => db.users.find(u => u.id === id)?.name).filter((n): n is string => !!n)
-        const wards = [...wardNames, ...(user.wards || '').split(',').map(w => w.trim()).filter(Boolean)]
-        return wards.some(w => a.name.includes(w))
-      }
-      return false
-    })
-  }, [db.applications, db.users, approver, user, wardsOf])
+  // Certificates: staff/admin see the school's; parents/students fetch per viewed student (the list endpoint is keyed by studentId).
+  const [certNonce, setCertNonce] = useState(0)
+  const certPaths = useMemo(() => {
+    const suffix = certNonce ? `${approver ? '?' : '&'}r=${certNonce}` : ''
+    return approver ? [`/certificates${suffix}`] : viewed.map(s => `/certificates?studentId=${encodeURIComponent(s.id)}${suffix}`)
+  }, [approver, viewed, certNonce])
+  const certsQ = useFetchMany<{ items?: Certificate[] } | Certificate[]>(certPaths)
+  const certs = useMemo(() => (certsQ.data ?? []).flatMap(unwrapList).sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)), [certsQ.data])
+  const reloadAll = () => { apps.reload(); setCertNonce(n => n + 1) }
 
-  const rows = useMemo(() => {
-    if (kindFilter === 'All') return mine
-    return mine.filter(a => a.kind === kindFilter)
-  }, [mine, kindFilter])
+  const nameOf = (id?: string | null) => db.users.find(u => u.id === id)?.name
+  const certFor = (a: ApplicationRec) => {
+    if (a.status !== 'Approved' || !isCertificateKind(a.kind)) return undefined
+    return certs.find(c => c.applicationId === a.id) ?? certs.find(c => c.studentId === a.studentId && c.kind === a.kind)
+  }
+  const subOf = (a: ApplicationRec) => {
+    if (a.kind === 'Admission') {
+      const cls = a.targetClassId ? classById.get(a.targetClassId) : undefined
+      return [cls ? `for ${cls.label}` : 'class not set', a.guardian?.name ? `guardian ${a.guardian.name}` : undefined, a.dob ? `DOB ${fmtDate(a.dob, { day: 'numeric', month: 'short', year: 'numeric' })}` : undefined].filter(Boolean).join(' · ')
+    }
+    const cls = a.studentId ? classOf(a.studentId) : undefined
+    return [cls?.label, a.notes ? a.notes : undefined].filter(Boolean).join(' · ')
+  }
+  const counts = useMemo(() => {
+    const c: Partial<Record<ApplicationStatus, number>> = {}
+    for (const a of apps.items ?? []) c[a.status] = (c[a.status] ?? 0) + 1
+    return c
+  }, [apps.items])
 
-  const setStatus = (id: string, status: Application['status']) => {
-    update(d => {
-      const a = d.applications.find(x => x.id === id)
-      if (!a) return d
-      a.status = status
-      a.notes = notes[id] ?? a.notes
-      return d
-    })
-    toast.success(`Application ${status.toLowerCase()}`)
+  const [acting, setActing] = useState<string | null>(null)
+  const verify = async (a: ApplicationRec) => {
+    setActing(a.id)
+    try { await api.post(`/applications/${a.id}/verify`); apps.reload(); toast.success('Application verified') }
+    catch (e) { toast.error(errorMessage(e)) } finally { setActing(null) }
+  }
+  const remove = async (a: ApplicationRec) => {
+    if (!window.confirm(`Delete this ${a.kind} application for ${a.applicantName}?`)) return
+    setActing(a.id)
+    try { await api.del(`/applications/${a.id}`); apps.reload(); toast.success('Application deleted') }
+    catch (e) { toast.error(errorMessage(e)) } finally { setActing(null) }
   }
 
-  const apply = () => {
-    if (!user) return
-    const cls = classOf(user.id)?.label ?? user.class ?? ''
-    update(d => {
-      const label = user.role === 'student' ? `${user.name}${cls ? ' — ' + cls : ''}` : `${user.name} — ${user.title || user.role}`
-      d.applications.unshift({ id: 'ap' + Date.now(), kind, name: label, detail, date: new Date().toISOString().slice(0, 10), status: 'Pending', notes: '' })
-      return d
-    })
-    setOpen(false); setDetail(''); toast.success(`${kind} application submitted`)
-  }
+  const tabs: AppTab[] = approver ? ['All', ...APPLICATION_KINDS, 'Issued'] : ['All', ...CERTIFICATE_KINDS]
+  const rows = apps.items ?? []
+  const applyStudents = approver ? db.users.filter(u => u.role === 'student').sort(byName) : viewed
 
-  const toneFor = (k: string) => k === 'Admission' ? 'indigo' : k === 'TC' ? 'sky' : k === 'Bonafide' ? 'green' : 'rose'
   return (
     <div>
-      <PageHead title={approver ? 'Applications & Certificates' : 'TC & Bonafide Applications'}
-        sub={approver ? 'Admissions, transfer & bonafide certificates, disciplinary records' : 'Apply and track certificate requests'}>
-        {!approver && (
-          <button onClick={() => setOpen(true)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><Plus size={15} /> New application</button>
-        )}
-        {approver && (
-          <select value={kindFilter} onChange={e => setKindFilter(e.target.value as 'All' | Application['kind'])} className={`${inputCls} w-auto py-1.5 text-[12.5px]`}>
-            <option value="All">All types</option>
-            <option value="Admission">Admission</option>
-            <option value="TC">TC</option>
-            <option value="Bonafide">Bonafide</option>
-            <option value="Disciplinary">Disciplinary</option>
+      <PageHead title={approver ? 'Admissions & Certificates' : 'Certificates'}
+        sub={approver ? 'Admission pipeline, transfer / bonafide / character certificates' : user?.role === 'parent' ? 'Apply for certificates for your wards and download them once issued' : 'Apply for certificates and download them once issued'}>
+        <div className="flex flex-wrap items-center gap-2">
+          {approver && (
+            <>
+              <button onClick={() => setModal({ t: 'issue' })} className="flex items-center gap-1.5 rounded-full border border-black/10 dark:border-white/15 px-4 py-2.5 text-[13px] font-semibold hover:bg-black/[.04] dark:hover:bg-white/[.06]"><FileBadge size={14} /> Issue certificate</button>
+              <button onClick={() => setModal({ t: 'admission' })} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><UserPlus size={15} /> New admission</button>
+            </>
+          )}
+          <button onClick={() => setModal({ t: 'cert' })} disabled={applyStudents.length === 0} title={applyStudents.length === 0 ? 'No student linked to this account yet' : undefined}
+            className={approver ? 'flex items-center gap-1.5 rounded-full border border-black/10 dark:border-white/15 px-4 py-2.5 text-[13px] font-semibold hover:bg-black/[.04] dark:hover:bg-white/[.06] disabled:opacity-40' : 'btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold disabled:opacity-40'}>
+            <Plus size={15} /> {approver ? 'Certificate request' : 'New application'}
+          </button>
+        </div>
+      </PageHead>
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="inline-flex flex-wrap rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] p-1">
+          {tabs.map(t => (
+            <button key={t} onClick={() => setTab(t)} className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-all ${tab === t ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>
+              {t === 'Issued' ? `Issued (${certs.length})` : t}
+            </button>
+          ))}
+        </div>
+        {tab !== 'Issued' && (
+          <select value={status} onChange={e => setStatus(e.target.value as ApplicationStatus | '')} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Status">
+            <option value="">All statuses</option>
+            {APPLICATION_STATUSES.map(s => <option key={s} value={s}>{s}{counts[s] ? ` (${counts[s]})` : ''}</option>)}
           </select>
         )}
-      </PageHead>
-      <Card className="p-0 divide-y divide-black/[.05] dark:divide-white/[.07]">
-        {rows.map(a => (
-          <div key={a.id} className="px-6 py-4">
-            <div className="flex flex-wrap items-center gap-4">
-              <Pill tone={toneFor(a.kind)}>{a.kind}</Pill>
+      </div>
+
+      {tab === 'Issued' ? (
+        <Card className="p-0 divide-y divide-black/[.05] dark:divide-white/[.07]">
+          {certsQ.loading && <div className="p-6 text-center text-[13px] text-black/40 dark:text-white/40">Loading…</div>}
+          {!certsQ.loading && certs.length === 0 && <div className="p-6"><Empty text="No certificates issued yet." /></div>}
+          {certs.map(c => (
+            <div key={c.id} className="flex flex-wrap items-center gap-4 px-6 py-4">
+              <Pill tone={kindTone(c.kind)}>{c.kind}</Pill>
               <div className="min-w-52 flex-1">
-                <p className="text-[14.5px] font-semibold">{a.name}</p>
-                <p className="text-[12.5px] text-black/45 dark:text-white/45">{a.detail} · {new Date(a.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
+                <p className="text-[14.5px] font-semibold">{nameOf(c.studentId) ?? 'Student'}</p>
+                <p className="text-[12.5px] text-black/45 dark:text-white/45"><span className="font-mono">{c.serialNo}</span> · issued {fmtDate(c.issuedAt, { day: 'numeric', month: 'short', year: 'numeric' })}{nameOf(c.issuedById) ? ` by ${nameOf(c.issuedById)}` : ''}</p>
               </div>
-              <Pill tone={statusTone(a.status)}>{a.status}</Pill>
-              {approver && (
-                <div className="flex flex-wrap items-center gap-2">
-                  {a.status === 'Pending' && (
-                    <>
-                      <button onClick={() => setStatus(a.id, 'Verified')} className="rounded-full bg-sky-600 px-4 py-1.5 text-[12.5px] font-semibold text-white hover:bg-sky-700">Verify</button>
-                      <button onClick={() => setStatus(a.id, 'Declined')} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-1.5 text-[12.5px] font-semibold">Decline</button>
-                    </>
-                  )}
-                  {a.status === 'Verified' && (
-                    <>
-                      <button onClick={() => setStatus(a.id, 'Approved')} className="rounded-full bg-emerald-600 px-4 py-1.5 text-[12.5px] font-semibold text-white hover:bg-emerald-700">Approve</button>
-                      <button onClick={() => setStatus(a.id, 'Declined')} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-1.5 text-[12.5px] font-semibold">Decline</button>
-                    </>
-                  )}
-                  {a.status === 'Approved' && <span className="text-[12px] font-semibold text-emerald-600">Queued for issue</span>}
-                  {a.status === 'Declined' && <span className="text-[12px] font-semibold text-rose-500">Declined</span>}
-                </div>
-              )}
+              <CertificateDownload cert={c} studentName={nameOf(c.studentId)} />
             </div>
-            {approver && (
-              <div className="mt-3">
-                <Field label="Admin/staff note">
-                  <textarea value={notes[a.id] ?? a.notes ?? ''} onChange={e => setNotes(n => ({ ...n, [a.id]: e.target.value }))} placeholder="Add a note before acting..." className={`${inputCls} min-h-[60px] text-[13px]`} />
-                </Field>
+          ))}
+        </Card>
+      ) : (
+        <Card className="p-0 divide-y divide-black/[.05] dark:divide-white/[.07]">
+          {apps.loading && <div className="p-6 text-center text-[13px] text-black/40 dark:text-white/40">Loading…</div>}
+          {apps.error && <div className="p-6 text-center text-[13px] text-rose-500">{apps.error}</div>}
+          {!apps.loading && !apps.error && rows.length === 0 && <div className="p-6"><Empty text={approver ? 'No applications in this view.' : 'No applications yet — start one with “New application”.'} /></div>}
+          {rows.map(a => {
+            const cert = certFor(a)
+            const busy = acting === a.id
+            return (
+              <div key={a.id} className="px-6 py-4">
+                <div className="flex flex-wrap items-center gap-4">
+                  <Pill tone={kindTone(a.kind)}>{a.kind}</Pill>
+                  <div className="min-w-52 flex-1">
+                    <p className="text-[14.5px] font-semibold">{a.applicantName}</p>
+                    <p className="text-[12.5px] text-black/45 dark:text-white/45">{subOf(a)}{subOf(a) ? ' · ' : ''}{fmtDate(a.createdAt, { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                  </div>
+                  <DocumentLinks ids={a.documents ?? []} />
+                  <Pill tone={statusTone(a.status)}>{a.status}</Pill>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {approver && a.status === 'Pending' && (
+                      <button onClick={() => verify(a)} disabled={busy} className={`${pillBtn} bg-sky-600 text-white hover:bg-sky-700`}>Verify</button>
+                    )}
+                    {approver && a.status === 'Verified' && (
+                      <button onClick={() => setModal({ t: 'approve', app: a })} disabled={busy} className={`${pillBtn} bg-emerald-600 text-white hover:bg-emerald-700`}>Approve</button>
+                    )}
+                    {approver && (a.status === 'Pending' || a.status === 'Verified') && (
+                      <button onClick={() => setModal({ t: 'decline', app: a })} disabled={busy} className={ghostPill}>Decline</button>
+                    )}
+                    {cert && <CertificateDownload cert={cert} studentName={nameOf(a.studentId)} compact={approver} />}
+                    {a.status === 'Approved' && a.kind === 'Admission' && <span className="text-[12px] font-semibold text-emerald-600">Accounts created{a.studentId && nameOf(a.studentId) ? ` · ${nameOf(a.studentId)}` : ''}</span>}
+                    {a.status === 'Approved' && !cert && isCertificateKind(a.kind) && <span className="text-[12px] font-semibold text-emerald-600">Approved</span>}
+                    {adminRole && (
+                      <button onClick={() => remove(a)} disabled={busy} className="rounded-full p-1.5 text-black/35 hover:bg-rose-50 hover:text-rose-500 dark:text-white/35" title="Delete application"><Trash2 size={14} /></button>
+                    )}
+                  </div>
+                </div>
+                {(a.status === 'Declined' && a.notes) && <p className="mt-2 text-[12.5px] text-rose-600 dark:text-rose-400">Reason: {a.notes}</p>}
+                {a.decidedAt && a.status !== 'Pending' && (
+                  <p className="mt-1 text-[12px] text-black/40 dark:text-white/40">{a.status} {nameOf(a.decidedById) ? `by ${nameOf(a.decidedById)} ` : ''}on {fmtDate(a.decidedAt, { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                )}
               </div>
-            )}
-            {!approver && a.notes && <p className="mt-2 text-[12.5px] text-black/50 dark:text-white/50">Note: {a.notes}</p>}
-          </div>
-        ))}
-        {rows.length === 0 && <div className="p-6"><Empty text="No applications yet." /></div>}
-      </Card>
-      <Modal open={open} onClose={() => setOpen(false)} title="New application">
-        <div className="space-y-4">
-          <Field label="Type">
-            <select value={kind} onChange={e => setKind(e.target.value as Application['kind'])} className={inputCls}>
-              <option value="Bonafide">Bonafide certificate</option>
-              <option value="TC">Transfer certificate</option>
-            </select>
-          </Field>
-          <Field label="Reason"><textarea value={detail} onChange={e => setDetail(e.target.value)} rows={3} placeholder="Why do you need this document?" className={inputCls} /></Field>
-          <button onClick={apply} disabled={!detail.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Submit application</button>
-        </div>
+            )
+          })}
+        </Card>
+      )}
+
+      <Modal open={modal?.t === 'admission'} onClose={() => setModal(null)} title="New admission" wide>
+        {modal?.t === 'admission' && <AdmissionForm onDone={() => { setModal(null); reloadAll() }} />}
       </Modal>
+      <Modal open={modal?.t === 'cert'} onClose={() => setModal(null)} title="Apply for a certificate">
+        {modal?.t === 'cert' && <CertificateApplicationForm students={applyStudents} onDone={() => { setModal(null); reloadAll() }} />}
+      </Modal>
+      <Modal open={modal?.t === 'issue'} onClose={() => setModal(null)} title="Issue a certificate directly">
+        {modal?.t === 'issue' && <IssueCertificateForm students={applyStudents} onDone={() => { setModal(null); setTab('Issued'); reloadAll() }} />}
+      </Modal>
+      <Modal open={modal?.t === 'decline'} onClose={() => setModal(null)} title="Decline application">
+        {modal?.t === 'decline' && <DeclineForm app={modal.app} onDone={() => { setModal(null); apps.reload() }} />}
+      </Modal>
+      <Modal open={modal?.t === 'approve'} onClose={() => setModal(null)} title={modal?.t === 'approve' && modal.app.kind === 'Admission' ? 'Approve admission' : 'Approve & issue certificate'} wide={modal?.t === 'approve' && modal.app.kind === 'Admission'}>
+        {modal?.t === 'approve' && <ApproveDialog app={modal.app} onClose={() => setModal(null)} onChanged={reloadAll} boardName={modal.app.targetBoardId ? boardById.get(modal.app.targetBoardId)?.name : undefined} />}
+      </Modal>
+    </div>
+  )
+}
+
+function AdmissionForm({ onDone }: { onDone: () => void }) {
+  const { classes, classById, currentYear } = useAcademic()
+  const options = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })), [classes, currentYear])
+  const [f, setF] = useState({ applicantName: '', dob: '', gender: '', gName: '', gPhone: '', gEmail: '', gRelation: 'Parent', targetClassId: options[0]?.id ?? '' })
+  const [docs, setDocs] = useState<UploadedFile[]>([])
+  const [busy, setBusy] = useState(false)
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF(x => ({ ...x, [k]: e.target.value }))
+  const valid = f.applicantName.trim() && f.dob && f.gName.trim() && f.targetClassId
+  const submit = async () => {
+    setBusy(true)
+    try {
+      await api.post('/applications', {
+        kind: 'Admission', applicantName: f.applicantName.trim(), dob: f.dob, gender: f.gender || undefined,
+        guardian: { name: f.gName.trim(), phone: f.gPhone.trim() || undefined, email: f.gEmail.trim() || undefined, relation: f.gRelation },
+        targetClassId: f.targetClassId, targetBoardId: classById.get(f.targetClassId)?.boardId, documents: docs.map(d => d.id),
+      })
+      toast.success('Admission application recorded')
+      onDone()
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Applicant name"><input value={f.applicantName} onChange={set('applicantName')} className={inputCls} autoFocus /></Field>
+        <Field label="Date of birth"><input type="date" value={f.dob} onChange={set('dob')} className={inputCls} /></Field>
+        <Field label="Gender">
+          <select value={f.gender} onChange={set('gender')} className={inputCls}>
+            <option value="">Prefer not to say</option><option>Female</option><option>Male</option><option>Other</option>
+          </select>
+        </Field>
+        <Field label="Admit to class">
+          <select value={f.targetClassId} onChange={set('targetClassId')} className={inputCls}>
+            {options.length === 0 && <option value="">No classes in the current year</option>}
+            {options.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
+          </select>
+        </Field>
+      </div>
+      <p className="text-[12.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Guardian</p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Name"><input value={f.gName} onChange={set('gName')} className={inputCls} /></Field>
+        <Field label="Relation">
+          <select value={f.gRelation} onChange={set('gRelation')} className={inputCls}><option>Parent</option><option>Mother</option><option>Father</option><option>Guardian</option></select>
+        </Field>
+        <Field label="Phone"><input value={f.gPhone} onChange={set('gPhone')} placeholder="+91 …" className={inputCls} /></Field>
+        <Field label="Email (links an existing parent account if it matches)"><input type="email" value={f.gEmail} onChange={set('gEmail')} className={inputCls} /></Field>
+      </div>
+      <Field label="Documents (birth certificate, previous TC, ID…)">
+        <UploadField files={docs} onChange={setDocs} multiple accept=".pdf,.png,.jpg,.jpeg,.docx" hint="PDF, images or DOCX · up to 10 MB each" />
+      </Field>
+      <button onClick={submit} disabled={!valid || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Saving…' : 'Record application'}</button>
+    </div>
+  )
+}
+
+function CertificateApplicationForm({ students, onDone }: { students: User[]; onDone: () => void }) {
+  const { classOf } = useAcademic()
+  const [kind, setKind] = useState<CertificateKind>('Bonafide')
+  const [studentId, setStudentId] = useState(students[0]?.id ?? '')
+  const [notes, setNotes] = useState('')
+  const [docs, setDocs] = useState<UploadedFile[]>([])
+  const [busy, setBusy] = useState(false)
+  const student = students.find(s => s.id === studentId)
+  const submit = async () => {
+    if (!student) return
+    setBusy(true)
+    try {
+      await api.post('/applications', { kind, studentId: student.id, applicantName: student.name, notes: notes.trim() || undefined, documents: docs.map(d => d.id) })
+      toast.success(`${KIND_LABEL[kind]} requested`)
+      onDone()
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-4">
+      <Field label="Certificate">
+        <select value={kind} onChange={e => setKind(e.target.value as CertificateKind)} className={inputCls}>
+          {CERTIFICATE_KINDS.map(k => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+        </select>
+      </Field>
+      {students.length > 1 ? (
+        <Field label="Student">
+          <select value={studentId} onChange={e => setStudentId(e.target.value)} className={inputCls}>
+            {students.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
+          </select>
+        </Field>
+      ) : student && <p className="text-[13.5px] text-black/60 dark:text-white/60">For <b>{student.name}</b>{classOf(student.id) ? ` · ${classOf(student.id)!.label}` : ''}</p>}
+      <Field label="Reason / notes"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder={kind === 'TC' ? 'Where is the student moving to, and when?' : 'What is the certificate needed for?'} className={inputCls} /></Field>
+      <Field label="Supporting documents (optional)"><UploadField files={docs} onChange={setDocs} multiple accept=".pdf,.png,.jpg,.jpeg" /></Field>
+      <button onClick={submit} disabled={!student || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Submitting…' : 'Submit application'}</button>
+    </div>
+  )
+}
+
+function IssueCertificateForm({ students, onDone }: { students: User[]; onDone: () => void }) {
+  const { classOf } = useAcademic()
+  const [kind, setKind] = useState<CertificateKind>('Bonafide')
+  const [studentId, setStudentId] = useState(students[0]?.id ?? '')
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    setBusy(true)
+    try {
+      const res = await api.post<{ item: Certificate }>('/certificates', { kind, studentId })
+      toast.success(`Issued ${res?.item?.serialNo ?? 'certificate'}`)
+      onDone()
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-4">
+      <p className="text-[13.5px] text-black/60 dark:text-white/60">Issues a numbered certificate straight away, without an application. A TC issued here does not close the student’s enrolment.</p>
+      <Field label="Certificate">
+        <select value={kind} onChange={e => setKind(e.target.value as CertificateKind)} className={inputCls}>
+          {CERTIFICATE_KINDS.map(k => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+        </select>
+      </Field>
+      <Field label="Student">
+        <select value={studentId} onChange={e => setStudentId(e.target.value)} className={inputCls}>
+          {students.length === 0 && <option value="">No students yet</option>}
+          {students.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
+        </select>
+      </Field>
+      <button onClick={submit} disabled={!studentId || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Issuing…' : 'Issue certificate'}</button>
+    </div>
+  )
+}
+
+function DeclineForm({ app, onDone }: { app: ApplicationRec; onDone: () => void }) {
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    setBusy(true)
+    try { await api.post(`/applications/${app.id}/decline`, { notes: notes.trim() }); toast.success('Application declined'); onDone() }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-4">
+      <p className="text-[13.5px] text-black/60 dark:text-white/60">Declining the <b>{app.kind}</b> application for <b>{app.applicantName}</b>. The applicant sees your reason.</p>
+      <Field label="Reason"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} autoFocus className={inputCls} /></Field>
+      <button onClick={submit} disabled={!notes.trim() || busy} className="w-full rounded-xl bg-rose-600 py-3 text-[14px] font-semibold text-white hover:bg-rose-700 disabled:opacity-40">{busy ? 'Declining…' : 'Decline'}</button>
+    </div>
+  )
+}
+
+/** Admission: previews the accounts the server will create, then shows their credentials once. Certificates: confirm → issued. */
+function ApproveDialog({ app, boardName, onClose, onChanged }: { app: ApplicationRec; boardName?: string; onClose: () => void; onChanged: () => void }) {
+  const { db, refreshDB, refreshAcademic } = useStore()
+  const { classById } = useAcademic()
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ item: ApplicationRec; created?: AdmissionCreated } | null>(null)
+  const isAdmission = app.kind === 'Admission'
+  const cls = app.targetClassId ? classById.get(app.targetClassId) : undefined
+  const gEmail = app.guardian?.email?.trim().toLowerCase()
+  const existingParent = gEmail ? db.users.find(u => u.role === 'parent' && u.email.toLowerCase() === gEmail) : undefined
+  const student = app.studentId ? db.users.find(u => u.id === app.studentId) : undefined
+
+  const run = async () => {
+    setBusy(true)
+    try {
+      const res = await api.post<{ item: ApplicationRec; created?: AdmissionCreated }>(`/applications/${app.id}/approve`)
+      if (isAdmission) await Promise.all([refreshDB(), refreshAcademic()])
+      else if (app.kind === 'TC') await refreshAcademic()
+      onChanged()
+      setResult(res)
+      toast.success(isAdmission ? 'Admission approved — accounts created' : `${KIND_LABEL[app.kind]} issued`)
+      if (!isAdmission) onClose()
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+
+  if (result?.created) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 rounded-2xl bg-amber-50 dark:bg-amber-500/10 p-4 text-[13px] text-amber-800 dark:text-amber-300">
+          <ShieldAlert size={18} className="mt-0.5 shrink-0" />
+          <p>These passwords are shown <b>only once</b>. Share them with the family now — both accounts must change them at first sign-in.</p>
+        </div>
+        <div>
+          <p className="mb-2 text-[12.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Student · {app.applicantName}</p>
+          <div className="space-y-2">
+            <CredentialRow label="Email" value={result.created.student.email} />
+            <CredentialRow label="Password" value={result.created.student.password} />
+          </div>
+        </div>
+        {result.created.parent ? (
+          <div>
+            <p className="mb-2 text-[12.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Parent · {app.guardian?.name ?? 'Guardian'}</p>
+            <div className="space-y-2">
+              <CredentialRow label="Email" value={result.created.parent.email} />
+              <CredentialRow label="Password" value={result.created.parent.password} />
+            </div>
+          </div>
+        ) : (
+          <p className="text-[13px] text-black/60 dark:text-white/60">Linked to the existing parent account{existingParent ? ` of ${existingParent.name}` : ''} — no new parent password.</p>
+        )}
+        <button onClick={onClose} className="btn-ink w-full py-3 text-[14px] font-semibold">Done</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {isAdmission ? (
+        <>
+          <p className="text-[13.5px] text-black/60 dark:text-white/60">Approving creates the accounts below in one step and enrols the student with the next free roll number.</p>
+          <div className="space-y-2">
+            <div className="rounded-2xl bg-black/[.04] dark:bg-white/[.06] px-4 py-3">
+              <p className="text-[11.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Student account</p>
+              <p className="text-[14px] font-semibold">{app.applicantName}</p>
+              <p className="text-[12.5px] text-black/50 dark:text-white/50">{cls ? `Enrolled in ${cls.label}${boardName ? ` · ${boardName}` : ''}` : 'No target class — set one before approving'}{app.dob ? ` · DOB ${fmtDate(app.dob, { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}</p>
+            </div>
+            <div className="rounded-2xl bg-black/[.04] dark:bg-white/[.06] px-4 py-3">
+              <p className="text-[11.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">{existingParent ? 'Existing parent (linked as guardian)' : 'Parent account'}</p>
+              <p className="text-[14px] font-semibold">{existingParent?.name ?? app.guardian?.name ?? 'Guardian'}</p>
+              <p className="text-[12.5px] text-black/50 dark:text-white/50">{[app.guardian?.relation, app.guardian?.email || (existingParent ? existingParent.email : 'email will be generated'), app.guardian?.phone].filter(Boolean).join(' · ')}</p>
+            </div>
+          </div>
+        </>
+      ) : (
+        <p className="text-[13.5px] text-black/60 dark:text-white/60">
+          Issues a numbered <b>{KIND_LABEL[app.kind]}</b> for <b>{student?.name ?? app.applicantName}</b>{app.kind === 'TC' ? ' and marks their enrolment as transferred' : ''}. The PDF becomes downloadable for the family straight away.
+        </p>
+      )}
+      <div className="flex gap-3">
+        <button onClick={run} disabled={busy || (isAdmission && !cls)} className="flex-1 rounded-xl bg-emerald-600 py-3 text-[14px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">{busy ? 'Approving…' : isAdmission ? 'Approve & create accounts' : 'Approve & issue'}</button>
+        <button onClick={onClose} className="rounded-xl bg-black/[.05] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:bg-white/[.07] dark:hover:bg-white/15">Cancel</button>
+      </div>
     </div>
   )
 }
@@ -1329,34 +1429,31 @@ export function CalendarAdminMod() {
   )
 }
 
-/* ── Board registration details validation ─────────────── */
+/* ── Board registration (Phase 4) ──────────────────────── */
+// One registration per student per academic year: prefilled from the enrolment, checked against the school
+// record, validated by the class teacher / office, sent to the board by an admin. Marksheet PDF built server-side.
+// See .agents/edunova/phase-4-admissions-identity.md
 
-const BOARD_DETAIL_STATUS: BoardDetailStatus[] = ['Draft', 'Pending', 'Validated', 'SentToBoard']
-
-function boardDetailStatusTone(s: BoardDetailStatus): 'amber' | 'green' | 'sky' | 'slate' {
-  if (s === 'SentToBoard') return 'sky'
-  if (s === 'Validated') return 'green'
-  if (s === 'Pending') return 'amber'
-  return 'slate'
-}
-
-export function MarksheetMod() {
-  const { db, update, user } = useStore()
-  const { currentYear, classOf, wardsOf, classesTaughtBy } = useAcademic()
+export function BoardRegistrationMod() {
+  const { db, user } = useStore()
+  const { currentYear, classOf, wardsOf, classesTaughtBy, boards, boardById } = useAcademic()
+  const regs = useBoardRegistrations()
   const [search, setSearch] = useState('')
-  const [boardFilter, setBoardFilter] = useState<'All' | Board>('All')
-  const [statusFilter, setStatusFilter] = useState<BoardDetailStatus | 'All'>('All')
+  const [boardFilter, setBoardFilter] = useState('All')
+  const [statusFilter, setStatusFilter] = useState<BoardRegistrationStatus | 'All' | 'None'>('All')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editOpen, setEditOpen] = useState(false)
+  const [prefilling, setPrefilling] = useState(false)
 
-  const visibleStudents = useMemo(() => {
-    const all = db.users.filter(u => u.role === 'student')
+  const canEdit = !!user && (isStaffOrAdmin(user) || user.role === 'teacher')
+
+  const students = useMemo(() => {
+    const all = db.users.filter(u => u.role === 'student').sort(byName)
     if (!user) return []
     if (user.role === 'student') return all.filter(s => s.id === user.id)
     if (user.role === 'parent') {
       const wardIds = new Set(wardsOf(user.id))
-      const wards = (user.wards || '').split(',').map(w => w.trim()).filter(Boolean)
-      return all.filter(s => wardIds.has(s.id) || s.parentEmail === user.email || wards.some(w => s.name.includes(w)))
+      return all.filter(s => wardIds.has(s.id) || (!!user.email && s.parentEmail === user.email))
     }
     if (user.role === 'teacher') {
       const mine = new Set(classesTaughtBy(user.id).map(c => c.id))
@@ -1365,66 +1462,58 @@ export function MarksheetMod() {
     return all
   }, [db.users, user, classOf, wardsOf, classesTaughtBy])
 
-  const students = visibleStudents
-  const selected = selectedId ? students.find(s => s.id === selectedId) : null
-  const detail = selected ? db.boardDetails[selected.id] : null
-
-  const filtered = useMemo(() => {
-    return students.filter(s => {
-      const d = db.boardDetails[s.id]
-      if (!d) return false
-      if (boardFilter !== 'All' && d.board !== boardFilter) return false
-      if (statusFilter !== 'All' && d.status !== statusFilter) return false
-      if (search) {
-        const q = search.toLowerCase()
-        return s.name.toLowerCase().includes(q) || s.roll?.toLowerCase().includes(q) || d.registrationNo.toLowerCase().includes(q)
-      }
-      return true
-    })
-  }, [students, db.boardDetails, boardFilter, statusFilter, search])
-
-  const ensureDetail = (s: User): BoardDetail => {
-    const existing = db.boardDetails[s.id]
-    if (existing) return existing
-    const c = classOf(s.id)
-    const created: BoardDetail = {
-      studentId: s.id,
-      name: s.name,
-      board: s.board ?? 'CBSE',
-      registrationNo: '',
-      schoolName: 'EduNova Senior Secondary School',
-      dob: s.dob ?? '',
-      rollNo: s.roll ?? '',
-      class: c?.grade ?? s.class ?? '',
-      section: c?.section ?? s.section ?? '',
-      year: currentYear?.label ?? '',
-      status: 'Draft',
+  // Registration per student — prefer the current year's, else the latest one the server returned.
+  const regByStudent = useMemo(() => {
+    const m = new Map<string, BoardRegistration>()
+    for (const r of regs.items ?? []) {
+      const cur = m.get(r.studentId)
+      if (!cur || (currentYear && r.academicYearId === currentYear.id)) m.set(r.studentId, r)
     }
-    update(d => { d.boardDetails[s.id] = created; return d })
-    return created
-  }
+    return m
+  }, [regs.items, currentYear])
 
-  const openDetail = (s: User) => {
-    setSelectedId(s.id)
-    ensureDetail(s)
+  const filtered = useMemo(() => students.filter(s => {
+    const r = regByStudent.get(s.id)
+    if (statusFilter === 'None' ? !!r : statusFilter !== 'All' && r?.status !== statusFilter) return false
+    if (boardFilter !== 'All' && (r?.boardId ?? classOf(s.id)?.boardId) !== boardFilter) return false
+    if (search) {
+      const q = search.toLowerCase()
+      return s.name.toLowerCase().includes(q) || (r?.registrationNo ?? '').toLowerCase().includes(q) || (r?.rollNo ?? '').toLowerCase().includes(q)
+    }
+    return true
+  }), [students, regByStudent, statusFilter, boardFilter, search, classOf])
+
+  const selected = selectedId ? students.find(s => s.id === selectedId) : undefined
+  const reg = selected ? regByStudent.get(selected.id) : undefined
+
+  const prefill = async () => {
+    if (!selected) return
+    setPrefilling(true)
+    try {
+      await api.post('/board-registrations/prefill', { studentId: selected.id })
+      regs.reload()
+      toast.success('Draft prefilled from the enrolment')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setPrefilling(false) }
   }
 
   return (
     <div>
-      <PageHead title="Board Registration Details" sub="Validate student data before it is sent to CBSE / Matric boards">
+      <PageHead title="Board Registration" sub="Check each student’s board record against the school record before it goes to the board">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2 rounded-xl border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] px-3 py-2">
             <Search size={15} className="text-black/40 dark:text-white/40" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student / reg no." className="bg-transparent text-[13px] outline-none" />
           </div>
-          <select value={boardFilter} onChange={e => setBoardFilter(e.target.value as 'All' | Board)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`}>
-            <option value="All">All boards</option>
-            <option value="CBSE">CBSE</option>
-            <option value="Matric">Matric</option>
-          </select>
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as BoardDetailStatus | 'All')} className={`${inputCls} w-auto py-1.5 text-[12.5px]`}>
+          {boards.length > 1 && (
+            <select value={boardFilter} onChange={e => setBoardFilter(e.target.value)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Board">
+              <option value="All">All boards</option>
+              {boards.map(b => <option key={b.id} value={b.id}>{b.code}</option>)}
+            </select>
+          )}
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as BoardRegistrationStatus | 'All' | 'None')} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Status">
             <option value="All">All statuses</option>
-            {BOARD_DETAIL_STATUS.map(s => <option key={s} value={s}>{s === 'SentToBoard' ? 'Sent to board' : s}</option>)}
+            <option value="None">Not started</option>
+            {BOARD_REG_STATUSES.map(s => <option key={s} value={s}>{boardRegLabel(s)}</option>)}
           </select>
         </div>
       </PageHead>
@@ -1434,19 +1523,21 @@ export function MarksheetMod() {
           <div className="border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
             <p className="text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Students ({filtered.length})</p>
           </div>
-          {filtered.length === 0 && <div className="p-6"><Empty text={students.length === 0 ? 'No students yet.' : 'No students match the filters.'} /></div>}
+          {regs.error && <p className="px-6 py-3 text-[12.5px] text-rose-500">{regs.error}</p>}
+          {filtered.length === 0 && <div className="p-6"><Empty text={students.length === 0 ? 'No students to show yet.' : 'No students match the filters.'} /></div>}
           <div className="divide-y divide-black/[.05] dark:divide-white/[.07]">
             {filtered.map(s => {
-              const d = db.boardDetails[s.id]
+              const r = regByStudent.get(s.id)
+              const cls = classOf(s.id)
               return (
-                <button key={s.id} onClick={() => openDetail(s)}
+                <button key={s.id} onClick={() => setSelectedId(s.id)}
                   className={`flex w-full items-center gap-4 px-6 py-4 text-left transition-colors ${selectedId === s.id ? 'bg-indigo-50/50 dark:bg-indigo-500/10' : 'hover:bg-black/[.02] dark:hover:bg-white/[.04]'}`}>
                   <Avatar name={s.name} hue={s.avatarHue} size={42} />
                   <div className="min-w-0 flex-1">
                     <p className="text-[15px] font-semibold">{s.name}</p>
-                    <p className="text-[12.5px] text-black/50 dark:text-white/50">{classOf(s.id)?.label ?? s.class ?? '—'} · Roll {s.roll ?? '–'} · {d?.board}</p>
+                    <p className="text-[12.5px] text-black/50 dark:text-white/50">{cls?.label ?? '—'}{r?.rollNo ? ` · Board roll ${r.rollNo}` : ''} · {boardById.get(r?.boardId ?? cls?.boardId ?? '')?.code ?? 'no board'}</p>
                   </div>
-                  <Pill tone={boardDetailStatusTone(d?.status ?? 'Draft')}>{d?.status === 'SentToBoard' ? 'Sent' : d?.status}</Pill>
+                  {r ? <Pill tone={boardRegTone(r.status)}>{r.status === 'SentToBoard' ? 'Sent' : r.status}</Pill> : <Pill tone="slate">Not started</Pill>}
                 </button>
               )
             })}
@@ -1454,85 +1545,88 @@ export function MarksheetMod() {
         </Card>
 
         <Card>
-          {!selected || !detail ? (
+          {!selected ? (
             <div className="py-10 text-center">
               <School size={40} className="mx-auto text-black/20 dark:text-white/20" />
-              <p className="mt-4 text-[15px] font-semibold text-black/50 dark:text-white/50">Select a student to review board details</p>
+              <p className="mt-4 text-[15px] font-semibold text-black/50 dark:text-white/50">Select a student to review their board registration</p>
+            </div>
+          ) : !reg ? (
+            <div className="py-8 text-center">
+              <Avatar name={selected.name} hue={selected.avatarHue} size={56} />
+              <p className="mt-4 text-[16px] font-semibold">{selected.name}</p>
+              <p className="text-[13px] text-black/50 dark:text-white/50">No board registration for {currentYear?.label ?? 'this year'} yet.</p>
+              {canEdit ? (
+                <button onClick={prefill} disabled={prefilling || !classOf(selected.id)} title={classOf(selected.id) ? undefined : 'Enrol the student in a class first'}
+                  className="btn-ink mt-5 inline-flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold disabled:opacity-40">
+                  <Sparkles size={15} /> {prefilling ? 'Prefilling…' : 'Prefill from enrolment'}
+                </button>
+              ) : <p className="mt-3 text-[12.5px] text-black/40 dark:text-white/40">The office starts the registration.</p>}
             </div>
           ) : (
-            <BoardDetailView key={selected.id} student={selected} detail={detail} onEdit={() => setEditOpen(true)} />
+            <BoardRegistrationView key={reg.id} student={selected} reg={reg} canEdit={canEdit} onEdit={() => setEditOpen(true)} onChanged={regs.reload} />
           )}
         </Card>
       </div>
 
-      {selected && detail && (
-        <EditBoardDetailModal
-          open={editOpen}
-          onClose={() => setEditOpen(false)}
-          student={selected}
-          detail={detail}
-        />
+      {selected && reg && (
+        <EditBoardRegistrationModal open={editOpen} onClose={() => setEditOpen(false)} student={selected} reg={reg} onSaved={regs.reload} />
       )}
     </div>
   )
 }
 
-function BoardDetailView({ student, detail, onEdit }: { student: User; detail: BoardDetail; onEdit: () => void }) {
-  const { update, user } = useStore()
-  const { classOf } = useAcademic()
-  const [mismatchNote, setMismatchNote] = useState(detail.mismatchNote || '')
-
-  const nameMatch = detail.name.trim().toLowerCase() === student.name.trim().toLowerCase()
-  const dobMatch = !!student.dob && detail.dob === student.dob
-
-  const validate = () => {
-    update(d => {
-      const bd = d.boardDetails[student.id]
-      if (!bd) return d
-      bd.status = 'Validated'
-      bd.validatedBy = user?.name
-      bd.validatedAt = new Date().toISOString().slice(0, 10)
-      return d
-    })
-    toast.success('Board details validated')
-  }
-
-  const sendToBoard = () => {
-    update(d => {
-      const bd = d.boardDetails[student.id]
-      if (!bd) return d
-      bd.status = 'SentToBoard'
-      bd.sentToBoard = true
-      bd.sentAt = new Date().toISOString().slice(0, 10)
-      return d
-    })
-    toast.success('Details sent to board')
-  }
-
-  const updateMismatchNote = (note: string) => {
-    setMismatchNote(note)
-    update(d => {
-      const bd = d.boardDetails[student.id]
-      if (!bd) return d
-      bd.mismatchNote = note
-      return d
-    })
-  }
+function BoardRegistrationView({ student, reg, canEdit, onEdit, onChanged }: { student: User; reg: BoardRegistration; canEdit: boolean; onEdit: () => void; onChanged: () => void }) {
+  const { db, user } = useStore()
+  const { classOf, classesTaughtBy, boardById, terms, currentTerm, years } = useAcademic()
+  const [note, setNote] = useState(reg.mismatchNote ?? '')
+  const [busy, setBusy] = useState<'validate' | 'send' | 'note' | 'pdf' | null>(null)
+  const [termId, setTermId] = useState(currentTerm?.id ?? terms[0]?.id ?? '')
+  const cls = classOf(student.id)
+  const board = boardById.get(reg.boardId)
+  const isCBSE = (board?.code ?? '').toUpperCase().includes('CBSE')
+  const nameMatch = reg.nameOnCertificate.trim().toLowerCase() === student.name.trim().toLowerCase()
+  const dobMatch = !!student.dob && reg.dob === student.dob
+  const mismatch = !nameMatch || !dobMatch
+  const noted = note.trim().length > 0
+  const canValidate = !!user && (isStaffOrAdmin(user) || (user.role === 'teacher' && !!cls && classesTaughtBy(user.id).some(c => c.id === cls.id)))
+  const canSend = isAdmin(user)
+  const nameOf = (id?: string | null) => db.users.find(u => u.id === id)?.name
 
   const checklist = [
-    { label: 'Student name matches school records (or mismatch noted)', ok: nameMatch || mismatchNote.trim().length > 0 },
-    { label: 'Date of birth matches school records (or mismatch noted)', ok: dobMatch || mismatchNote.trim().length > 0 },
-    { label: 'Board registration number filled', ok: detail.registrationNo.trim().length > 0 },
-    { label: 'Board roll number filled', ok: detail.rollNo.trim().length > 0 },
-    { label: 'Class & section filled', ok: !!detail.class && !!detail.section },
-    { label: 'Academic year filled', ok: !!detail.year },
-    { label: 'School name filled', ok: detail.schoolName.trim().length > 0 },
-    { label: 'CBSE affiliation number (if applicable)', ok: detail.board !== 'CBSE' || !!detail.affiliationNo },
+    { label: 'Name on certificate matches the school record (or mismatch noted)', ok: nameMatch || noted },
+    { label: 'Date of birth matches the school record (or mismatch noted)', ok: dobMatch || noted },
+    { label: 'Board registration number filled', ok: !!reg.registrationNo?.trim() },
+    { label: 'Board roll number filled', ok: !!reg.rollNo?.trim() },
+    { label: isCBSE ? 'School affiliation number filled' : 'Affiliation number (if the board needs one)', ok: !isCBSE || !!reg.affiliationNo?.trim() },
   ]
-
   const allOk = checklist.every(c => c.ok)
-  const mismatch = !nameMatch || !dobMatch
-  const canValidate = allOk
+
+  const call = async (what: 'validate' | 'send') => {
+    setBusy(what)
+    try {
+      await api.post(`/board-registrations/${reg.id}/${what}`)
+      onChanged()
+      toast.success(what === 'validate' ? 'Registration validated' : 'Sent to the board')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+  }
+  const saveNote = async () => {
+    if ((reg.mismatchNote ?? '') === note.trim()) return
+    setBusy('note')
+    try { await api.patch(`/board-registrations/${reg.id}`, { mismatchNote: note.trim() || null }); onChanged() }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+  }
+  const marksheet = async () => {
+    setBusy('pdf')
+    try { await downloadPath(`/board-registrations/${reg.id}/marksheet${qs({ termId })}`, `marksheet-${student.name.replace(/[^\w]+/g, '_')}.pdf`) }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+  }
+
+  const cell = (label: string, value?: string | null, span = false) => (
+    <div className={`rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3 ${span ? 'col-span-2' : ''}`}>
+      <p className="text-[12px] text-black/50 dark:text-white/50">{label}</p>
+      <p className="font-semibold">{value?.trim() ? value : <span className="text-black/30 dark:text-white/30">—</span>}</p>
+    </div>
+  )
 
   return (
     <div className="space-y-5">
@@ -1541,64 +1635,36 @@ function BoardDetailView({ student, detail, onEdit }: { student: User; detail: B
           <Avatar name={student.name} hue={student.avatarHue} size={48} />
           <div>
             <p className="text-[17px] font-semibold">{student.name}</p>
-            <p className="text-[13px] text-black/50 dark:text-white/50">{classOf(student.id)?.label ?? student.class ?? '—'} · Roll {student.roll ?? '–'}</p>
+            <p className="text-[13px] text-black/50 dark:text-white/50">{cls?.label ?? '—'} · {years.find(y => y.id === reg.academicYearId)?.label ?? 'year'}</p>
           </div>
         </div>
-        <Pill tone={boardDetailStatusTone(detail.status)}>{detail.status === 'SentToBoard' ? 'Sent to board' : detail.status}</Pill>
+        <Pill tone={boardRegTone(reg.status)}>{boardRegLabel(reg.status)}</Pill>
       </div>
 
       <div className="grid grid-cols-2 gap-3 text-[14px]">
-        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">Board</p>
-          <p className="font-semibold">{detail.board}</p>
-        </div>
-        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">Registration no.</p>
-          <p className="font-semibold">{detail.registrationNo}</p>
-        </div>
-        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">Roll no.</p>
-          <p className="font-semibold">{detail.rollNo}</p>
-        </div>
-        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">Date of birth (board record)</p>
-          <p className="font-semibold">{detail.dob}</p>
-        </div>
-        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">Class & section</p>
-          <p className="font-semibold">{detail.class}-{detail.section}</p>
-        </div>
-        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">Academic year</p>
-          <p className="font-semibold">{detail.year}</p>
-        </div>
-        <div className="col-span-2 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">School name</p>
-          <p className="font-semibold">{detail.schoolName}</p>
-        </div>
-        {detail.affiliationNo && (
-          <div className="col-span-2 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-            <p className="text-[12px] text-black/50 dark:text-white/50">Affiliation no.</p>
-            <p className="font-semibold">{detail.affiliationNo}</p>
-          </div>
-        )}
+        {cell('Board', board ? `${board.name} (${board.code})` : undefined)}
+        {cell('Registration no.', reg.registrationNo)}
+        {cell('Board roll no.', reg.rollNo)}
+        {cell('Date of birth (board record)', reg.dob)}
+        {cell('Name on certificate', reg.nameOnCertificate, true)}
+        {(isCBSE || reg.affiliationNo) && cell('Affiliation no.', reg.affiliationNo, true)}
       </div>
 
       <div className={`rounded-2xl border p-4 ${mismatch ? 'border-amber-300 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-500/10' : 'border-black/[.06] dark:border-white/[.08]'}`}>
         <div className="mb-3 flex items-center gap-2">
-          <p className="text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">School record vs Board record</p>
+          <p className="text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">School record vs board record</p>
           {mismatch && <Pill tone="amber"><AlertTriangle size={12} /> Mismatch</Pill>}
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <ComparisonRow label="Student name" school={student.name} board={detail.name} match={nameMatch} />
-          <ComparisonRow label="Date of birth" school={student.dob ?? 'Not set'} board={detail.dob} match={dobMatch} />
+          <ComparisonRow label="Student name" school={student.name} board={reg.nameOnCertificate} match={nameMatch} />
+          <ComparisonRow label="Date of birth" school={student.dob ?? 'Not set'} board={reg.dob} match={dobMatch} />
         </div>
-        {mismatch && (
+        {(mismatch || reg.mismatchNote) && (
           <div className="mt-3">
-            <Field label="Mismatch note (required to validate)">
-              <textarea value={mismatchNote} onChange={e => updateMismatchNote(e.target.value)} placeholder="e.g., Board record has the official name; school record is missing middle name." className={`${inputCls} min-h-[80px]`} />
+            <Field label={mismatch ? 'Mismatch note (required to validate)' : 'Mismatch note'}>
+              <textarea value={note} onChange={e => setNote(e.target.value)} onBlur={saveNote} disabled={!canEdit} placeholder="e.g. Board record carries the official name; school record is missing the middle name." className={`${inputCls} min-h-[80px] disabled:opacity-70`} />
             </Field>
-            {!mismatchNote.trim() && <p className="mt-2 flex items-center gap-1.5 text-[12px] text-rose-600"><AlertCircle size={13} /> Add a note to explain why the mismatch is acceptable before validating.</p>}
+            {mismatch && !noted && <p className="mt-2 flex items-center gap-1.5 text-[12px] text-rose-600"><AlertCircle size={13} /> Explain why the mismatch is acceptable before validating.</p>}
           </div>
         )}
       </div>
@@ -1615,27 +1681,33 @@ function BoardDetailView({ student, detail, onEdit }: { student: User; detail: B
         </div>
       </div>
 
-      {detail.validatedBy && (
-        <p className="text-[12.5px] text-black/50 dark:text-white/50">Validated by {detail.validatedBy} on {detail.validatedAt}</p>
-      )}
-      {detail.sentToBoard && (
-        <p className="text-[12.5px] text-black/50 dark:text-white/50">Sent to board on {detail.sentAt}</p>
-      )}
+      {reg.validatedAt && <p className="text-[12.5px] text-black/50 dark:text-white/50">Validated {nameOf(reg.validatedById) ? `by ${nameOf(reg.validatedById)} ` : ''}on {fmtDate(reg.validatedAt, { day: 'numeric', month: 'short', year: 'numeric' })}</p>}
+      {reg.sentAt && <p className="text-[12.5px] text-black/50 dark:text-white/50">Sent to board on {fmtDate(reg.sentAt, { day: 'numeric', month: 'short', year: 'numeric' })}</p>}
 
-      <div className="flex flex-wrap gap-2">
-        <button onClick={onEdit} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
-          <Pencil size={15} /> Edit details
+      <div className="flex flex-wrap items-center gap-2">
+        {canEdit && (
+          <button onClick={onEdit} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><Pencil size={15} /> Edit details</button>
+        )}
+        {canValidate && reg.status !== 'Validated' && reg.status !== 'SentToBoard' && (
+          <button onClick={() => call('validate')} disabled={!allOk || busy !== null} title={allOk ? undefined : 'Complete the checklist first'} className="flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-[13.5px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">
+            <Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
+          </button>
+        )}
+        {canSend && reg.status === 'Validated' && (
+          <button onClick={() => call('send')} disabled={busy !== null} className="flex items-center gap-2 rounded-full bg-sky-600 px-5 py-2.5 text-[13.5px] font-semibold text-white hover:bg-sky-700 disabled:opacity-40">
+            <Send size={15} /> {busy === 'send' ? 'Sending…' : 'Send to board'}
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-black/[.06] dark:border-white/[.08] pt-4">
+        <select value={termId} onChange={e => setTermId(e.target.value)} className={`${inputCls} w-auto py-2 text-[13px]`} aria-label="Term">
+          {terms.length === 0 && <option value="">No terms</option>}
+          {terms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        <button onClick={marksheet} disabled={!termId || busy !== null} className="flex items-center gap-2 rounded-full border border-black/10 dark:border-white/15 px-4 py-2 text-[13px] font-semibold hover:bg-black/[.04] dark:hover:bg-white/[.06] disabled:opacity-40">
+          <Download size={14} /> {busy === 'pdf' ? 'Preparing…' : 'Download marksheet'}
         </button>
-        {detail.status !== 'Validated' && detail.status !== 'SentToBoard' && (
-          <button onClick={validate} disabled={!canValidate} title={canValidate ? '' : 'Resolve mismatches or add a note to validate'} className="flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-[13.5px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">
-            <Check size={15} /> Validate
-          </button>
-        )}
-        {detail.status === 'Validated' && (
-          <button onClick={sendToBoard} className="flex items-center gap-2 rounded-full bg-sky-600 px-5 py-2.5 text-[13.5px] font-semibold text-white hover:bg-sky-700">
-            <Send size={15} /> Send to board
-          </button>
-        )}
       </div>
     </div>
   )
@@ -1652,7 +1724,7 @@ function ComparisonRow({ label, school, board, match }: { label: string; school:
         </div>
         <div className="flex items-center justify-between gap-2">
           <span className="text-black/50 dark:text-white/50">Board</span>
-          <span className={`font-medium ${match ? '' : 'text-amber-700 dark:text-amber-400'}`}>{board}</span>
+          <span className={`font-medium ${match ? '' : 'text-amber-700 dark:text-amber-400'}`}>{board || '—'}</span>
         </div>
       </div>
       {!match && <p className="mt-2 flex items-center gap-1 text-[11.5px] font-semibold text-amber-700 dark:text-amber-400"><AlertTriangle size={12} /> Does not match</p>}
@@ -1660,223 +1732,133 @@ function ComparisonRow({ label, school, board, match }: { label: string; school:
   )
 }
 
-function EditBoardDetailModal({ open, onClose, student, detail }: { open: boolean; onClose: () => void; student: User; detail: BoardDetail }) {
-  const { update } = useStore()
-  const [name, setName] = useState(detail.name)
-  const [board, setBoard] = useState<Board>(detail.board)
-  const [registrationNo, setRegistrationNo] = useState(detail.registrationNo)
-  const [schoolName, setSchoolName] = useState(detail.schoolName)
-  const [dob, setDob] = useState(detail.dob)
-  const [rollNo, setRollNo] = useState(detail.rollNo)
-  const [cls, setCls] = useState(detail.class)
-  const [section, setSection] = useState(detail.section)
-  const [year, setYear] = useState(detail.year)
-  const [affiliationNo, setAffiliationNo] = useState(detail.affiliationNo ?? '')
-  const [mismatchNote, setMismatchNote] = useState(detail.mismatchNote ?? '')
-
-  const save = () => {
-    update(d => {
-      const bd = d.boardDetails[student.id]
-      if (!bd) return d
-      bd.name = name.trim()
-      bd.board = board
-      bd.registrationNo = registrationNo.trim()
-      bd.schoolName = schoolName.trim()
-      bd.dob = dob
-      bd.rollNo = rollNo.trim()
-      bd.class = cls.trim()
-      bd.section = section.trim()
-      bd.year = year.trim()
-      bd.affiliationNo = affiliationNo.trim() || undefined
-      bd.mismatchNote = mismatchNote.trim() || undefined
-      bd.status = bd.status === 'SentToBoard' ? 'Validated' : bd.status
-      return d
-    })
-    onClose()
-    toast.success('Board details updated')
+function EditBoardRegistrationModal({ open, onClose, student, reg, onSaved }: { open: boolean; onClose: () => void; student: User; reg: BoardRegistration; onSaved: () => void }) {
+  const { boards } = useAcademic()
+  const [f, setF] = useState({
+    boardId: reg.boardId, nameOnCertificate: reg.nameOnCertificate, dob: reg.dob, registrationNo: reg.registrationNo ?? '', rollNo: reg.rollNo ?? '',
+    affiliationNo: reg.affiliationNo ?? '', mismatchNote: reg.mismatchNote ?? '',
+  })
+  const [busy, setBusy] = useState(false)
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF(x => ({ ...x, [k]: e.target.value }))
+  const save = async () => {
+    setBusy(true)
+    try {
+      await api.patch(`/board-registrations/${reg.id}`, {
+        boardId: f.boardId, nameOnCertificate: f.nameOnCertificate.trim(), dob: f.dob, registrationNo: f.registrationNo.trim() || null, rollNo: f.rollNo.trim() || null,
+        affiliationNo: f.affiliationNo.trim() || null, mismatchNote: f.mismatchNote.trim() || null,
+      })
+      onSaved(); onClose()
+      toast.success('Board details updated')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
   }
-
   return (
     <Modal open={open} onClose={onClose} title={`Edit board details — ${student.name}`} wide>
       <div className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Board">
-            <select value={board} onChange={e => setBoard(e.target.value as Board)} className={inputCls}>
-              <option value="CBSE">CBSE</option>
-              <option value="Matric">Matric</option>
+            <select value={f.boardId} onChange={set('boardId')} className={inputCls}>
+              {boards.map(b => <option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}
             </select>
           </Field>
-          <Field label="Student name (board record)"><input value={name} onChange={e => setName(e.target.value)} className={inputCls} /></Field>
-          <Field label="Registration no."><input value={registrationNo} onChange={e => setRegistrationNo(e.target.value)} className={inputCls} /></Field>
-          <Field label="Roll no."><input value={rollNo} onChange={e => setRollNo(e.target.value)} className={inputCls} /></Field>
-          <Field label="Date of birth"><input type="date" value={dob} onChange={e => setDob(e.target.value)} className={inputCls} /></Field>
-          <Field label="Class"><input value={cls} onChange={e => setCls(e.target.value)} className={inputCls} /></Field>
-          <Field label="Section"><input value={section} onChange={e => setSection(e.target.value)} className={inputCls} /></Field>
-          <Field label="Academic year"><input value={year} onChange={e => setYear(e.target.value)} className={inputCls} /></Field>
-          <Field label="Affiliation no. (CBSE)"><input value={affiliationNo} onChange={e => setAffiliationNo(e.target.value)} placeholder="Leave blank for Matric" className={inputCls} /></Field>
+          <Field label="Name on certificate"><input value={f.nameOnCertificate} onChange={set('nameOnCertificate')} className={inputCls} /></Field>
+          <Field label="Registration no."><input value={f.registrationNo} onChange={set('registrationNo')} className={inputCls} /></Field>
+          <Field label="Board roll no."><input value={f.rollNo} onChange={set('rollNo')} className={inputCls} /></Field>
+          <Field label="Date of birth (board record)"><input type="date" value={f.dob} onChange={set('dob')} className={inputCls} /></Field>
+          <Field label="Affiliation no."><input value={f.affiliationNo} onChange={set('affiliationNo')} placeholder="School’s affiliation with the board" className={inputCls} /></Field>
         </div>
-        <Field label="School name"><input value={schoolName} onChange={e => setSchoolName(e.target.value)} className={inputCls} /></Field>
         <Field label="Mismatch note (optional)">
-          <textarea value={mismatchNote} onChange={e => setMismatchNote(e.target.value)} placeholder="Explain any mismatch between school and board records." className={`${inputCls} min-h-[80px]`} />
+          <textarea value={f.mismatchNote} onChange={set('mismatchNote')} placeholder="Explain any difference between the school and board records." className={`${inputCls} min-h-[80px]`} />
         </Field>
-        <button onClick={save} disabled={!name.trim() || !registrationNo.trim() || !rollNo.trim() || !dob || !cls.trim() || !section.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">
-          Save details
-        </button>
+        {reg.status === 'SentToBoard' && <p className="text-[12.5px] text-amber-700 dark:text-amber-300">This registration was already sent to the board — edits may need to be re-validated.</p>}
+        <button onClick={save} disabled={busy || !f.nameOnCertificate.trim() || !f.dob || !f.boardId} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Saving…' : 'Save details'}</button>
       </div>
     </Modal>
   )
 }
 
-/* ── Attendance management (staff overview) ────────────── */
+/* ── Parent verifications (staff/admin queue) ──────────── */
 
-export function AttendanceMgmtMod() {
-  const { db, update } = useStore()
-  const { classOf } = useAcademic()
-  const { term, setTerm } = useTerm()
-  const termObj = db.terms.find(t => t.id === term) ?? db.terms.find(t => t.id === defaultTermId(db.terms))
-  const bounds = termObj ? termBounds(termObj) : { start: todayISO(), end: '' }
+function DocumentThumb({ fileId }: { fileId?: string | null }) {
+  const url = useFileUrl(fileId)
+  const [broken, setBroken] = useState(false)
+  if (!fileId) return <span className="text-[12px] text-black/40 dark:text-white/40">No document attached</span>
+  return (
+    <div className="flex items-center gap-2">
+      {url && !broken && <img src={url} alt="ID document" onError={() => setBroken(true)} className="h-14 w-20 rounded-lg object-cover ring-1 ring-black/10 dark:ring-white/15" />}
+      <button onClick={() => downloadFile(fileId, 'id-document').catch(e => toast.error(errorMessage(e)))} className="flex items-center gap-1 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3 py-1.5 text-[12px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
+        <Download size={12} /> Document
+      </button>
+    </div>
+  )
+}
 
-  const [roleFilter, setRoleFilter] = useState<Role | 'all'>('all')
-  const [groupFilter, setGroupFilter] = useState<string>('all')
-  const [date, setDate] = useState(bounds.start)
+export function VerificationsMod() {
+  const { db, refreshDB } = useStore()
+  const { wardsOf, classOf } = useAcademic()
+  const [status, setStatus] = useState<VerificationStatus | ''>('Pending')
+  const list = useVerifications(status)
+  const [reject, setReject] = useState<ParentVerification | null>(null)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
 
-  useEffect(() => { setDate(bounds.start) }, [bounds.start]) // eslint-disable-line react-hooks/set-state-in-effect
-  useEffect(() => { setGroupFilter('all') }, [roleFilter]) // eslint-disable-line react-hooks/set-state-in-effect
+  const nameOf = (id?: string | null) => db.users.find(u => u.id === id)?.name
+  const wardsText = (parentId: string) => wardsOf(parentId).map(id => { const s = db.users.find(u => u.id === id); return s ? `${s.name}${classOf(id) ? ` (${classOf(id)!.label})` : ''}` : undefined }).filter(Boolean).join(', ')
 
-  // Students group by their enrolled class; teachers by legacy class-teacher label; others by department.
-  const groupOf = (u: User) => u.role === 'student' ? (classOf(u.id)?.label ?? u.class) : u.role === 'teacher' ? u.class : u.department
-
-  const groupOptions = useMemo(() => {
-    const groups = new Set<string>()
-    db.users.forEach(u => {
-      if (u.role === 'parent' || u.role === 'superadmin') return
-      if (roleFilter !== 'all' && u.role !== roleFilter) return
-      const group = groupOf(u)
-      if (group) groups.add(group)
-    })
-    return ['all', ...Array.from(groups).sort()]
-  }, [db.users, roleFilter, classOf]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const people = useMemo(() => {
-    return db.users.filter(u => {
-      if (u.role === 'parent' || u.role === 'superadmin') return false
-      if (roleFilter !== 'all' && u.role !== roleFilter) return false
-      if (groupFilter !== 'all') return groupOf(u) === groupFilter
-      return true
-    })
-  }, [db.users, roleFilter, groupFilter, classOf]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const personStatus = useMemo(() => {
-    const map: Record<string, AttendanceStatus> = {}
-    people.forEach(p => {
-      const rec = db.attendanceRecords.find(r => r.userId === p.id && r.date === date)
-      map[p.id] = rec ? rec.status : 'P'
-    })
-    return map
-  }, [db.attendanceRecords, people, date])
-
-  const [draft, setDraft] = useState<Record<string, AttendanceStatus>>({})
-  useEffect(() => { setDraft(personStatus) }, [personStatus]) // eslint-disable-line react-hooks/set-state-in-effect
-
-  const counts = useMemo(() => {
-    const c = { P: 0, A: 0, L: 0, H: 0 }
-    Object.values(draft).forEach(s => c[s]++)
-    return c
-  }, [draft])
-
-  const isHoliday = db.events.some(e => e.date === date && e.type === 'holiday')
-
-  const save = () => {
-    update(d => {
-      Object.entries(draft).forEach(([userId, status]) => {
-        const idx = d.attendanceRecords.findIndex(r => r.userId === userId && r.date === date)
-        const person = d.users.find(u => u.id === userId)
-        if (idx >= 0) d.attendanceRecords[idx].status = status
-        else if (person) d.attendanceRecords.push({ id: 'att_' + Date.now() + '_' + userId, userId, role: person.role, date, status, notes: '' })
-      })
-      return d
-    })
-    toast.success(`Attendance saved for ${new Date(date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`)
+  const act = async (v: ParentVerification, what: 'verify' | 'reject') => {
+    setBusy(v.id)
+    try {
+      await api.post(`/verification/${v.id}/${what}`, what === 'reject' ? { note: note.trim() } : {})
+      list.reload()
+      await refreshDB() // `verified` badge on the parent follows
+      setReject(null); setNote('')
+      toast.success(what === 'verify' ? 'Parent verified' : 'Verification rejected')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
   }
 
-  const setStatus = (userId: string, status: AttendanceStatus) => setDraft(d => ({ ...d, [userId]: status }))
-
+  const rows = list.items ?? []
   return (
     <div>
-      <PageHead title="Attendance Management" sub={`Daily attendance · ${termObj?.name ?? 'No term set up yet'}`}>
-        <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
-      </PageHead>
-
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
-        <Card>
-          <Field label="Date">
-            <input type="date" value={date} min={termObj ? bounds.start : undefined} max={termObj ? bounds.end : undefined} onChange={e => setDate(e.target.value)} className={inputCls} />
-          </Field>
-        </Card>
-        <Card>
-          <Field label="Role">
-            <select value={roleFilter} onChange={e => setRoleFilter(e.target.value as Role | 'all')} className={inputCls}>
-              <option value="all">All</option>
-              <option value="student">Student</option>
-              <option value="teacher">Teacher</option>
-              <option value="staff">Staff</option>
-              <option value="admin">Admin</option>
-            </select>
-          </Field>
-        </Card>
-        <Card>
-          <Field label="Class / Department">
-            <select value={groupFilter} onChange={e => setGroupFilter(e.target.value)} className={inputCls}>
-              {groupOptions.map(g => <option key={g} value={g}>{g === 'all' ? 'All' : g}</option>)}
-            </select>
-          </Field>
-        </Card>
-      </div>
-
-      <div className="mb-5 grid gap-3 sm:grid-cols-4">
-        {([
-          ['Present', counts.P, 'green'],
-          ['Absent', counts.A, 'rose'],
-          ['Leave', counts.L, 'amber'],
-          ['Holiday', counts.H, 'sky'],
-        ] as const).map(([label, count]) => (
-          <Card key={label}>
-            <p className="text-[12px] uppercase tracking-wider text-black/40 dark:text-white/40">{label}</p>
-            <p className="font-display mt-2 text-3xl font-medium">{count}</p>
-          </Card>
-        ))}
-      </div>
-
-      <Card className="p-0">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
-          <div className="flex items-center gap-3">
-            <p className="text-[14px] font-semibold">{people.length} people</p>
-            {isHoliday && <Pill tone="rose">Holiday</Pill>}
-          </div>
-          <button onClick={save} disabled={people.length === 0} className="btn-ink px-5 py-2.5 text-[13.5px] font-semibold disabled:opacity-40">Save attendance</button>
+      <PageHead title="Parent Verifications" sub="Review the ID documents parents upload; approval unlocks slip approvals and e-signatures">
+        <div className="inline-flex rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] p-1">
+          {(['Pending', 'Verified', 'Rejected', ''] as const).map(s => (
+            <button key={s || 'all'} onClick={() => setStatus(s)} className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-all ${status === s ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>{s || 'All'}</button>
+          ))}
         </div>
-        {people.map((p, i) => (
-          <div key={p.id} className="flex flex-wrap items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3.5 last:border-0">
-            <span className="w-7 text-[13px] font-semibold text-black/35 dark:text-white/35">{i + 1}</span>
-            <Avatar name={p.name} hue={p.avatarHue} size={36} />
-            <div className="flex-1">
-              <p className="text-[14px] font-semibold">{p.name}</p>
-              <p className="text-[12px] text-black/45 dark:text-white/45">{p.role}{groupOf(p) ? ` · ${groupOf(p)}` : ''}</p>
+      </PageHead>
+      <Card className="p-0 divide-y divide-black/[.05] dark:divide-white/[.07]">
+        {list.loading && <div className="p-6 text-center text-[13px] text-black/40 dark:text-white/40">Loading…</div>}
+        {list.error && <div className="p-6 text-center text-[13px] text-rose-500">{list.error}</div>}
+        {!list.loading && !list.error && rows.length === 0 && <div className="p-6"><Empty text={status === 'Pending' ? 'Nothing waiting for review.' : 'No verification records here.'} /></div>}
+        {rows.map(v => {
+          const parent = db.users.find(u => u.id === v.parentId)
+          return (
+            <div key={v.id} className="flex flex-wrap items-center gap-4 px-6 py-4">
+              <Avatar name={parent?.name ?? 'Parent'} hue={parent?.avatarHue} size={42} />
+              <div className="min-w-52 flex-1">
+                <p className="text-[14.5px] font-semibold">{parent?.name ?? 'Parent'}</p>
+                <p className="text-[12.5px] text-black/45 dark:text-white/45">{[parent?.email, wardsText(v.parentId) ? `wards: ${wardsText(v.parentId)}` : 'no wards linked', `via ${v.method}`].filter(Boolean).join(' · ')}</p>
+                {v.note && v.status === 'Rejected' && <p className="mt-1 text-[12.5px] text-rose-600 dark:text-rose-400">Note: {v.note}</p>}
+                {v.verifiedAt && <p className="mt-1 text-[12px] text-black/40 dark:text-white/40">{v.status} {nameOf(v.verifiedById) ? `by ${nameOf(v.verifiedById)} ` : ''}on {fmtDate(v.verifiedAt, { day: 'numeric', month: 'short', year: 'numeric' })}</p>}
+              </div>
+              <DocumentThumb fileId={v.documentFileId} />
+              <Pill tone={verificationTone(v.status)}>{v.status}</Pill>
+              {v.status === 'Pending' && (
+                <div className="flex gap-2">
+                  <button onClick={() => act(v, 'verify')} disabled={busy === v.id} className={`${pillBtn} bg-emerald-600 text-white hover:bg-emerald-700`}><span className="flex items-center gap-1"><BadgeCheck size={13} /> Approve</span></button>
+                  <button onClick={() => { setReject(v); setNote('') }} disabled={busy === v.id} className={ghostPill}>Reject</button>
+                </div>
+              )}
             </div>
-            <div className="flex gap-1">
-              {(['P', 'A', 'L', 'H'] as AttendanceStatus[]).map(s => (
-                <button key={s} onClick={() => setStatus(p.id, s)}
-                  className={`flex h-9 w-9 items-center justify-center rounded-lg text-[12px] font-bold transition-colors ${draft[p.id] === s
-                    ? s === 'P' ? 'bg-emerald-500 text-white' : s === 'A' ? 'bg-rose-500 text-white' : s === 'L' ? 'bg-amber-500 text-white' : 'bg-sky-500 text-white'
-                    : 'bg-black/[.05] dark:bg-white/[.07] text-black/40 dark:text-white/40 hover:bg-black/10 dark:hover:bg-white/15'}`}>
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-        {people.length === 0 && <div className="p-6"><Empty text="No people match the selected filters." /></div>}
+          )
+        })}
       </Card>
+      <Modal open={!!reject} onClose={() => setReject(null)} title="Reject verification">
+        <div className="space-y-4">
+          <p className="text-[13.5px] text-black/60 dark:text-white/60">Tell {reject ? nameOf(reject.parentId) ?? 'the parent' : 'the parent'} what to fix — they can upload a new document afterwards.</p>
+          <Field label="Note"><textarea value={note} onChange={e => setNote(e.target.value)} rows={3} autoFocus placeholder="e.g. The scan is unreadable — please upload a clearer photo." className={inputCls} /></Field>
+          <button onClick={() => reject && act(reject, 'reject')} disabled={!note.trim() || !reject || busy === reject.id} className="w-full rounded-xl bg-rose-600 py-3 text-[14px] font-semibold text-white hover:bg-rose-700 disabled:opacity-40">Reject</button>
+        </div>
+      </Modal>
     </div>
   )
 }

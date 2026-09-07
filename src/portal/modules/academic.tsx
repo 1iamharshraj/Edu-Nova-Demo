@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
-import { BookOpen, CalendarRange, ChevronDown, ChevronUp, DoorOpen, GraduationCap, LayoutGrid, Pencil, Plus, RefreshCw, Star, Trash2, UserPlus, Users, X } from 'lucide-react'
+import { BookOpen, CalendarRange, ChevronDown, ChevronUp, Clock3, DoorOpen, GraduationCap, LayoutGrid, Pencil, Plus, RefreshCw, Star, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
 import { useEntity } from '@/lib/hooks/useEntity'
 import { api, errorMessage } from '@/lib/api'
-import type { AcademicYear, BoardRec, ClassRec, ClassSubject, CurriculumKind, CurriculumSubject, Enrollment, Grade, Room, RoomKind, Stream, SubjectRec, TermRec } from '@/lib/data'
+import type { AcademicYear, BoardRec, ClassRec, ClassSubject, CurriculumKind, CurriculumSubject, Enrollment, Grade, PeriodDef, PeriodKind, PeriodTemplate, Room, RoomKind, Stream, SubjectRec, TermRec } from '@/lib/data'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
 
 /* ── shared bits ───────────────────────────────────────── */
@@ -702,8 +702,8 @@ export function SubjectsMod() {
 
 /* ── 4. Classes & Sections ─────────────────────────────── */
 
-interface ClassForm { boardId: string; gradeId: string; streamId: string; section: string; classTeacherId: string; capacity: string }
-const emptyClassForm = (): ClassForm => ({ boardId: '', gradeId: '', streamId: '', section: '', classTeacherId: '', capacity: '' })
+interface ClassForm { boardId: string; gradeId: string; streamId: string; section: string; classTeacherId: string; capacity: string; periodTemplateId: string }
+const emptyClassForm = (): ClassForm => ({ boardId: '', gradeId: '', streamId: '', section: '', classTeacherId: '', capacity: '', periodTemplateId: '' })
 
 function YearSelect({ years, value, onChange }: { years: AcademicYear[]; value: string; onChange: (id: string) => void }) {
   return (
@@ -715,7 +715,7 @@ function YearSelect({ years, value, onChange }: { years: AcademicYear[]; value: 
 
 export function ClassesMod() {
   const { db, refreshAcademic } = useStore()
-  const { years, currentYear, boards, grades, streams, subjectById, enrollments: allEnrollments, subjects: allSubjects } = useAcademic()
+  const { years, currentYear, boards, grades, streams, subjectById, enrollments: allEnrollments, subjects: allSubjects, periodTemplates, defaultTemplate } = useAcademic()
   const classes = useEntity('classes')
   const enrollments = useEntity('enrollments')
   const classSubjects = useEntity('classSubjects')
@@ -754,7 +754,7 @@ export function ClassesMod() {
   const openAdd = () => { setEditing(null); setForm({ ...emptyClassForm(), boardId: sortedBoards[0]?.id ?? '', gradeId: ladder[0]?.id ?? '' }); setFormOpen(true) }
   const openEdit = (c: ClassRec) => {
     setEditing(c)
-    setForm({ boardId: c.boardId, gradeId: c.gradeId, streamId: c.streamId ?? '', section: c.section, classTeacherId: c.classTeacherId ?? '', capacity: c.capacity ? String(c.capacity) : '' })
+    setForm({ boardId: c.boardId, gradeId: c.gradeId, streamId: c.streamId ?? '', section: c.section, classTeacherId: c.classTeacherId ?? '', capacity: c.capacity ? String(c.capacity) : '', periodTemplateId: c.periodTemplateId ?? '' })
     setFormOpen(true)
   }
   const save = async () => {
@@ -766,6 +766,7 @@ export function ClassesMod() {
       section: form.section.trim(),
       classTeacherId: form.classTeacherId || clear,
       capacity: form.capacity ? Number(form.capacity) : clear,
+      periodTemplateId: form.periodTemplateId || clear,
     }
     const out = editing
       ? await classes.update(editing.id, body, 'Class updated')
@@ -974,7 +975,15 @@ export function ClassesMod() {
               {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </Field>
-          <Field label="Capacity"><input type="number" min={0} value={form.capacity} onChange={e => setForm({ ...form, capacity: e.target.value })} placeholder="Optional" className={inputCls} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Capacity"><input type="number" min={0} value={form.capacity} onChange={e => setForm({ ...form, capacity: e.target.value })} placeholder="Optional" className={inputCls} /></Field>
+            <Field label="Period template">
+              <select value={form.periodTemplateId} onChange={e => setForm({ ...form, periodTemplateId: e.target.value })} className={inputCls} disabled={periodTemplates.length === 0}>
+                <option value="">{defaultTemplate ? `School default (${defaultTemplate.name})` : 'No templates defined'}</option>
+                {periodTemplates.filter(t => t.id !== defaultTemplate?.id).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </Field>
+          </div>
           {!editing && <p className={muted}>The class starts with the subjects defined in its board and grade curriculum. You can adjust them afterwards.</p>}
           <FormActions onCancel={() => setFormOpen(false)} onSave={save} label={editing ? 'Save changes' : 'Create class'} disabled={!formValid || classes.busy} />
         </div>
@@ -1228,6 +1237,176 @@ export function RoomsMod() {
         body="Timetable slots that reference this room will keep the name as plain text but can no longer be linked to it."
         action="Delete room" busy={rooms.busy}
         onConfirm={async () => { if (del && await rooms.remove(del.id, 'Room deleted')) setDel(null) }} />
+    </div>
+  )
+}
+
+/* ── 6. Period templates ───────────────────────────────── */
+
+interface PeriodRow { label: string; start: string; end: string; kind: PeriodKind }
+interface TemplateForm { name: string; rows: PeriodRow[] }
+
+const STARTER_ROWS: PeriodRow[] = [
+  { label: 'P1', start: '09:00', end: '09:45', kind: 'class' },
+  { label: 'P2', start: '09:45', end: '10:30', kind: 'class' },
+  { label: 'Morning Break', start: '10:30', end: '10:45', kind: 'break' },
+  { label: 'P3', start: '10:45', end: '11:30', kind: 'class' },
+  { label: 'P4', start: '11:30', end: '12:15', kind: 'class' },
+  { label: 'Lunch Break', start: '12:15', end: '13:00', kind: 'break' },
+  { label: 'P5', start: '13:00', end: '13:45', kind: 'class' },
+  { label: 'P6', start: '13:45', end: '14:30', kind: 'class' },
+]
+
+const emptyTemplateForm = (): TemplateForm => ({ name: '', rows: STARTER_ROWS.map(r => ({ ...r })) })
+
+/** Next row that continues where the last one ends: a 45-minute class slot with the next P-number. */
+function nextRow(rows: PeriodRow[]): PeriodRow {
+  const last = rows[rows.length - 1]
+  const classCount = rows.filter(r => r.kind === 'class').length
+  const start = last?.end || '09:00'
+  const [h, m] = start.split(':').map(Number)
+  const endMin = Math.min(23 * 60 + 59, h * 60 + m + 45)
+  const end = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`
+  return { label: `P${classCount + 1}`, start, end, kind: 'class' }
+}
+
+const rowsValid = (rows: PeriodRow[]) => rows.length > 0 && rows.every(r => r.label.trim() && r.start && r.end && r.start < r.end)
+
+export function PeriodsMod() {
+  const templates = useEntity('periodTemplates')
+  const { classes } = useAcademic()
+  const sorted = useMemo(() => [...templates.items].sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || byName(a, b)), [templates.items])
+
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<PeriodTemplate | null>(null)
+  const [form, setForm] = useState<TemplateForm>(emptyTemplateForm)
+  const openAdd = () => { setEditing(null); setForm(emptyTemplateForm()); setFormOpen(true) }
+  const openEdit = (t: PeriodTemplate) => {
+    setEditing(t)
+    setForm({ name: t.name, rows: [...t.periods].sort((a, b) => a.idx - b.idx).map(p => ({ label: p.label, start: p.start, end: p.end, kind: p.kind })) })
+    setFormOpen(true)
+  }
+  const setRows = (rows: PeriodRow[]) => setForm(f => ({ ...f, rows }))
+  const patchRow = (i: number, patch: Partial<PeriodRow>) => setRows(form.rows.map((r, j) => j === i ? { ...r, ...patch } : r))
+  const moveRow = (i: number, dir: -1 | 1) => {
+    const rows = [...form.rows]
+    const j = i + dir
+    if (!rows[j]) return
+    ;[rows[i], rows[j]] = [rows[j], rows[i]]
+    setRows(rows)
+  }
+  const save = async () => {
+    const periods: PeriodDef[] = form.rows.map((r, i) => ({ idx: i + 1, label: r.label.trim(), start: r.start, end: r.end, kind: r.kind }))
+    const body = { name: form.name.trim(), periods }
+    const out = editing ? await templates.update(editing.id, body, 'Template updated') : await templates.create(body, 'Template created')
+    if (out) setFormOpen(false)
+  }
+  const [del, setDel] = useState<PeriodTemplate | null>(null)
+  const usedBy = (t: PeriodTemplate) => classes.filter(c => c.periodTemplateId === t.id).length
+
+  const formValid = form.name.trim() && rowsValid(form.rows)
+
+  return (
+    <div>
+      <PageHead title="Periods" sub="The daily bell schedule — periods and breaks with their timings. Classes use the school default unless overridden.">
+        {sorted.length > 0 && <AddButton label="Add template" onClick={openAdd} />}
+      </PageHead>
+
+      {sorted.length === 0 ? (
+        <Card className="flex flex-col items-center py-14 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600"><Clock3 size={26} /></div>
+          <p className="mt-4 font-display text-xl font-medium">No period template yet</p>
+          <p className="mt-1 max-w-sm text-[14px] text-black/50 dark:text-white/50">Define the periods of a school day before building timetables. The first template you create becomes the school default.</p>
+          <div className="mt-5"><AddButton label="Create template" onClick={openAdd} /></div>
+        </Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          {sorted.map(t => {
+            const periods = [...t.periods].sort((a, b) => a.idx - b.idx)
+            const classCount = periods.filter(p => p.kind === 'class').length
+            const first = periods[0], last = periods[periods.length - 1]
+            const overrides = usedBy(t)
+            return (
+              <Card key={t.id} className="flex flex-col gap-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate font-display text-xl font-medium tracking-tight">{t.name}</p>
+                      {t.isDefault && <Pill tone="green">Default</Pill>}
+                    </div>
+                    <p className={`mt-1 ${muted}`}>
+                      {classCount} period{classCount === 1 ? '' : 's'} · {periods.length - classCount} break{periods.length - classCount === 1 ? '' : 's'}
+                      {first && last ? ` · ${first.start} – ${last.end}` : ''}
+                      {overrides > 0 ? ` · used by ${overrides} class${overrides === 1 ? '' : 'es'}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => openEdit(t)} className={iconBtn} aria-label="Edit"><Pencil size={14} /></button>
+                    <button onClick={() => setDel(t)} className={dangerBtn} aria-label="Delete"><Trash2 size={14} /></button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {periods.map(p => (
+                    <span key={p.idx} title={`${p.start} – ${p.end}`}
+                      className={`rounded-lg px-2 py-1 text-[11.5px] font-semibold ${p.kind === 'break' ? 'bg-amber-400/10 text-amber-700 dark:text-amber-300' : 'bg-black/[.05] dark:bg-white/[.07] text-black/70 dark:text-white/70'}`}>
+                      {p.label} <span className="font-normal opacity-70">{p.start}</span>
+                    </span>
+                  ))}
+                </div>
+                {!t.isDefault && (
+                  <div className="border-t border-black/[.06] dark:border-white/[.08] pt-3">
+                    <button onClick={() => templates.action(t.id, 'set-default', `${t.name} is now the school default`)} disabled={templates.busy} className={ghostBtn}>
+                      <span className="flex items-center gap-1"><Star size={12} /> Set as default</span>
+                    </button>
+                  </div>
+                )}
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      <Modal open={formOpen} onClose={() => setFormOpen(false)} title={editing ? `Edit ${editing.name}` : 'New period template'} wide>
+        <div className="space-y-4">
+          <Field label="Name"><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="e.g. Standard day" className={inputCls} autoFocus /></Field>
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className={sectionLabel}>Periods · {form.rows.length}</p>
+              <HeaderAdd label="Add row" onClick={() => setRows([...form.rows, nextRow(form.rows)])} />
+            </div>
+            <div className="hidden grid-cols-[minmax(0,1fr)_118px_118px_104px_92px] gap-2 px-1 pb-1 text-[11.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40 sm:grid">
+              <span>Label</span><span>Start</span><span>End</span><span>Kind</span><span />
+            </div>
+            <div className="space-y-2">
+              {form.rows.map((r, i) => (
+                <div key={i} className={`grid grid-cols-2 gap-2 rounded-2xl p-2 sm:grid-cols-[minmax(0,1fr)_118px_118px_104px_92px] sm:rounded-none sm:p-0 ${r.kind === 'break' ? 'bg-amber-400/10 sm:bg-transparent' : 'bg-black/[.03] dark:bg-white/[.05] sm:bg-transparent'}`}>
+                  <input value={r.label} onChange={e => patchRow(i, { label: e.target.value })} placeholder={r.kind === 'break' ? 'Break' : 'P1'} className={inputCls + ' col-span-2 py-2 text-[13.5px] sm:col-span-1'} aria-label="Label" />
+                  <input type="time" value={r.start} onChange={e => patchRow(i, { start: e.target.value })} className={inputCls + ' py-2 text-[13.5px]'} aria-label="Start" />
+                  <input type="time" value={r.end} onChange={e => patchRow(i, { end: e.target.value })} className={inputCls + ' py-2 text-[13.5px]'} aria-label="End" />
+                  <select value={r.kind} onChange={e => patchRow(i, { kind: e.target.value as PeriodKind })} className={inputCls + ` py-2 text-[13.5px] ${r.kind === 'break' ? 'text-amber-700 dark:text-amber-300' : ''}`} aria-label="Kind">
+                    <option value="class">Class</option>
+                    <option value="break">Break</option>
+                  </select>
+                  <div className="flex items-center justify-end gap-1">
+                    <button onClick={() => moveRow(i, -1)} disabled={i === 0} className={iconBtn} aria-label="Move up"><ChevronUp size={13} /></button>
+                    <button onClick={() => moveRow(i, 1)} disabled={i === form.rows.length - 1} className={iconBtn} aria-label="Move down"><ChevronDown size={13} /></button>
+                    <button onClick={() => setRows(form.rows.filter((_, j) => j !== i))} className={dangerBtn} aria-label="Remove"><X size={13} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {form.rows.length === 0 && <Empty text="Add at least one period." />}
+            {form.rows.some(r => r.start && r.end && r.start >= r.end) && <p className="mt-2 text-[12.5px] text-rose-500">Every period must end after it starts.</p>}
+          </div>
+          {!editing && templates.items.length === 0 && <p className={muted}>This is your first template, so it becomes the school default.</p>}
+          <FormActions onCancel={() => setFormOpen(false)} onSave={save} label={editing ? 'Save changes' : 'Create template'} disabled={!formValid || templates.busy} />
+        </div>
+      </Modal>
+
+      <ConfirmModal open={!!del} onClose={() => setDel(null)} title={`Delete ${del?.name ?? 'template'}?`}
+        body={del?.isDefault ? 'This is the school default. It cannot be deleted while any class has timetable entries — set another template as default first.' : 'Classes overriding to this template fall back to the school default. Existing timetable entries are kept.'}
+        action="Delete template" busy={templates.busy}
+        onConfirm={async () => { if (del && await templates.remove(del.id, 'Template deleted')) setDel(null) }} />
     </div>
   )
 }

@@ -1,31 +1,37 @@
 import React, { createContext, useContext, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
-  Award, Banknote, BookMarked, BookOpen, BrainCircuit, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck,
+  Award, Banknote, BookMarked, BookOpen, BrainCircuit, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, Clock3,
   CloudUpload, CreditCard, DoorOpen, FileBadge, Gavel, GraduationCap, HeartPulse, Home, Landmark, LayoutGrid, Layers,
   LogOut, Megaphone, MessagesSquare, PartyPopper, PencilLine, Play, School, ScrollText, Settings,
-  ShieldCheck, Sparkles, Trophy, Umbrella, Users, Video, Wallet, type LucideIcon,
+  ShieldCheck, Sparkles, Trophy, UserCircle2, Umbrella, Users, Video, Wallet, type LucideIcon,
 } from 'lucide-react'
 import { Logo } from '@/components/Logo'
-import { useAcademic, useStore } from '@/lib/store'
+import { api, errorMessage } from '@/lib/api'
+import { canManage, isSuperAdmin } from '@/lib/access'
+import { useAcademic, useStore, type CreateUserInput } from '@/lib/store'
 import { ThemeToggle } from '@/lib/theme'
 import { InstallButton } from '@/lib/pwa'
 import type { Role } from '@/lib/data'
-import { Avatar, Card, Empty, PageHead, Pill } from './ui'
+import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, inputCls } from './ui'
+import { ProfileMod } from './modules/profile'
 import { AttendanceMod, CalendarMod, MarksMod, RanksMod, TeachersMod } from './modules/academics'
+import { todayAgenda, useClock, useEntryLookup, useMyTimetable } from '@/lib/hooks/useTimetable'
+import { homeworkStatus, isOpen, useAttendanceSummary, useHomework, useReportCard } from '@/lib/hooks/useAcademics'
 import { TimetableMod } from './modules/timetable'
+import { TimetableBuilderMod } from './modules/timetableBuilder'
 import { AIDoubtsMod, FeedMod, HighlightsMod, MessagesMod } from './modules/social'
 import { AchievementsMod, HealthMod, HomeworkMod, LeaveMod, PaymentsMod, SlipsMod, WorkUploadMod } from './modules/actions'
 import {
   ApplicationsMod, AttendanceMgmtMod, CalendarAdminMod, ContractMod, ContractsResignationsMod, CreateAssignmentMod,
-  FeesMod, GradeUploadMod, MarksheetMod, PeopleMod, RegistrationsMod, TakeAttendanceMod, WorkAssignMod,
+  BoardRegistrationMod, FeesMod, GradebookMod, PeopleMod, RegistrationsMod, TakeAttendanceMod, VerificationsMod, WorkAssignMod,
 } from './modules/office'
 import { MeetingsMod } from './modules/meetings'
 import { FeeDefaultersAndCallsMod } from './modules/feeDefaulters'
 import { DisciplinaryCommitteeMod } from './modules/disciplinary'
 import { PaymentGatewayMod } from './modules/paymentGateway'
 import { StudentReportMod } from './modules/studentReport'
-import { AcademicYearsMod, BoardsMod, ClassesMod, CurriculumMod, RoomsMod } from './modules/academic'
+import { AcademicYearsMod, BoardsMod, ClassesMod, CurriculumMod, PeriodsMod, RoomsMod } from './modules/academic'
 import { SettingsMod } from './modules/settings'
 import { toast } from 'sonner'
 
@@ -63,8 +69,9 @@ function modulesFor(role: Role): Mod[] {
       M('ach', 'Achievements', Award, <AchievementsMod />, 'Actions'),
       M('pay', 'Payments', CreditCard, <PaymentGatewayMod />, 'Office'),
       M('apps', 'TC & Bonafide', FileBadge, <ApplicationsMod approver={false} />, 'Office'),
-      M('msheet', 'Board Registration', School, <MarksheetMod />, 'Office'),
+      M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Office'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Office'),
+      M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
     case 'student': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
@@ -87,17 +94,18 @@ function modulesFor(role: Role): Mod[] {
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Office'),
       M('pay', 'Fee Payments', CreditCard, <PaymentGatewayMod />, 'Office'),
       M('apps', 'Applications', FileBadge, <ApplicationsMod approver={false} />, 'Office'),
+      M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
     case 'teacher': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
       M('take', 'Take Attendance', ClipboardCheck, <TakeAttendanceMod />, 'Classroom'),
       M('assign', 'Create Assignment', BookOpen, <CreateAssignmentMod />, 'Classroom'),
-      M('grades', 'Upload Grades', PencilLine, <GradeUploadMod />, 'Classroom'),
+      M('grades', 'Gradebook', PencilLine, <GradebookMod />, 'Classroom'),
       M('tt', 'My Timetable', CalendarDays, <TimetableMod />, 'Classroom'),
       M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Classroom'),
       M('meet', 'Meetings', Video, <MeetingsMod />, 'Classroom'),
       M('lapprove', 'Leave Approvals', Umbrella, <LeaveMod approver />, 'Classroom'),
-      M('msheet', 'Board Registration', School, <MarksheetMod />, 'Classroom'),
+      M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Classroom'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Classroom'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Classroom'),
       M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Classroom'),
@@ -107,16 +115,18 @@ function modulesFor(role: Role): Mod[] {
       M('work', 'Event Duties', PartyPopper, <WorkAssignMod />, 'My HR'),
       M('freg', 'Faculty Events', Play, <RegistrationsMod kind="faculty" title="Faculty Event Registration" sub="Workshops and panels for teachers" />, 'My HR'),
       M('ach', 'My Achievements', Award, <AchievementsMod />, 'My HR'),
+      M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
     case 'staff': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
       M('attm', 'Attendance Mgmt', ClipboardCheck, <AttendanceMgmtMod />, 'Operations'),
       M('people', 'People', Users, <PeopleMod />, 'Operations'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Operations'),
+      M('verify', 'Verifications', ShieldCheck, <VerificationsMod />, 'Operations'),
       M('leaves', 'Leave Approvals', Umbrella, <LeaveMod approver />, 'Operations'),
       M('calm', 'Calendar Mgmt', CalendarPlus, <CalendarAdminMod />, 'Operations'),
       M('work', 'Work Assignment', PartyPopper, <WorkAssignMod manage />, 'Operations'),
-      M('msheet', 'Board Registration', School, <MarksheetMod />, 'Operations'),
+      M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Operations'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Operations'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Operations'),
       M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Operations'),
@@ -124,6 +134,7 @@ function modulesFor(role: Role): Mod[] {
       M('fees', 'Fees', CreditCard, <FeesMod />, 'Finance'),
       M('pay', 'Fee Gateway', Landmark, <PaymentGatewayMod />, 'Finance'),
       M('salary', 'Salary Receipts', ScrollText, <PaymentsMod salary />, 'Finance'),
+      M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
     case 'admin': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
@@ -131,14 +142,16 @@ function modulesFor(role: Role): Mod[] {
       M('boards', 'Boards & Grades', Layers, <BoardsMod />, 'Academic Setup'),
       M('curriculum', 'Curriculum', BookMarked, <CurriculumMod />, 'Academic Setup'),
       M('classes', 'Classes & Sections', GraduationCap, <ClassesMod />, 'Academic Setup'),
+      M('ttb', 'Timetable Builder', CalendarDays, <TimetableBuilderMod />, 'Academic Setup'),
       M('rooms', 'Rooms', DoorOpen, <RoomsMod />, 'Academic Setup'),
+      M('periods', 'Periods', Clock3, <PeriodsMod />, 'Academic Setup'),
       M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
       M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Manage'),
       M('leaves', 'Leave Approvals', Umbrella, <LeaveMod approver />, 'Manage'),
       M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
       M('work', 'Work Assignment', PartyPopper, <WorkAssignMod manage />, 'Manage'),
-      M('msheet', 'Board Registration', School, <MarksheetMod />, 'Manage'),
+      M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Manage'),
       M('contracts', 'Contracts & Exit', ScrollText, <ContractsResignationsMod />, 'Manage'),
       M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Manage'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Finance'),
@@ -155,7 +168,9 @@ function modulesFor(role: Role): Mod[] {
       M('boards', 'Boards & Grades', Layers, <BoardsMod />, 'Academic Setup'),
       M('curriculum', 'Curriculum', BookMarked, <CurriculumMod />, 'Academic Setup'),
       M('classes', 'Classes & Sections', GraduationCap, <ClassesMod />, 'Academic Setup'),
+      M('ttb', 'Timetable Builder', CalendarDays, <TimetableBuilderMod />, 'Academic Setup'),
       M('rooms', 'Rooms', DoorOpen, <RoomsMod />, 'Academic Setup'),
+      M('periods', 'Periods', Clock3, <PeriodsMod />, 'Academic Setup'),
       M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
       M('admins', 'Admin Management', ShieldCheck, <AdminManagementMod />, 'Manage'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
@@ -163,7 +178,7 @@ function modulesFor(role: Role): Mod[] {
       M('leaves', 'Leave Approvals', Umbrella, <LeaveMod approver />, 'Manage'),
       M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
       M('work', 'Work Assignment', PartyPopper, <WorkAssignMod manage />, 'Manage'),
-      M('msheet', 'Board Registration', School, <MarksheetMod />, 'Manage'),
+      M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Manage'),
       M('contracts', 'Contracts & Exit', ScrollText, <ContractsResignationsMod />, 'Manage'),
       M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Manage'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Finance'),
@@ -288,18 +303,35 @@ function TeacherLeaveMod() {
 function Overview() {
   const { db, user, academic } = useStore()
   const { term } = useTerm()
-  const { currentTerm, classOf, wardsOf, classesTaughtBy } = useAcademic()
+  const { currentTerm, classOf, wardsOf, classesTaughtBy, templateFor } = useAcademic()
   const role = user!.role
   const hour = new Date().getHours()
   const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   const termId = term || currentTerm?.id || ''
   const termName = db.terms.find(t => t.id === termId)?.name ?? 'this term'
 
+  // Phase 3 tiles: attendance % and open homework for the viewed student (student → self, parent → first ward), class rank for students.
+  const wardIds = role === 'parent' ? wardsOf(user!.id) : []
+  const ward = role === 'parent' ? (db.users.find(u => wardIds.includes(u.id)) ?? db.users.find(u => u.role === 'student' && u.parentEmail === user!.email)) : undefined
+  const viewedId = role === 'student' ? user!.id : ward?.id
+  const viewedClass = viewedId ? classOf(viewedId) : undefined
+  const { data: attSummary } = useAttendanceSummary({ studentId: viewedId, termId }, !!viewedId)
+  const { items: homework } = useHomework(viewedClass?.id, termId)
+  const { data: reportCard } = useReportCard(role === 'student' ? user!.id : undefined, termId)
+
+  // today's periods for the "Next class" / "Classes today" tiles (students and teachers only)
+  const now = useClock()
+  const { data: myTT, loading: myTTLoading } = useMyTimetable(termId, { enabled: role === 'student' || role === 'teacher' })
+  const lookup = useEntryLookup()
+  const agenda = useMemo(() => {
+    const entries = myTT?.entries ?? []
+    const template = myTT?.template ?? templateFor(role === 'student' ? classOf(user!.id)?.id : entries[0]?.classId)
+    return todayAgenda(entries, template, now)
+  }, [myTT, templateFor, role, classOf, user, now])
+
   const cards: { k: string; v: string; s: string; tone: string }[] = useMemo(() => {
-    const att = db.attendance[termId]
-    const totalSessions = att?.bySubject.reduce((a, s) => a + s.total, 0) ?? 0
-    const overall = totalSessions > 0 ? Math.round((att!.bySubject.reduce((a, s) => a + s.present, 0) / totalSessions) * 100) + '%' : '—'
-    const pendingHw = db.homework.filter(h => h.term === termId && (h.status === 'Pending' || h.status === 'Late')).length
+    const overall = attSummary && attSummary.overall.total > 0 ? `${Math.round(attSummary.overall.pct)}%` : '—'
+    const pendingHw = (homework ?? []).filter(h => isOpen(homeworkStatus(h, viewedId))).length
     const slips = db.slips.filter(s => s.status === 'Pending').length
     const dueReceipts = db.receipts.filter(r => r.kind === 'fee' && r.status === 'Due')
     const defaulters = new Set(dueReceipts.map(r => r.studentId).filter(Boolean)).size
@@ -312,8 +344,6 @@ function Overview() {
     const fmt = (n: number) => '₹' + n.toLocaleString('en-IN')
     switch (role) {
       case 'parent': {
-        const wardIds = wardsOf(user!.id)
-        const ward = db.users.find(u => wardIds.includes(u.id)) ?? db.users.find(u => u.role === 'student' && u.parentEmail === user!.email)
         const due = dueReceipts.filter(r => ward && r.studentId === ward.id).reduce((a, r) => a + r.amount, 0)
         return [
           { k: 'Attendance', v: overall, s: ward ? `${termName} · ${ward.name.split(' ')[0]}` : 'No ward linked yet', tone: 'from-emerald-500 to-teal-400' },
@@ -324,8 +354,15 @@ function Overview() {
       }
       case 'student': {
         const cls = classOf(user!.id)
-        const rank = db.ranks[termId]?.overall.find(r => r.name === user!.name)?.rank
+        const rank = reportCard?.overall.rank ?? undefined
+        const up = agenda.running ?? agenda.next
+        const nextTile = !myTT || !myTT.published
+          ? { k: 'Next class', v: '—', s: myTTLoading ? 'loading timetable…' : 'timetable not published', tone: 'from-fuchsia-500 to-pink-500' }
+          : up
+            ? { k: agenda.running ? 'Now' : 'Next class', v: lookup.subjectOf(up.entry), s: [up.period.label, `${up.period.start} – ${up.period.end}`, lookup.roomOf(up.entry)].filter(Boolean).join(' · '), tone: 'from-fuchsia-500 to-pink-500' }
+            : { k: 'Next class', v: agenda.today.length ? 'Done' : '—', s: agenda.today.length ? 'no more classes today' : 'no classes today', tone: 'from-fuchsia-500 to-pink-500' }
         return [
+          nextTile,
           { k: 'Attendance', v: overall, s: termName, tone: 'from-emerald-500 to-teal-400' },
           { k: 'To submit', v: String(pendingHw), s: 'assignments open', tone: 'from-amber-500 to-orange-400' },
           { k: 'Class rank', v: rank ? `#${rank}` : '—', s: cls ? `${termName} · ${cls.label}` : 'not enrolled yet', tone: 'from-indigo-500 to-violet-500' },
@@ -333,9 +370,14 @@ function Overview() {
         ]
       }
       case 'teacher': {
-        const mine = classesTaughtBy(user!.id)
+        const taught = classesTaughtBy(user!.id)
+        const up = agenda.running ?? agenda.next
+        const todaySub = up
+          ? `${agenda.running ? 'now' : 'next'}: ${lookup.classLabelOf(up.entry) ?? ''} ${lookup.subjectOf(up.entry)} · ${up.period.start}`.trim()
+          : agenda.today.length ? 'all done for today' : myTTLoading ? 'loading timetable…' : 'nothing scheduled today'
         return [
-          { k: 'My classes', v: String(mine.length), s: mine.map(c => c.label).join(', ') || 'no assignments yet', tone: 'from-indigo-500 to-violet-500' },
+          { k: 'Classes today', v: String(agenda.today.length), s: todaySub, tone: 'from-fuchsia-500 to-pink-500' },
+          { k: 'My classes', v: String(taught.length), s: taught.map(c => c.label).join(', ') || 'no assignments yet', tone: 'from-indigo-500 to-violet-500' },
           { k: 'Leave requests', v: String(db.leaves.filter(l => l.status === 'Pending').length), s: 'awaiting approval', tone: 'from-amber-500 to-orange-400' },
           { k: 'Fee defaulters', v: String(defaulters), s: 'students with dues', tone: 'from-rose-500 to-pink-400' },
           { k: 'Disciplinary', v: String(pendingDisciplinary), s: 'open cases', tone: 'from-sky-500 to-cyan-400' },
@@ -361,7 +403,7 @@ function Overview() {
       ]
       default: return []
     }
-  }, [db, academic, role, termId, termName, user, classOf, wardsOf, classesTaughtBy])
+  }, [db, academic, role, termName, user, classOf, classesTaughtBy, agenda, myTT, myTTLoading, lookup, attSummary, homework, reportCard, ward, viewedId])
 
   const nextEvents = db.events.filter(e => !termId || e.term === termId).slice(0, 4)
   const isSetupRole = role === 'admin' || role === 'superadmin'
@@ -381,7 +423,7 @@ function Overview() {
         <h1 className="font-display mt-1 text-[clamp(1.8rem,3.5vw,2.6rem)] font-medium tracking-tight">{user!.name.split(' ')[0]} 👋</h1>
         <p className="mt-1.5 text-[14.5px] text-black/50 dark:text-white/50">{user!.title}</p>
       </div>
-      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+      <div className={`grid gap-5 sm:grid-cols-2 ${cards.length === 5 ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}>
         {cards.map(c => (
           <div key={c.k} className="card-lift relative overflow-hidden rounded-3xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-6">
             <div className={`absolute -right-8 -top-8 h-28 w-28 rounded-full bg-gradient-to-br ${c.tone} opacity-[.13]`} />

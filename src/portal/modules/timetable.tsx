@@ -1,210 +1,384 @@
-import { Fragment, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { Coffee, Sun, Utensils, Clock, MapPin, User, Users } from 'lucide-react'
 import { useAcademic, useStore } from '@/lib/store'
-import { DAYS, TIMESLOTS } from '@/lib/data'
-import type { Subject, TTCell } from '@/lib/data'
-import { Card, Empty, PageHead, TermTabs } from '../ui'
-import { useActiveTerm, useViewedStudent } from './viewer'
-import { Coffee, Sun, Utensils, Clock, MapPin, User } from 'lucide-react'
+import type { PeriodDef, PeriodTemplate } from '@/lib/data'
+import {
+  DAY_LABELS, cellKey, daysFor, hhmm, isRunning, isoDate, sortedPeriods, useClock, useEntryLookup, useFetch, useMyTimetable,
+  type ClassTimetable, type EntryLookup, type TeacherTimetable, type TimetableEntryView,
+} from '@/lib/hooks/useTimetable'
+import { Card, Empty, PageHead, Pill, TermTabs, inputCls } from '../ui'
+import { useActiveTerm, useViewedStudents } from './viewer'
 
-const BREAK_META: Record<string, { icon: React.ReactNode; bg: string; text: string }> = {
-  'Morning Break': { icon: <Sun size={14} />, bg: 'bg-amber-400/10 dark:bg-amber-400/10', text: 'text-amber-700 dark:text-amber-300' },
-  'Lunch Break': { icon: <Utensils size={14} />, bg: 'bg-emerald-400/10 dark:bg-emerald-400/10', text: 'text-emerald-700 dark:text-emerald-300' },
-  'Evening Break': { icon: <Coffee size={14} />, bg: 'bg-sky-400/10 dark:bg-sky-400/10', text: 'text-sky-700 dark:text-sky-300' },
+// Data hooks and helpers live in src/lib/hooks/useTimetable.ts; this file only exports components.
+
+interface BreakMeta { icon: React.ReactNode; bg: string; text: string }
+const BREAKS: BreakMeta[] = [
+  { icon: <Sun size={14} />, bg: 'bg-amber-400/10 dark:bg-amber-400/10', text: 'text-amber-700 dark:text-amber-300' },
+  { icon: <Utensils size={14} />, bg: 'bg-emerald-400/10 dark:bg-emerald-400/10', text: 'text-emerald-700 dark:text-emerald-300' },
+  { icon: <Coffee size={14} />, bg: 'bg-sky-400/10 dark:bg-sky-400/10', text: 'text-sky-700 dark:text-sky-300' },
+]
+/** Pick an icon/colour for a break by its label (lunch → cutlery, morning → sun, anything else → coffee). */
+function breakMeta(label: string): BreakMeta {
+  const l = label.toLowerCase()
+  if (l.includes('lunch')) return BREAKS[1]
+  if (l.includes('morning')) return BREAKS[0]
+  return BREAKS[2]
 }
 
-function isBreak(cell: TTCell | undefined) {
-  if (!cell) return false
-  return cell.subject === 'Morning Break' || cell.subject === 'Lunch Break' || cell.subject === 'Evening Break'
-}
+/* ── grid (desktop) + day list (mobile) ─────────────────── */
 
-export function TimetableMod() {
-  const { db, user } = useStore()
-  const { term, setTerm } = useActiveTerm()
-  const { classOf } = useAcademic()
-  const viewed = useViewedStudent()
-  const grid = db.timetable[term] ?? []
+export function TimetableGrid({ template, days, renderCell, now, dense }: {
+  template: PeriodTemplate
+  days: number[]
+  /** Return the cell for a class period; breaks are drawn by the grid itself. */
+  renderCell: (dayOfWeek: number, period: PeriodDef) => React.ReactNode
+  /** When given, today's row and the running period are highlighted. */
+  now?: Date
+  dense?: boolean
+}) {
+  const periods = sortedPeriods(template)
   const [dayIdx, setDayIdx] = useState(0)
+  const activeDay = days[dayIdx] ?? days[0]
+  const colTemplate = `64px ${periods.map(p => p.kind === 'break' ? '0.42fr' : '1fr').join(' ')}`
+  // wide enough that a subject name fits on one line per class column; scrolls horizontally beyond that
+  const minWidth = 64 + periods.reduce((w, p) => w + (p.kind === 'break' ? 46 : 112), 0)
+  const t = now ? hhmm(now) : ''
+  const isNow = (p: PeriodDef) => !!now && p.start <= t && t < p.end
+  const today = now?.getDay()
+  const minH = dense ? 'min-h-[76px]' : 'min-h-[92px]'
 
-  const who = (() => {
-    if (user?.role === 'teacher') return 'My timetable'
-    if (user?.role === 'student' || user?.role === 'parent') {
-      const label = viewed ? (classOf(viewed.id)?.label ?? viewed.class) : undefined
-      return label ? `Class ${label}` : 'Timetable'
-    }
-    return 'Timetable'
-  })()
-  const hasGrid = grid.some(day => day && day.length > 0)
-
-  const subjects = useMemo(() => {
-    const map = new Map<string, Subject>()
-    for (const s of db.subjects) map.set(s.name, s)
-    return map
-  }, [db.subjects])
-
-  // column widths: classes get 1fr, breaks get 0.7fr
-  const colTemplate = `72px ${TIMESLOTS.map(s => s.kind === 'break' ? '0.7fr' : '1fr').join(' ')}`
+  const breakCell = (p: PeriodDef, key: string, extra = '') => {
+    const meta = breakMeta(p.label)
+    return (
+      <div key={key} className={`flex ${minH} flex-col items-center justify-center gap-1 rounded-xl border border-transparent ${meta.bg} py-3 text-center ${extra}`}>
+        <span className={meta.text}>{meta.icon}</span>
+        <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.text}`}>{p.label}</span>
+      </div>
+    )
+  }
 
   return (
-    <div>
-      <PageHead title="Timetable" sub={`${who} · 09:00 to 17:00 · breaks highlighted`}>
-        <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
-      </PageHead>
-
-      {!hasGrid && <Empty text="No timetable published for this term yet." />}
-
+    <>
       {/* Desktop */}
-      {hasGrid && <Card className="hidden md:block overflow-hidden p-0">
+      <Card className="hidden overflow-hidden p-0 md:block">
         <div className="overflow-x-auto thin-scroll">
-          <div className="min-w-[980px] p-4 lg:min-w-0">
-            {/* header */}
-            <div
-              className="sticky top-0 z-10 gap-2 border-b border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] pb-3"
-              style={{ display: 'grid', gridTemplateColumns: colTemplate }}
-            >
+          <div className="p-4" style={{ minWidth }}>
+            <div className="sticky top-0 z-10 gap-2 border-b border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] pb-3" style={{ display: 'grid', gridTemplateColumns: colTemplate }}>
               <div />
-              {TIMESLOTS.map(slot => (
-                <div key={slot.time} className="px-1 py-2 text-center">
-                  {slot.kind === 'break' ? (
-                    <div className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-bold uppercase tracking-wider ${BREAK_META[slot.label].bg} ${BREAK_META[slot.label].text}`}>
-                      {BREAK_META[slot.label].icon}
-                      Break
+              {periods.map(p => (
+                <div key={p.idx} className={`rounded-xl px-1 py-2 text-center ${isNow(p) ? 'bg-indigo-50 dark:bg-indigo-500/10' : ''}`}>
+                  {p.kind === 'break' ? (
+                    <div className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-bold uppercase tracking-wider ${breakMeta(p.label).bg} ${breakMeta(p.label).text}`}>
+                      {breakMeta(p.label).icon} Break
                     </div>
                   ) : (
-                    <p className="text-[12px] font-bold text-black/50 dark:text-white/50">{slot.label}</p>
+                    <p className="text-[12px] font-bold text-black/50 dark:text-white/50">{p.label}</p>
                   )}
-                  {slot.duration && (
-                    <p className="mt-1 text-[10px] text-black/40 dark:text-white/40">{slot.duration}</p>
-                  )}
+                  <p className="mt-1 text-[10px] text-black/40 dark:text-white/40">{p.start} – {p.end}</p>
                 </div>
               ))}
             </div>
-
-            {/* grid */}
             <div className="gap-2 pt-3" style={{ display: 'grid', gridTemplateColumns: colTemplate }}>
-              {DAYS.map((day, di) => (
-                <Fragment key={day}>
-                  <div className="flex items-center py-4 text-[12px] font-bold uppercase tracking-wider text-black/40 dark:text-white/40">
-                    {day.slice(0, 3)}
+              {/* `contents` wrappers keep the grid flat without keyed Fragments (the dev inspector plugin decorates every JSX element) */}
+              {days.map(d => (
+                <div key={d} className="contents">
+                  <div className={`flex items-center py-4 text-[12px] font-bold uppercase tracking-wider ${today === d ? 'text-indigo-600 dark:text-indigo-400' : 'text-black/40 dark:text-white/40'}`}>
+                    {DAY_LABELS[d].slice(0, 3)}
                   </div>
-                  {TIMESLOTS.map(slot => {
-                    const cell = grid[di]?.find(c => c.time === slot.time)
-                    if (!cell) return <div key={`${day}-${slot.time}`} className="min-h-[92px] rounded-xl border border-dashed border-black/[.08] dark:border-white/[.10] bg-black/[.02] dark:bg-white/[.03]" />
-
-                    if (isBreak(cell)) {
-                      const meta = BREAK_META[cell.subject]
-                      return (
-                        <div
-                          key={`${day}-${slot.time}`}
-                          className={`flex min-h-[92px] flex-col items-center justify-center gap-1 rounded-xl border border-transparent ${meta.bg} py-4 text-center`}
-                        >
-                          <span className={meta.text}>{meta.icon}</span>
-                          <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.text}`}>{cell.subject}</span>
-                        </div>
-                      )
-                    }
-
-                    const sub = subjects.get(cell.subject)
-                    const col = sub?.color ?? '#6366f1'
-                    return (
-                      <div
-                        key={`${day}-${slot.time}`}
-                        title={`${cell.subject} · ${slot.time}${slot.duration ? ` (${slot.duration})` : ''} · ${cell.room} · ${sub?.teacher ?? '—'}`}
-                        className="relative flex min-h-[92px] flex-col overflow-hidden rounded-xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-3 transition-shadow hover:shadow-md"
-                      >
-                        <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: col }} />
-                        <p className="pl-2.5 text-[13px] font-semibold leading-tight" style={{ color: col }} title={cell.subject}>
-                          {cell.subject}
-                        </p>
-                        <p className="mt-1 flex items-center gap-1 pl-2.5 text-[11px] text-black/50 dark:text-white/50 truncate">
-                          <User size={11} className="shrink-0" />
-                          <span className="truncate">{sub?.teacher ?? '—'}</span>
-                        </p>
-                        <div className="mt-auto flex items-center gap-1.5 pl-2.5 pt-2">
-                          <span className="inline-flex items-center gap-1 rounded-md bg-black/[.04] dark:bg-white/[.06] px-1.5 py-0.5 text-[10px] font-semibold text-black/50 dark:text-white/50">
-                            <MapPin size={10} />
-                            {cell.room}
-                          </span>
-                          <span className="inline-flex items-center gap-1 text-[10px] text-black/40 dark:text-white/40">
-                            <Clock size={10} />
-                            {slot.time}
-                          </span>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </Fragment>
+                  {periods.map(p => p.kind === 'break'
+                    ? breakCell(p, cellKey(d, p.idx))
+                    : <div key={cellKey(d, p.idx)} className="contents">{renderCell(d, p)}</div>)}
+                </div>
               ))}
             </div>
           </div>
         </div>
-      </Card>}
+      </Card>
 
       {/* Mobile */}
-      {hasGrid && <div className="md:hidden">
-        <div className="mb-4 grid grid-cols-5 gap-2">
-          {DAYS.map((d, i) => (
-            <button
-              key={d}
-              onClick={() => setDayIdx(i)}
-              className={`rounded-xl py-2.5 text-[13px] font-semibold transition-all ${dayIdx === i ? 'bg-black text-white shadow-sm' : 'border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] text-black/60 dark:text-white/60'}`}
-            >
-              {d.slice(0, 3)}
+      <div className="md:hidden">
+        <div className="mb-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }}>
+          {days.map((d, i) => (
+            <button key={d} onClick={() => setDayIdx(i)}
+              className={`rounded-xl py-2.5 text-[13px] font-semibold transition-all ${activeDay === d ? 'bg-black text-white shadow-sm' : 'border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] text-black/60 dark:text-white/60'}`}>
+              {DAY_LABELS[d].slice(0, 3)}
             </button>
           ))}
         </div>
         <div className="space-y-3">
-          {TIMESLOTS.map(slot => {
-            const cell = grid[dayIdx]?.find(c => c.time === slot.time)
-            if (!cell) return null
-            if (isBreak(cell)) {
-              const meta = BREAK_META[cell.subject]
+          {periods.map(p => {
+            if (p.kind === 'break') {
+              const meta = breakMeta(p.label)
               return (
-                <div key={slot.time} className={`flex items-center gap-3 rounded-xl border border-transparent ${meta.bg} p-4`}>
+                <div key={p.idx} className={`flex items-center gap-3 rounded-xl ${meta.bg} px-4 py-3`}>
                   <span className={meta.text}>{meta.icon}</span>
-                  <div className="flex-1">
-                    <p className={`text-[14px] font-semibold ${meta.text}`}>{cell.subject}</p>
-                    <p className="text-[12px] text-black/50 dark:text-white/50">{slot.duration}</p>
-                  </div>
-                  <span className="text-[11px] font-medium text-black/40 dark:text-white/40">{slot.time}</span>
+                  <p className={`flex-1 text-[13.5px] font-semibold ${meta.text}`}>{p.label}</p>
+                  <span className="text-[11px] font-medium text-black/40 dark:text-white/40">{p.start} – {p.end}</span>
                 </div>
               )
             }
-            const sub = subjects.get(cell.subject)
-            const col = sub?.color ?? '#6366f1'
             return (
-              <div
-                key={slot.time}
-                className="relative overflow-hidden rounded-xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-4"
-              >
-                <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: col }} />
-                <div className="flex items-start justify-between gap-3 pl-2.5">
-                  <div className="flex-1">
-                    <p className="text-[15px] font-semibold" style={{ color: col }}>{cell.subject}</p>
-                    <p className="mt-0.5 text-[12px] text-black/50 dark:text-white/50">{sub?.teacher ?? '—'} · {cell.room}</p>
-                  </div>
-                  <span className="shrink-0 rounded-md bg-black/[.04] dark:bg-white/[.06] px-2 py-0.5 text-[11px] font-semibold text-black/50 dark:text-white/50">{slot.time}</span>
+              <div key={p.idx} className="flex items-stretch gap-3">
+                <div className={`flex w-14 shrink-0 flex-col items-center justify-center rounded-xl text-[11px] font-bold ${isNow(p) && today === activeDay ? 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-black/[.03] dark:bg-white/[.05] text-black/50 dark:text-white/50'}`}>
+                  <span>{p.label}</span><span className="mt-0.5 font-medium opacity-70">{p.start}</span>
                 </div>
+                <div className="min-w-0 flex-1">{renderCell(activeDay, p)}</div>
               </div>
             )
           })}
         </div>
-      </div>}
-
-      {/* Legend */}
-      <div className="mt-4 flex flex-wrap gap-2 rounded-2xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-4">
-        {db.subjects.map(s => (
-          <div key={s.id} className="flex items-center gap-2 rounded-full bg-black/[.03] dark:bg-white/[.06] px-3 py-1.5">
-            <span className="h-3 w-3 rounded-full" style={{ background: s.color }} />
-            <span className="text-[12px] font-medium text-black/70 dark:text-white/70">{s.name}</span>
-          </div>
-        ))}
-        {Object.entries(BREAK_META).map(([label, meta]) => (
-          <div key={label} className={`flex items-center gap-2 rounded-full px-3 py-1.5 ${meta.bg}`}>
-            <span className={meta.text}>{meta.icon}</span>
-            <span className={`text-[12px] font-medium ${meta.text}`}>{label}</span>
-          </div>
-        ))}
       </div>
+    </>
+  )
+}
+
+/** The readable card used for a scheduled period. */
+export function PeriodCard({ title, color, teacher, room, note, highlight, badge, className = '' }: {
+  title: string; color: string; teacher?: string; room?: string; note?: string; highlight?: boolean; badge?: React.ReactNode; className?: string
+}) {
+  return (
+    <div title={[title, teacher, room].filter(Boolean).join(' · ')}
+      className={`relative flex min-h-[92px] flex-col overflow-hidden rounded-xl border bg-white dark:bg-[#14141f] py-2.5 pl-2 pr-2 transition-shadow hover:shadow-md ${highlight ? 'border-indigo-300 ring-2 ring-indigo-200 dark:border-indigo-500/50 dark:ring-indigo-500/30' : 'border-black/[.06] dark:border-white/[.08]'} ${className}`}>
+      <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: color }} />
+      <p className="pl-2 text-[12.5px] font-semibold leading-tight" style={{ color }}>{title}</p>
+      {teacher && (
+        <p className="mt-1 flex items-center gap-1 truncate pl-2 text-[11px] text-black/50 dark:text-white/50">
+          <User size={11} className="shrink-0" /><span className="truncate">{teacher}</span>
+        </p>
+      )}
+      {note && <p className="mt-1 truncate pl-2 text-[11px] font-medium text-amber-700 dark:text-amber-300">{note}</p>}
+      <div className="mt-auto flex flex-wrap items-center gap-1.5 pl-2 pt-2">
+        {room && (
+          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-black/[.04] dark:bg-white/[.06] px-1.5 py-0.5 text-[10px] font-semibold text-black/50 dark:text-white/50">
+            <MapPin size={10} />{room}
+          </span>
+        )}
+        {badge}
+      </div>
+    </div>
+  )
+}
+
+export function FreeCell({ dense }: { dense?: boolean }) {
+  return <div className={`${dense ? 'min-h-[76px]' : 'min-h-[92px]'} rounded-xl border border-dashed border-black/[.08] dark:border-white/[.10] bg-black/[.02] dark:bg-white/[.03]`} />
+}
+
+function Legend({ entries, lookup, template }: { entries: TimetableEntryView[]; lookup: EntryLookup; template: PeriodTemplate }) {
+  const subjects = new Map<string, string>()
+  entries.forEach(e => subjects.set(lookup.subjectOf(e), lookup.colorOf(e)))
+  const breaks = sortedPeriods(template).filter(p => p.kind === 'break')
+  if (subjects.size === 0 && breaks.length === 0) return null
+  return (
+    <div className="mt-4 flex flex-wrap gap-2 rounded-2xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-4">
+      {[...subjects.entries()].map(([name, color]) => (
+        <div key={name} className="flex items-center gap-2 rounded-full bg-black/[.03] dark:bg-white/[.06] px-3 py-1.5">
+          <span className="h-3 w-3 rounded-full" style={{ background: color }} />
+          <span className="text-[12px] font-medium text-black/70 dark:text-white/70">{name}</span>
+        </div>
+      ))}
+      {breaks.map(b => {
+        const meta = breakMeta(b.label)
+        return (
+          <div key={b.idx} className={`flex items-center gap-2 rounded-full px-3 py-1.5 ${meta.bg}`}>
+            <span className={meta.text}>{meta.icon}</span>
+            <span className={`text-[12px] font-medium ${meta.text}`}>{b.label} · {b.start} – {b.end}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+const Loading = () => <div className="py-10 text-center text-[14px] text-black/40 dark:text-white/40">Loading timetable…</div>
+
+/* ── module ─────────────────────────────────────────────── */
+
+export function TimetableMod() {
+  const { db, user } = useStore()
+  const { term, setTerm } = useActiveTerm()
+  const role = user?.role
+  const isTeacher = role === 'teacher'
+  const isOwn = role === 'student' || role === 'parent'
+
+  return (
+    <div>
+      <PageHead title={isTeacher ? 'My Timetable' : 'Timetable'} sub={isTeacher ? 'Your periods across classes · substitutions this week highlighted' : isOwn ? 'Weekly class schedule · breaks highlighted' : 'Published and draft timetables per class'}>
+        <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
+      </PageHead>
+      {!term ? (
+        <Empty text="No term set up yet — timetables belong to a term." />
+      ) : isOwn ? (
+        <OwnTimetable term={term} />
+      ) : isTeacher ? (
+        <TeacherView term={term} teacherId={user!.id} />
+      ) : (
+        <ClassPicker term={term} />
+      )}
+    </div>
+  )
+}
+
+/** Student / parent: `/timetable/me` for the viewed student; only published grids are shown. */
+function OwnTimetable({ term }: { term: string }) {
+  const { user } = useStore()
+  const students = useViewedStudents()
+  const [pickedWard, setPickedWard] = useState('')
+  const student = students.find(s => s.id === pickedWard) ?? students[0]
+  const isParent = user?.role === 'parent'
+  const { data, loading, error } = useMyTimetable(term, { enabled: !!student, studentId: isParent ? student?.id : undefined })
+  const { classOf, templateFor } = useAcademic()
+  const lookup = useEntryLookup()
+  const now = useClock()
+
+  if (!student) return <Empty text={isParent ? 'No student is linked to this parent account yet.' : 'You are not enrolled in a class yet.'} />
+  const cls = classOf(student.id)
+  const template = data?.template ?? templateFor(cls?.id)
+  const entries = data?.entries ?? []
+  const byKey = new Map(entries.map(e => [cellKey(e.dayOfWeek, e.periodIdx), e]))
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        {cls && <Pill tone="indigo">Class {cls.label}</Pill>}
+        {isParent && students.length > 1 && (
+          <select value={student.id} onChange={e => setPickedWard(e.target.value)} className={inputCls + ' w-auto min-w-[180px] py-2 text-[13.5px]'} aria-label="Ward">
+            {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        )}
+        {isParent && students.length === 1 && <span className="text-[13px] text-black/50 dark:text-white/50">{student.name}</span>}
+        {data?.published && data.publishedAt && <span className="text-[12px] text-black/40 dark:text-white/40">Published {new Date(data.publishedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>}
+      </div>
+      {loading ? <Loading />
+        : error ? <Empty text={error} />
+        : !data?.published || entries.length === 0 ? <Empty text="Timetable not published yet." />
+        : !template ? <Empty text="No period template is defined for this class yet." />
+        : (
+          <>
+            <TimetableGrid template={template} days={daysFor(entries)} now={now} renderCell={(d, p) => {
+              const e = byKey.get(cellKey(d, p.idx))
+              if (!e) return <FreeCell />
+              return <PeriodCard title={lookup.subjectOf(e)} color={lookup.colorOf(e)} teacher={lookup.teacherOf(e)} room={lookup.roomOf(e)}
+                highlight={isRunning(p, d, now)} />
+            }} />
+            <Legend entries={entries} lookup={lookup} template={template} />
+          </>
+        )}
+    </div>
+  )
+}
+
+/** Teacher: `/timetable/teacher/:id` — cells show class + subject + room; this week's substitutions are called out. */
+function TeacherView({ term, teacherId }: { term: string; teacherId: string }) {
+  const { data, loading, error } = useFetch<TeacherTimetable>(`/timetable/teacher/${encodeURIComponent(teacherId)}?termId=${encodeURIComponent(term)}`)
+  const { templateFor } = useAcademic()
+  const lookup = useEntryLookup()
+  const now = useClock()
+  const entries = useMemo(() => data?.entries ?? [], [data])
+  const template = templateFor(entries[0]?.classId)
+  const byKey = new Map(entries.map(e => [cellKey(e.dayOfWeek, e.periodIdx), e]))
+
+  // substitutions in the current Mon–Sat week
+  const monday = new Date(now); monday.setDate(now.getDate() - ((now.getDay() + 6) % 7)); monday.setHours(0, 0, 0, 0)
+  const saturday = new Date(monday); saturday.setDate(monday.getDate() + 5)
+  const weekSubs = (data?.substitutions ?? []).filter(s => s.date >= isoDate(monday) && s.date <= isoDate(saturday))
+  const entryById = new Map(entries.map(e => [e.id, e]))
+  // my own periods someone else covers → "Covered by"; other teachers' periods I cover → drawn into the free slot
+  const coveredByEntry = new Map(weekSubs.filter(s => entryById.has(s.timetableEntryId)).map(s => [s.timetableEntryId, s]))
+  const covering = weekSubs.filter(s => !entryById.has(s.timetableEntryId) && s.entry)
+  const coveringByKey = new Map(covering.map(s => [cellKey(s.entry!.dayOfWeek, s.entry!.periodIdx), s]))
+  const fmtDay = (d: string) => new Date(d).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })
+  const gridDays = daysFor([...entries, ...covering.map(s => s.entry!)])
+
+  if (loading) return <Loading />
+  if (error) return <Empty text={error} />
+  if (entries.length === 0 && covering.length === 0) return <Empty text="No periods assigned to you in this term yet." />
+  if (!template) return <Empty text="No period template is defined yet — ask the office to set one up under Periods." />
+
+  return (
+    <div>
+      <TimetableGrid template={template} days={gridDays} now={now} renderCell={(d, p) => {
+        const e = byKey.get(cellKey(d, p.idx))
+        if (!e) {
+          const cover = coveringByKey.get(cellKey(d, p.idx))
+          if (!cover?.entry) return <FreeCell />
+          return <PeriodCard title={lookup.classLabelOf(cover.entry) ?? lookup.subjectOf(cover.entry)} color={lookup.colorOf(cover.entry)} room={lookup.roomOf(cover.entry)}
+            teacher={lookup.subjectOf(cover.entry)}
+            note={`You cover · ${fmtDay(cover.date)}`} highlight={isRunning(p, d, now)}
+            badge={<Pill tone="amber">Substitution</Pill>} className="border-dashed bg-amber-50/60 dark:bg-amber-500/5" />
+        }
+        const sub = coveredByEntry.get(e.id)
+        // teachers scan by class first, so the class label leads and the subject sits underneath
+        return <PeriodCard title={lookup.classLabelOf(e) ?? lookup.subjectOf(e)} color={lookup.colorOf(e)} room={lookup.roomOf(e)}
+          teacher={lookup.subjectOf(e)}
+          note={sub ? `Covered by ${lookup.userName(sub.substituteTeacherId) ?? 'a colleague'} · ${fmtDay(sub.date)}` : undefined}
+          highlight={isRunning(p, d, now)}
+          className={sub ? 'bg-amber-50/60 dark:bg-amber-500/5' : ''} />
+      }} />
+      {weekSubs.length > 0 && (
+        <Card className="mt-4 p-5">
+          <p className="mb-3 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Substitutions this week</p>
+          <div className="space-y-2">
+            {weekSubs.map(s => {
+              const own = entryById.get(s.timetableEntryId)
+              const en = own ?? s.entry
+              return (
+                <div key={s.id} className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-400/10 px-4 py-2.5 text-[13.5px]">
+                  <Users size={14} className="text-amber-700 dark:text-amber-300" />
+                  <span className="font-semibold">{fmtDay(s.date)}</span>
+                  <span className="text-black/60 dark:text-white/60">
+                    {own ? `${lookup.userName(s.substituteTeacherId) ?? 'A colleague'} covers your` : 'You cover'}
+                    {en ? ` ${lookup.classLabelOf(en) ?? ''} ${lookup.subjectOf(en)}`.replace(/\s+/g, ' ') : ' period'}
+                    {s.reason ? ` · ${s.reason}` : ''}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
+      <Legend entries={entries} lookup={lookup} template={template} />
+    </div>
+  )
+}
+
+/** Admin / staff: pick a class, see its grid (draft or published). */
+function ClassPicker({ term }: { term: string }) {
+  const { classes, currentYear, templateFor } = useAcademic()
+  const list = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })), [classes, currentYear])
+  const [picked, setPicked] = useState('')
+  const classId = list.some(c => c.id === picked) ? picked : (list[0]?.id ?? '')
+  const { data, loading, error } = useFetch<ClassTimetable>(classId ? `/timetable?classId=${encodeURIComponent(classId)}&termId=${encodeURIComponent(term)}` : null)
+  const lookup = useEntryLookup()
+  const now = useClock()
+  const entries = data?.entries ?? []
+  const template = data?.template ?? templateFor(classId)
+  const byKey = new Map(entries.map(e => [cellKey(e.dayOfWeek, e.periodIdx), e]))
+
+  if (list.length === 0) return <Empty text="No classes in the current year yet." />
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <select value={classId} onChange={e => setPicked(e.target.value)} className={inputCls + ' w-auto min-w-[160px] py-2 text-[13.5px]'} aria-label="Class">
+          {list.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
+        </select>
+        {data && (data.published ? <Pill tone="green">Published</Pill> : <Pill tone="amber">Draft</Pill>)}
+        <span className="flex items-center gap-1 text-[12px] text-black/40 dark:text-white/40"><Clock size={12} /> {entries.length} period{entries.length === 1 ? '' : 's'} scheduled</span>
+      </div>
+      {loading ? <Loading />
+        : error ? <Empty text={error} />
+        : entries.length === 0 ? <Empty text="Nothing scheduled for this class yet — build it under Timetable Builder." />
+        : !template ? <Empty text="No period template is defined for this class yet." />
+        : (
+          <>
+            <TimetableGrid template={template} days={daysFor(entries)} now={now} renderCell={(d, p) => {
+              const e = byKey.get(cellKey(d, p.idx))
+              if (!e) return <FreeCell />
+              return <PeriodCard title={lookup.subjectOf(e)} color={lookup.colorOf(e)} teacher={lookup.teacherOf(e)} room={lookup.roomOf(e)}
+                highlight={isRunning(p, d, now)} />
+            }} />
+            <Legend entries={entries} lookup={lookup} template={template} />
+          </>
+        )}
     </div>
   )
 }

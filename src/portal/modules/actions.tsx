@@ -1,60 +1,110 @@
-import { useState } from 'react'
-import { Award, CheckCircle2, CloudUpload, Download, FileSignature, FileText, Plus, Receipt, Wallet } from 'lucide-react'
-import { useStore } from '@/lib/store'
-import { fmtINR } from '@/lib/data'
+import { useMemo, useState } from 'react'
+import { Award, CloudUpload, Download, FileSignature, FileText, Plus } from 'lucide-react'
+import { useAcademic, useStore } from '@/lib/store'
+import { api, downloadFile, errorMessage, uploadFile } from '@/lib/api'
+import type { HomeworkRec } from '@/lib/data'
+import { fmtDate, homeworkStatus, hwTone, isOpen, useHomework } from '@/lib/hooks/useAcademics'
 import { Card, Empty, Field, Modal, PageHead, Pill, TermTabs, VerifyButton, inputCls, statusTone } from '../ui'
-import { firstName, useActiveTerm, useViewedStudents } from './viewer'
+import { WardPicker } from './academics'
+import { MyPayslipsMod, StudentInvoiceList } from './finance'
+import { firstName, useActiveTerm, useViewedStudents, useWard } from './viewer'
 import { toast } from 'sonner'
 
 /* ── Homework ──────────────────────────────────────────── */
 
 export function HomeworkMod({ uploader = false }: { uploader?: boolean }) {
-  const { db, update } = useStore()
+  const { db, user } = useStore()
+  const { classOf, classSubjects, subjectById } = useAcademic()
   const { term, setTerm } = useActiveTerm()
-  const ward = useViewedStudents()[0]
+  const { students, ward, wardId, setWardId } = useWard()
+  const cls = ward ? classOf(ward.id) : undefined
+  const { items, loading, error, reload } = useHomework(cls?.id, term)
   const [subject, setSubject] = useState('All')
-  const items = db.homework.filter(h => h.term === term && (subject === 'All' || h.subject === subject))
-  const subjects = ['All', ...new Set(db.homework.filter(h => h.term === term).map(h => h.subject))]
+  const all = useMemo(() => (items ?? []).map(h => {
+    const cs = classSubjects.find(c => c.id === h.classSubjectId)
+    return { h, subject: h.subjectName ?? subjectById.get(cs?.subjectId ?? '')?.name ?? 'Subject', status: homeworkStatus(h, wardId), sub: h.submissions?.find(s => s.studentId === wardId) }
+  }).sort((x, y) => y.h.dueDate.localeCompare(x.h.dueDate)), [items, classSubjects, subjectById, wardId])
+  const subjects = ['All', ...new Set(all.map(x => x.subject))]
+  const list = all.filter(x => subject === 'All' || x.subject === subject)
+  const canUpload = uploader && user?.role === 'student'
 
-  const upload = (id: string) => {
-    update(d => { const h = d.homework.find(x => x.id === id)!; h.status = 'Submitted'; return d })
-    toast.success('Assignment uploaded successfully')
+  const [busy, setBusy] = useState<string | null>(null)
+  const submit = async (h: HomeworkRec, picked: FileList | null) => {
+    const files = Array.from(picked ?? [])
+    if (!files.length) return
+    setBusy(h.id)
+    try {
+      const ids: string[] = []
+      for (const f of files) ids.push((await uploadFile(f)).id)
+      await api.post(`/homework/${h.id}/submit`, { files: ids })
+      reload()
+      toast.success(`Submitted ${files.length} file${files.length === 1 ? '' : 's'}`)
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
   }
+  const download = (id: string) => downloadFile(id).catch(e => toast.error(errorMessage(e)))
 
   return (
     <div>
-      <PageHead title="Homework & Assignments" sub={uploader ? 'Upload your work before the deadline' : ward ? `Track ${firstName(ward.name)}’s submission status` : 'Track submission status'}>
-        <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
+      <PageHead title="Homework & Assignments" sub={canUpload ? 'Upload your work before the deadline' : ward && user?.role === 'parent' ? `Track ${firstName(ward.name)}’s submission status` : 'Track submission status'}>
+        <div className="flex flex-wrap items-center gap-2">
+          <WardPicker students={students} value={wardId} onChange={setWardId} />
+          <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
+        </div>
       </PageHead>
-      <div className="mb-5 flex flex-wrap gap-2">
-        {subjects.map(s => (
-          <button key={s} onClick={() => setSubject(s)}
-            className={`rounded-full px-4 py-2 text-[13px] font-semibold ${subject === s ? 'bg-black text-white' : 'bg-white dark:bg-[#14141f] text-black/60 dark:text-white/60 ring-1 ring-black/10 dark:ring-white/15'}`}>{s}</button>
-        ))}
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        {items.map(h => (
-          <Card key={h.id} className="card-lift">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <Pill tone="indigo">{h.subject}</Pill>
-                <p className="font-display mt-2.5 text-[16.5px] font-medium leading-snug">{h.title}</p>
-              </div>
-              <Pill tone={statusTone(h.status)}>{h.status}{h.grade ? ` · ${h.grade}` : ''}</Pill>
-            </div>
-            <p className="mt-2 text-[13.5px] leading-relaxed text-black/55 dark:text-white/55">{h.description}</p>
-            <div className="mt-4 flex items-center justify-between border-t border-black/[.06] dark:border-white/[.08] pt-4">
-              <span className="text-[12.5px] font-medium text-black/45 dark:text-white/45">Due {new Date(h.due).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
-              {uploader && (h.status === 'Pending' || h.status === 'Late') && (
-                <button onClick={() => upload(h.id)} className="flex items-center gap-1.5 rounded-full bg-indigo-600 px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-indigo-700">
-                  <CloudUpload size={14} /> Upload work
-                </button>
-              )}
-            </div>
-          </Card>
-        ))}
-        {items.length === 0 && <div className="md:col-span-2"><Empty text="No assignments here." /></div>}
-      </div>
+      {subjects.length > 1 && (
+        <div className="mb-5 flex flex-wrap gap-2">
+          {subjects.map(s => (
+            <button key={s} onClick={() => setSubject(s)}
+              className={`rounded-full px-4 py-2 text-[13px] font-semibold ${subject === s ? 'bg-black text-white' : 'bg-white dark:bg-[#14141f] text-black/60 dark:text-white/60 ring-1 ring-black/10 dark:ring-white/15'}`}>{s}</button>
+          ))}
+        </div>
+      )}
+      {!ward ? <Empty text="No student is linked to your account yet." />
+        : !cls ? <Empty text={`${firstName(ward.name)} isn't enrolled in a class yet.`} />
+        : loading ? <div className="py-10 text-center text-[14px] text-black/40 dark:text-white/40">Loading homework…</div>
+        : error ? <Empty text={error} />
+        : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {list.map(({ h, subject: subj, status, sub }) => (
+              <Card key={h.id} className="card-lift">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <Pill tone="indigo">{subj}</Pill>
+                    <p className="font-display mt-2.5 text-[16.5px] font-medium leading-snug">{h.title}</p>
+                  </div>
+                  <Pill tone={hwTone(status)}>{status}{sub?.grade ? ` · ${sub.grade}` : ''}</Pill>
+                </div>
+                {h.description && <p className="mt-2 text-[13.5px] leading-relaxed text-black/55 dark:text-white/55">{h.description}</p>}
+                {h.attachments.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {h.attachments.map((id, i) => (
+                      <button key={id} onClick={() => download(id)} className="flex items-center gap-1.5 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3 py-1.5 text-[12px] font-semibold hover:bg-black/10 dark:hover:bg-white/15"><Download size={12} /> Attachment {i + 1}</button>
+                    ))}
+                  </div>
+                )}
+                {sub && (
+                  <div className="mt-3 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3 text-[12.5px]">
+                    <p className="flex flex-wrap items-center gap-2 text-black/60 dark:text-white/60">
+                      <span>Submitted {fmtDate(sub.submittedAt, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                      {sub.files.map((id, i) => <button key={id} onClick={() => download(id)} className="flex items-center gap-1 font-semibold text-indigo-600 hover:underline"><FileText size={12} /> File {i + 1}</button>)}
+                    </p>
+                    {sub.feedback && <p className="mt-1.5 text-black/70 dark:text-white/70"><span className="font-semibold">Feedback:</span> {sub.feedback}</p>}
+                  </div>
+                )}
+                <div className="mt-4 flex items-center justify-between border-t border-black/[.06] dark:border-white/[.08] pt-4">
+                  <span className="text-[12.5px] font-medium text-black/45 dark:text-white/45">Due {fmtDate(h.dueDate)}</span>
+                  {canUpload && (isOpen(status) || status === 'Returned') && (
+                    <label className={`flex cursor-pointer items-center gap-1.5 rounded-full bg-indigo-600 px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-indigo-700 ${busy === h.id ? 'pointer-events-none opacity-60' : ''}`}>
+                      <CloudUpload size={14} /> {busy === h.id ? 'Uploading…' : status === 'Returned' ? 'Resubmit' : 'Upload work'}
+                      <input type="file" multiple className="hidden" accept=".pdf,.png,.jpg,.jpeg,.docx,.xlsx,.txt" onChange={e => { submit(h, e.target.files); e.target.value = '' }} />
+                    </label>
+                  )}
+                </div>
+              </Card>
+            ))}
+            {list.length === 0 && <div className="md:col-span-2"><Empty text="No assignments here." /></div>}
+          </div>
+        )}
     </div>
   )
 }
@@ -305,154 +355,37 @@ export function AchievementsMod() {
 
 /* ── Payments & receipts ───────────────────────────────── */
 
+/** Fee mode: the viewer's own invoices/payments from the API. Salary mode: renders `MyPayslipsMod` (own payslips). */
 export function PaymentsMod({ salary = false }: { salary?: boolean }) {
-  const { db, update } = useStore()
+  const { db } = useStore()
   const { term, setTerm } = useActiveTerm()
-  const wards = useViewedStudents()
-  const wardIds = wards.map(w => w.id)
-  // fee receipts are scoped to the viewer's own student(s) when the viewer is a student/parent
-  const rows = db.receipts.filter(r => r.kind === (salary ? 'salary' : 'fee') && r.term === term
-    && (salary || wardIds.length === 0 || !r.studentId || wardIds.includes(r.studentId)))
-  const total = rows.reduce((a, r) => a + r.amount, 0)
+  const { ward, students, wardId, setWardId } = useWard()
 
-  const download = (label: string) => {
-    const blob = new Blob([`EduNova School · Official Receipt\n\n${label}\nGenerated ${new Date().toLocaleString()}\n\nThis is a demo receipt.`], { type: 'text/plain' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob); a.download = label.replace(/\W+/g, '_') + '.txt'; a.click()
-    toast.success('Receipt downloaded')
-  }
-  const pay = (id: string) => {
-    update(d => { const r = d.receipts.find(x => x.id === id)!; r.status = 'Paid'; r.date = new Date().toISOString().slice(0, 10); return d })
-    toast.success('Payment successful — receipt issued')
-  }
+  if (salary) return <MyPayslipsMod />
 
   return (
     <div>
-      <PageHead title={salary ? 'Salary Receipts' : 'Payments & Receipts'} sub={salary ? 'Monthly payslips with leave-based deductions' : `Fees${wards[0] ? ` for ${wards[0].name}` : ''} · download anytime`}>
-        <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
+      <PageHead title="Payments & Receipts" sub={ward ? `Fees for ${ward.name} · download anytime` : 'Fees · download anytime'}>
+        <div className="flex flex-wrap items-center gap-2">
+          <WardPicker students={students} value={wardId} onChange={setWardId} />
+          <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
+        </div>
       </PageHead>
-      <div className="mb-5 grid gap-4 sm:grid-cols-3">
-        <Card className="flex items-center gap-4">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50"><Wallet size={20} className="text-indigo-600" /></span>
-          <div><p className="text-[12px] uppercase tracking-wider text-black/40 dark:text-white/40">Total this term</p><p className="font-display text-2xl font-medium">{fmtINR(total)}</p></div>
-        </Card>
-        <Card className="flex items-center gap-4">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50"><CheckCircle2 size={20} className="text-emerald-600" /></span>
-          <div><p className="text-[12px] uppercase tracking-wider text-black/40 dark:text-white/40">Paid</p><p className="font-display text-2xl font-medium">{fmtINR(rows.filter(r => r.status === 'Paid').reduce((a, r) => a + r.amount, 0))}</p></div>
-        </Card>
-        <Card className="flex items-center gap-4">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-50"><Receipt size={20} className="text-amber-600" /></span>
-          <div><p className="text-[12px] uppercase tracking-wider text-black/40 dark:text-white/40">Due</p><p className="font-display text-2xl font-medium">{fmtINR(rows.filter(r => r.status === 'Due').reduce((a, r) => a + r.amount, 0))}</p></div>
-        </Card>
-      </div>
-      <Card className="p-0">
-        {rows.map(r => (
-          <div key={r.id} className="flex flex-wrap items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-4 last:border-0">
-            <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${r.status === 'Paid' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-              <Receipt size={18} />
-            </span>
-            <div className="min-w-48 flex-1">
-              <p className="text-[14.5px] font-semibold">{r.label}</p>
-              <p className="text-[12.5px] text-black/45 dark:text-white/45">{new Date(r.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
-            </div>
-            <p className="text-[15px] font-bold">{fmtINR(r.amount)}</p>
-            <Pill tone={statusTone(r.status)}>{r.status}</Pill>
-            <div className="flex gap-2">
-              {r.status === 'Due' && <button onClick={() => pay(r.id)} className="rounded-full bg-indigo-600 px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-indigo-700">Pay now</button>}
-              {r.status === 'Paid' && (
-                <button onClick={() => download(r.label)} className="flex items-center gap-1.5 rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
-                  <Download size={13} /> Receipt
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-        {rows.length === 0 && <div className="p-6"><Empty text="Nothing here for this term." /></div>}
-      </Card>
+      <StudentInvoiceList studentId={ward?.id} termId={term} />
     </div>
   )
 }
 
-/* ── Work upload ledger ────────────────────────────────── */
+/* ── Work upload (alias of Homework) ───────────────────── */
 
 export function WorkUploadMod() {
-  const { db, update, user } = useStore()
-  const [open, setOpen] = useState(false)
-  const [fileName, setFileName] = useState('')
-  const [homeworkId, setHomeworkId] = useState('')
-  const [notes, setNotes] = useState('')
-  const homework = db.homework.filter(h => h.status === 'Pending' || h.status === 'Late')
-  const uploads = db.workUploads.slice().sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt))
-
-  const create = () => {
-    if (!fileName.trim()) return
-    const hw = homework.find(h => h.id === homeworkId)
-    update(d => {
-      d.workUploads.unshift({
-        id: 'wu_' + Date.now(),
-        homeworkId: homeworkId || '',
-        fileName: fileName.trim(),
-        fileSize: (1 + Math.random() * 4).toFixed(1) + ' MB',
-        uploadedBy: user?.name ?? 'Student',
-        uploadedAt: new Date().toISOString(),
-        status: 'Uploaded',
-        notes: notes.trim() || undefined,
-      })
-      if (hw) hw.status = 'Submitted'
-      return d
-    })
-    setOpen(false)
-    setFileName('')
-    setHomeworkId('')
-    setNotes('')
-    toast.success('Work uploaded and logged')
-  }
-
+  const { user } = useStore()
   return (
     <div>
-      <PageHead title="Work Upload" sub="Submitted assignments, projects and files">
-        <button onClick={() => setOpen(true)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
-          <CloudUpload size={15} /> Upload new
-        </button>
-      </PageHead>
-      <div className="grid gap-4 md:grid-cols-2">
-        {uploads.map(u => (
-          <Card key={u.id} className="card-lift">
-            <div className="flex items-start gap-3">
-              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${u.status === 'Verified' ? 'bg-emerald-50 text-emerald-600' : u.status === 'Rejected' ? 'bg-rose-50 text-rose-600' : 'bg-indigo-50 text-indigo-600'}`}>
-                <FileText size={18} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[15px] font-semibold">{u.fileName}</p>
-                <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.fileSize} · {u.uploadedBy} · {new Date(u.uploadedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
-                {u.notes && <p className="mt-1.5 text-[12.5px] text-black/55 dark:text-white/55">{u.notes}</p>}
-              </div>
-              <Pill tone={u.status === 'Verified' ? 'green' : u.status === 'Rejected' ? 'rose' : 'amber'}>{u.status}</Pill>
-            </div>
-          </Card>
-        ))}
-        {uploads.length === 0 && <div className="md:col-span-2"><Empty text="No submissions yet. Upload the first file." /></div>}
+      <div className="mb-5 rounded-2xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/60 dark:bg-indigo-500/10 px-4 py-3 text-[13.5px] text-indigo-800 dark:text-indigo-200">
+        Work uploads now live with homework — every assignment below takes files directly, and teachers grade them in place.
       </div>
-
-      <Modal open={open} onClose={() => setOpen(false)} title="Upload work">
-        <div className="space-y-4">
-          <label className="flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-black/15 dark:border-white/15 py-8 text-black/40 dark:text-white/40 hover:border-indigo-300 hover:text-indigo-500">
-            <CloudUpload size={32} />
-            <span className="mt-2 text-[13px] font-medium">{fileName ? fileName : 'Tap to select file (demo)'}</span>
-            <input type="file" className="hidden" onChange={e => setFileName(e.target.files?.[0]?.name ?? '')} />
-          </label>
-          <Field label="Link to assignment (optional)">
-            <select value={homeworkId} onChange={e => setHomeworkId(e.target.value)} className={inputCls}>
-              <option value="">No specific assignment</option>
-              {homework.map(h => <option key={h.id} value={h.id}>{h.subject} · {h.title}</option>)}
-            </select>
-          </Field>
-          <Field label="Notes">
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Notes for the evaluator…" className={inputCls} />
-          </Field>
-          <button onClick={create} disabled={!fileName.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Upload work</button>
-        </div>
-      </Modal>
+      <HomeworkMod uploader={user?.role === 'student'} />
     </div>
   )
 }
