@@ -26,6 +26,7 @@ export const serializeClass = (c: ClassWithRefs) => ({
   label: `${c.grade.label}-${c.section}`,
   classTeacherId: c.classTeacherId ?? undefined,
   capacity: c.capacity ?? undefined,
+  periodTemplateId: c.periodTemplateId ?? undefined,
 })
 
 export function list(ctx: Ctx) {
@@ -50,12 +51,13 @@ export async function assertTeacher(ctx: Ctx, teacherId: string | null | undefin
   if (t.role !== 'teacher') throw new HttpError(400, 'teacherId must reference a user with role teacher')
 }
 
-async function assertRefs(ctx: Ctx, input: { academicYearId?: string; boardId?: string; gradeId?: string; streamId?: string | null }) {
+async function assertRefs(ctx: Ctx, input: { academicYearId?: string; boardId?: string; gradeId?: string; streamId?: string | null; periodTemplateId?: string | null }) {
   const { schoolId } = ctx
   if (input.academicYearId && !(await prisma.academicYear.findFirst({ where: { id: input.academicYearId, schoolId } }))) throw notFound('Academic year')
   if (input.boardId && !(await prisma.board.findFirst({ where: { id: input.boardId, schoolId } }))) throw notFound('Board')
   if (input.gradeId && !(await prisma.grade.findFirst({ where: { id: input.gradeId, schoolId } }))) throw notFound('Grade')
   if (input.streamId && !(await prisma.stream.findFirst({ where: { id: input.streamId, schoolId } }))) throw notFound('Stream')
+  if (input.periodTemplateId && !(await prisma.periodTemplate.findFirst({ where: { id: input.periodTemplateId, schoolId } }))) throw notFound('Period template')
 }
 
 // 409 with a readable message instead of the generic P2002 mapping.
@@ -102,6 +104,7 @@ export async function create(ctx: Ctx, input: z.infer<typeof createClass>) {
       section: input.section,
       classTeacherId: input.classTeacherId ?? null,
       capacity: input.capacity ?? null,
+      periodTemplateId: input.periodTemplateId ?? null,
     },
     include: classInclude,
   })
@@ -132,6 +135,7 @@ export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchCl
       section: input.section,
       classTeacherId: input.classTeacherId,
       capacity: input.capacity,
+      periodTemplateId: input.periodTemplateId,
     },
     include: classInclude,
   })

@@ -9,6 +9,7 @@ export const createClass = z.object({
   section: z.string().min(1),
   classTeacherId: idStr.nullable().optional(),
   capacity: z.number().int().positive().nullable().optional(),
+  periodTemplateId: idStr.nullable().optional(),
 })
 
 export const patchClass = createClass.partial()

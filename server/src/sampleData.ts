@@ -3,7 +3,10 @@ import { prisma } from './prisma'
 import { toDate } from './lib/validate'
 import { syncLegacyUserFields } from './lib/legacySync'
 // The demo school is built from the same seed the frontend was designed around.
-import { seedDB, SUBJECTS } from '../../src/lib/data'
+import { seedDB, SUBJECTS, TIMESLOTS, DAYS } from '../../src/lib/data'
+import type { PeriodDef } from './modules/periodTemplates/service'
+import { loadPhase3 } from './samplePhase3'
+import { loadPhase4, issueSeedCertificates } from './samplePhase4'
 
 const YEAR = { label: '2025-26', start: '2025-06-01', end: '2026-05-31' }
 // Fixed term ids so the JSON blob (timetable / marks keyed by term id) still lines up.
@@ -24,6 +27,24 @@ const CLASS_LABELS = ['X-A', 'X-B', 'IX-A', 'IX-B']
 const CLASS_BOARD = 'CBSE'
 const ROOM_NAMES = ['A-201', 'Lab-2', 'Lab-1', 'B-104', 'CS-Lab', 'Ground']
 
+// Phase 2: the old timetable rotation (`makeTT`) used shift 0 / 2 / 4 for t1 / t2 / t3; each class adds its
+// own index so no two classes hit the same subject (= teacher = room) in the same slot.
+const TERM_SHIFT: Record<string, number> = { t1: 0, t2: 2, t3: 4 }
+const TEMPLATE_NAME = 'Standard day'
+
+// "Standard day" from the legacy TIMESLOTS: 8 class periods + 3 breaks with the old times.
+function standardDayPeriods(): PeriodDef[] {
+  let n = 0
+  return TIMESLOTS.map((slot, i) => {
+    if (slot.kind === 'break') {
+      const [start, end] = slot.duration!.split(' - ')
+      return { idx: i, label: slot.label, start, end, kind: 'break' as const }
+    }
+    const next = TIMESLOTS[i + 1]
+    return { idx: i, label: `P${++n}`, start: slot.time, end: next ? next.time : '17:00', kind: 'class' as const }
+  })
+}
+
 const roomKind = (name: string) => (/lab/i.test(name) ? 'lab' : name === 'Ground' ? 'ground' : 'classroom')
 const splitLabel = (label: string) => {
   const [grade, section] = label.split('-')
@@ -34,7 +55,8 @@ const splitLabel = (label: string) => {
 // enrollments, guardians, class-subjects, JSON blob) inside `schoolId`. Caller guarantees the school is empty.
 export async function loadSampleData(schoolId: string) {
   const db = seedDB()
-  const { users, ...blob } = db
+  // Phase 3 owns attendance / marks / ranks / homework / uploads / directory in real tables — never blob them.
+  const { users, attendance: _at, attendanceRecords: _ar, marks: _mk, ranks: _rk, directory: _dir, homework: _hw, workUploads: _wu, ...blob } = db
 
   // bcrypt is slow — hash outside the transaction.
   const hashes = new Map<string, string>()
@@ -110,8 +132,10 @@ export async function loadSampleData(schoolId: string) {
     }
 
     const classIds = new Map<string, string>()
+    const classTeacher = new Map<string, string | null>()
     for (const [i, label] of CLASS_LABELS.entries()) {
       const teacher = teachers.find(t => t.class === label)
+      classTeacher.set(label, teacher ? userId(teacher.id) : null)
       const { grade, section } = splitLabel(label)
       const c = await tx.class.create({
         data: {
@@ -127,8 +151,10 @@ export async function loadSampleData(schoolId: string) {
       classIds.set(label, c.id)
     }
 
+    const roomIds = new Map<string, string>()
     for (const [i, name] of ROOM_NAMES.entries()) {
-      await tx.room.create({ data: { schoolId, name, kind: roomKind(name), createdAt: at(i) } })
+      const row = await tx.room.create({ data: { schoolId, name, kind: roomKind(name), createdAt: at(i) } })
+      roomIds.set(name, row.id)
     }
 
     for (const s of users.filter(u => u.role === 'student' && u.class)) {
@@ -144,14 +170,52 @@ export async function loadSampleData(schoolId: string) {
     }
 
     let n = 0
+    const classSubjects = new Map<string, { id: string; teacherId: string | null }>()
     for (const label of CLASS_LABELS) {
       for (const s of SUBJECTS) {
         const teacher = teachers.find(t => t.subjects?.includes(s.name))
-        await tx.classSubject.create({
+        const row = await tx.classSubject.create({
           data: { schoolId, classId: classIds.get(label)!, subjectId: s.id, teacherId: teacher ? userId(teacher.id) : null, periodsPerWeek: 5, createdAt: at(n++) },
         })
+        classSubjects.set(`${label}:${s.id}`, { id: row.id, teacherId: row.teacherId })
       }
     }
+
+    // Timetable: default period template + a rotated grid per class × term (Mon–Fri), all published.
+    const periods = standardDayPeriods()
+    await tx.periodTemplate.create({ data: { schoolId, name: TEMPLATE_NAME, isDefault: true, periods } })
+    const classPeriods = periods.filter(p => p.kind === 'class')
+    const taken = new Set<string>() // `${termId}|${day}:${idx}|teacher:<id>` and `|room:<id>` — skip anything that would clash
+    const entries: { schoolId: string; classId: string; termId: string; dayOfWeek: number; periodIdx: number; classSubjectId: string; roomId: string; teacherId: string | null }[] = []
+    for (const t of db.terms) {
+      for (const [ci, label] of CLASS_LABELS.entries()) {
+        let rotation = (TERM_SHIFT[t.id] ?? 0) + ci
+        for (let day = 1; day <= DAYS.length; day++) {
+          for (const p of classPeriods) {
+            const i = rotation++ % SUBJECTS.length
+            const cs = classSubjects.get(`${label}:${SUBJECTS[i].id}`)!
+            const roomId = roomIds.get(ROOM_NAMES[i])!
+            const slot = `${t.id}|${day}:${p.idx}`
+            const teacherKey = cs.teacherId ? `${slot}|teacher:${cs.teacherId}` : null
+            const roomKey = `${slot}|room:${roomId}`
+            if ((teacherKey && taken.has(teacherKey)) || taken.has(roomKey)) continue
+            if (teacherKey) taken.add(teacherKey)
+            taken.add(roomKey)
+            entries.push({ schoolId, classId: classIds.get(label)!, termId: t.id, dayOfWeek: day, periodIdx: p.idx, classSubjectId: cs.id, roomId, teacherId: cs.teacherId })
+          }
+        }
+      }
+    }
+    await tx.timetableEntry.createMany({ data: entries })
+    await tx.timetablePublish.createMany({
+      data: db.terms.flatMap(t => CLASS_LABELS.map(label => ({ schoolId, classId: classIds.get(label)!, termId: t.id }))),
+    })
+
+    // Phase 3: attendance, staff attendance, grade scale, assessments + marks, homework.
+    await loadPhase3(tx, { schoolId, terms: db.terms, termDates: TERM_DATES, subjects: SUBJECTS, classIds, classTeacher, classSubjects, boardIds, users, userId })
+
+    // Phase 4: applications, board registrations, parent verification.
+    await loadPhase4(tx, { schoolId, yearId: year.id, boardIds, classIds, userId })
 
     await tx.schoolData.upsert({
       where: { schoolId },
@@ -160,6 +224,9 @@ export async function loadSampleData(schoolId: string) {
     })
   }, { timeout: 60_000 })
 
-  const all = await prisma.user.findMany({ where: { schoolId }, select: { id: true } })
+  const all = await prisma.user.findMany({ where: { schoolId }, select: { id: true, email: true } })
   await syncLegacyUserFields(all.map(u => u.id))
+
+  const byEmail = new Map(all.map(u => [u.email, u.id]))
+  await issueSeedCertificates(schoolId, seedId => byEmail.get(users.find(u => u.id === seedId)!.email.toLowerCase())!)
 }

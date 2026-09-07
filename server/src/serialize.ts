@@ -30,5 +30,9 @@ export function toClientUser(u: PrismaUser, plainPassword?: string) {
     wards: u.wards ?? undefined,
     contract: (u.contract as any) ?? undefined,
     resignation: (u.resignation as any) ?? undefined,
+    photoFileId: u.photoFileId ?? undefined,
+    emergencyContact: u.emergencyContact ?? undefined,
+    address: u.address ?? undefined,
+    lastLoginAt: u.lastLoginAt?.toISOString(),
   }
 }

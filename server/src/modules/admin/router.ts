@@ -7,6 +7,7 @@ import { requireRole, ctxOf } from '../../lib/rbac'
 import { validate } from '../../lib/validate'
 import { audit } from '../../lib/audit'
 import { loadSampleData } from '../../sampleData'
+import { purgeSchoolFiles } from '../files/service'
 
 export const adminRouter = Router()
 adminRouter.use(requireAuth)
@@ -30,6 +31,22 @@ adminRouter.post('/reset', requireRole('superadmin'), wrap(async (req, res) => {
   validate(resetBody, req.body)
   const { schoolId } = ctx
   await prisma.$transaction([
+    // Phase 4 tables (password resets cascade from users).
+    prisma.certificate.deleteMany({ where: { schoolId } }),
+    prisma.application.deleteMany({ where: { schoolId } }),
+    prisma.boardRegistration.deleteMany({ where: { schoolId } }),
+    prisma.parentVerification.deleteMany({ where: { schoolId } }),
+    // Phase 3 tables (records / marks / submissions cascade from their parents).
+    prisma.homework.deleteMany({ where: { schoolId } }),
+    prisma.assessment.deleteMany({ where: { schoolId } }),
+    prisma.gradeScale.deleteMany({ where: { schoolId } }),
+    prisma.attendanceSession.deleteMany({ where: { schoolId } }),
+    prisma.staffAttendance.deleteMany({ where: { schoolId } }),
+    prisma.file.deleteMany({ where: { schoolId } }),
+    prisma.substitution.deleteMany({ where: { schoolId } }),
+    prisma.timetableEntry.deleteMany({ where: { schoolId } }),
+    prisma.timetablePublish.deleteMany({ where: { schoolId } }),
+    prisma.periodTemplate.deleteMany({ where: { schoolId } }),
     prisma.user.deleteMany({ where: { schoolId, id: { not: ctx.actorId } } }),
     prisma.academicYear.deleteMany({ where: { schoolId } }),
     prisma.curriculumSubject.deleteMany({ where: { schoolId } }),
@@ -44,6 +61,7 @@ adminRouter.post('/reset', requireRole('superadmin'), wrap(async (req, res) => {
     prisma.auditLog.deleteMany({ where: { schoolId } }),
     prisma.schoolData.deleteMany({ where: { schoolId } }),
   ])
+  await purgeSchoolFiles(schoolId)
   await audit(schoolId, ctx.actorId, 'reset', 'school', schoolId)
   res.json({ ok: true })
 }))
@@ -53,8 +71,10 @@ adminRouter.get('/audit', requireRole('admin', 'superadmin'), wrap(async (req, r
   const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 500)
   const before = req.query.before ? new Date(String(req.query.before)) : undefined
   if (before && Number.isNaN(before.getTime())) throw new HttpError(400, 'before must be an ISO date')
+  const entity = req.query.entity ? String(req.query.entity) : undefined
+  const actorId = req.query.actorId ? String(req.query.actorId) : undefined
   const items = await prisma.auditLog.findMany({
-    where: { schoolId: ctx.schoolId, ...(before ? { at: { lt: before } } : {}) },
+    where: { schoolId: ctx.schoolId, entity, actorId, ...(before ? { at: { lt: before } } : {}) },
     orderBy: { at: 'desc' },
     take: limit,
   })

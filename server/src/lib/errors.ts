@@ -2,8 +2,10 @@ import type { Request, Response, NextFunction, RequestHandler } from 'express'
 import { ZodError } from 'zod'
 import { Prisma } from '@prisma/client'
 
+// `extra` is spread into the JSON body next to `error` / `details` — used for structured payloads
+// such as the timetable's `{ error, conflicts: [...] }` 409.
 export class HttpError extends Error {
-  constructor(public status: number, message: string, public details?: unknown) {
+  constructor(public status: number, message: string, public details?: unknown, public extra?: Record<string, unknown>) {
     super(message)
   }
 }
@@ -17,7 +19,7 @@ export function wrap(fn: (req: Request, res: Response, next: NextFunction) => Pr
 
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof HttpError) {
-    return res.status(err.status).json({ error: err.message, details: err.details })
+    return res.status(err.status).json({ error: err.message, details: err.details, ...err.extra })
   }
   if (err instanceof ZodError) {
     return res.status(400).json({ error: 'Validation failed', details: err.issues })

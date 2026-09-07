@@ -26,17 +26,19 @@ import * as classSubjects from './classSubjects/service'
 import * as rooms from './rooms/service'
 import * as enrollments from './enrollments/service'
 import * as guardians from './guardians/service'
+import * as periodTemplates from './periodTemplates/service'
 
 // Everything under /api/academic. Reads: any authenticated role; writes gated per router.
 export const academicRouter = Router()
 academicRouter.use(requireAuth)
 
-// Returns the full AcademicState for the school (see contract + phase-1b).
+// Returns the full AcademicState for the school (see contract + phase-1b + phase-2).
 academicRouter.get('/bootstrap', wrap(async (req, res) => {
   const ctx = ctxOf(req as AuthedRequest)
-  const [y, t, b, gr, st, cu, c, s, cs, r, e, g] = await Promise.all([
+  const [y, t, b, gr, st, cu, c, s, cs, r, e, g, pt] = await Promise.all([
     years.list(ctx), terms.list(ctx), boards.list(ctx), grades.list(ctx), streams.list(ctx), curriculum.list(ctx),
     classes.list(ctx), subjects.list(ctx), classSubjects.list(ctx), rooms.list(ctx), enrollments.list(ctx), guardians.list(ctx),
+    periodTemplates.list(ctx),
   ])
   res.json({
     years: y.map(years.serializeYear),
@@ -51,6 +53,7 @@ academicRouter.get('/bootstrap', wrap(async (req, res) => {
     rooms: r.map(rooms.serializeRoom),
     enrollments: e.map(enrollments.serializeEnrollment),
     guardians: g.map(guardians.serializeGuardian),
+    periodTemplates: pt.map(periodTemplates.serializePeriodTemplate),
   })
 }))
 

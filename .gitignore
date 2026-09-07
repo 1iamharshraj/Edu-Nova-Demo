@@ -26,3 +26,4 @@ server/generated
 *.njsproj
 *.sln
 *.sw?
+server/uploads

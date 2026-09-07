@@ -1,16 +1,17 @@
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../prisma'
 import { requireAuth, type AuthedRequest } from '../auth'
 import { toClientUser } from '../serialize'
 import { canManage } from '../access'
 import { makeEmail, rolePassword, uid, idPrefixFor, type Role } from '../userDefaults'
 import { HttpError, notFound, wrap } from '../lib/errors'
-import { ctxOf } from '../lib/rbac'
+import { ctxOf, requireRole } from '../lib/rbac'
 import { validate } from '../lib/validate'
 import { audit } from '../lib/audit'
-import { syncLegacyUserFields } from '../lib/legacySync'
+import { syncLegacyUserFields, usersTouchingClasses } from '../lib/legacySync'
 
 export const usersRouter = Router()
 usersRouter.use(requireAuth)
@@ -28,7 +29,20 @@ const extras = z.object({
 })
 const createBody = extras.extend({ role: z.enum(ROLES), name: z.string().min(1) })
 
-const editable = ['name', 'title', 'avatarHue', 'verified', 'mustChangePassword', 'class', 'section', 'roll', 'subjects', 'department', 'designation', 'reportsTo', 'joinDate', 'phone', 'parentEmail', 'board', 'dob', 'salary', 'wards', 'contract', 'resignation'] as const
+const editable = ['name', 'title', 'avatarHue', 'verified', 'mustChangePassword', 'class', 'section', 'roll', 'subjects', 'department', 'designation', 'reportsTo', 'joinDate', 'phone', 'parentEmail', 'board', 'dob', 'salary', 'wards', 'contract', 'resignation', 'photoFileId', 'emergencyContact', 'address'] as const
+
+// Self-service profile edits (PATCH /me). Students cannot change their name.
+const selfBody = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  phone: z.string().trim().max(40).nullable().optional(),
+  address: z.string().trim().max(500).nullable().optional(),
+  emergencyContact: z.string().trim().max(200).nullable().optional(),
+  photoFileId: z.string().min(1).nullable().optional(),
+  dob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  avatarHue: z.number().int().min(0).max(360).optional(),
+})
+
+const roleBody = z.object({ role: z.enum(['admin', 'staff', 'teacher']) })
 
 function pickEditable(body: Record<string, unknown>) {
   const data: Record<string, unknown> = {}
@@ -116,20 +130,69 @@ usersRouter.post('/', wrap(async (req, res) => {
   res.status(201).json({ user: toClientUser(user, password), password })
 }))
 
+// PATCH /me — self-service profile fields only (declared before /:id so "me" is not treated as an id).
+usersRouter.patch('/me', wrap(async (req, res) => {
+  const ctx = ctxOf(req as AuthedRequest)
+  const body = validate(selfBody, req.body)
+  const before = await prisma.user.findUniqueOrThrow({ where: { id: ctx.actorId } })
+  if (body.name !== undefined && before.role === 'student') throw new HttpError(403, 'Students cannot change their name')
+  if (body.photoFileId) {
+    const f = await prisma.file.findFirst({ where: { id: body.photoFileId, schoolId: ctx.schoolId } })
+    if (!f) throw notFound('Photo file')
+    if (!f.mime.startsWith('image/')) throw new HttpError(400, 'photoFileId must reference an image')
+  }
+  const user = await prisma.user.update({ where: { id: ctx.actorId }, data: body })
+  if (body.name !== undefined) await syncLegacyUserFields([user.id])
+  const fresh = await prisma.user.findUniqueOrThrow({ where: { id: user.id } })
+  await audit(ctx.schoolId, ctx.actorId, 'update', 'user', user.id, toClientUser(before), toClientUser(fresh))
+  res.json({ user: toClientUser(fresh) })
+}))
+
+// PATCH /:id/role — superadmin only, within admin / staff / teacher.
+usersRouter.patch('/:id/role', requireRole('superadmin'), wrap(async (req, res) => {
+  const ctx = ctxOf(req as AuthedRequest)
+  const body = validate(roleBody, req.body)
+  const target = await prisma.user.findFirst({ where: { id: req.params.id, schoolId: ctx.schoolId } })
+  if (!target) throw notFound('User')
+  if (target.id === ctx.actorId) throw new HttpError(403, 'You cannot change your own role')
+  if (!['admin', 'staff', 'teacher'].includes(target.role)) throw new HttpError(400, 'Only admin, staff and teacher accounts can change role', { role: target.role })
+  if (target.role === body.role) return res.json({ user: toClientUser(target) })
+  const affected: string[] = [target.id]
+  const user = await prisma.$transaction(async tx => {
+    if (target.role === 'teacher') {
+      // Leaving teaching: drop class-teacher and subject assignments so the timetable stays consistent.
+      const classes = await tx.class.findMany({ where: { classTeacherId: target.id }, select: { id: true } })
+      affected.push(...(await usersTouchingClasses(classes.map(c => c.id))))
+      await tx.class.updateMany({ where: { classTeacherId: target.id }, data: { classTeacherId: null } })
+      await tx.classSubject.updateMany({ where: { teacherId: target.id }, data: { teacherId: null } })
+      await tx.timetableEntry.updateMany({ where: { teacherId: target.id }, data: { teacherId: null } })
+    }
+    return tx.user.update({ where: { id: target.id }, data: { role: body.role, subjects: target.role === 'teacher' ? Prisma.DbNull : undefined, class: target.role === 'teacher' ? null : undefined } })
+  })
+  await syncLegacyUserFields(affected)
+  const fresh = await prisma.user.findUniqueOrThrow({ where: { id: user.id } })
+  await audit(ctx.schoolId, ctx.actorId, 'change-role', 'user', user.id, { role: target.role }, { role: fresh.role })
+  res.json({ user: toClientUser(fresh) })
+}))
+
 // Generic update — allowed if the requester is updating themselves, or canManage(requester, target).
 const updateUser = wrap(async (req, res) => {
   const ctx = ctxOf(req as AuthedRequest)
   const target = await prisma.user.findFirst({ where: { id: req.params.id, schoolId: ctx.schoolId } })
   if (!target) throw notFound('User')
 
+  const raw = req.body as Record<string, unknown>
   const isSelf = ctx.actorId === target.id
-  if (!isSelf) {
+  if (isSelf) {
+    // Verification is staff-driven (Phase 4 /api/verification); nobody self-verifies or self-promotes.
+    if ('verified' in raw) throw new HttpError(403, 'Verification is decided by the school office')
+    if ('role' in raw) throw new HttpError(403, 'You cannot change your own role')
+  } else {
     const { requester, allUsers } = await requesterAndUsers(req as AuthedRequest)
     if (!canManage(requester as any, target as any, allUsers)) throw new HttpError(403, 'Not permitted to manage this user')
   }
 
   const body = validate(extras, req.body)
-  const raw = req.body as Record<string, unknown>
   const data = pickEditable(raw)
   if (body.password) {
     data.passwordHash = await bcrypt.hash(body.password, 10)
