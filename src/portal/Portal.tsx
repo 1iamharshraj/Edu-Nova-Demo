@@ -15,6 +15,7 @@ import { InstallButton } from '@/lib/pwa'
 import type { Role } from '@/lib/data'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, inputCls } from './ui'
 import { ProfileMod } from './modules/profile'
+import { useFileUrl } from '@/lib/hooks/useIdentity'
 import { AttendanceMod, CalendarMod, MarksMod, RanksMod, TeachersMod } from './modules/academics'
 import { todayAgenda, useClock, useEntryLookup, useMyTimetable } from '@/lib/hooks/useTimetable'
 import { homeworkStatus, isOpen, useAttendanceSummary, useHomework, useReportCard } from '@/lib/hooks/useAcademics'
@@ -147,6 +148,7 @@ function modulesFor(role: Role): Mod[] {
       M('periods', 'Periods', Clock3, <PeriodsMod />, 'Academic Setup'),
       M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
+      M('verify', 'Verifications', ShieldCheck, <VerificationsMod />, 'Manage'),
       M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Manage'),
       M('leaves', 'Leave Approvals', Umbrella, <LeaveMod approver />, 'Manage'),
       M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
@@ -161,6 +163,7 @@ function modulesFor(role: Role): Mod[] {
       M('pay', 'Fee Gateway', Landmark, <PaymentGatewayMod />, 'Finance'),
       M('salary', 'Faculty Salary', Wallet, <PaymentsMod salary />, 'Finance'),
       M('settings', 'Settings', Settings, <SettingsMod />, 'System'),
+      M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
     case 'superadmin': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
@@ -174,6 +177,7 @@ function modulesFor(role: Role): Mod[] {
       M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
       M('admins', 'Admin Management', ShieldCheck, <AdminManagementMod />, 'Manage'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
+      M('verify', 'Verifications', ShieldCheck, <VerificationsMod />, 'Manage'),
       M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Manage'),
       M('leaves', 'Leave Approvals', Umbrella, <LeaveMod approver />, 'Manage'),
       M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
@@ -188,6 +192,7 @@ function modulesFor(role: Role): Mod[] {
       M('pay', 'Fee Gateway', Landmark, <PaymentGatewayMod />, 'Finance'),
       M('salary', 'Faculty Salary', Wallet, <PaymentsMod salary />, 'Finance'),
       M('settings', 'Settings', Settings, <SettingsMod />, 'System'),
+      M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
   }
 }
@@ -234,29 +239,103 @@ function StudentReportsMod() {
   )
 }
 
+// Roles a superadmin can promote/demote someone into via PATCH /users/:id/role (admin/staff/teacher only —
+// student/parent/superadmin are out of scope for a role change; see phase-4-admissions-identity.md).
+const ROLE_CHANGE_OPTIONS: Role[] = ['admin', 'staff', 'teacher']
+
 function AdminManagementMod() {
-  const { db, user, deleteUser } = useStore()
-  const admins = db.users.filter(u => u.role === 'admin' || u.role === 'superadmin')
+  const { db, user, createUser, deleteUser, refreshDB } = useStore()
+  const admins = useMemo(() => db.users.filter(u => u.role === 'admin' || u.role === 'superadmin').sort((a, b) => a.name.localeCompare(b.name)), [db.users])
+  const [createOpen, setCreateOpen] = useState(false)
+  const [created, setCreated] = useState<{ email: string; password: string } | null>(null)
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const submitCreate = async () => {
+    setBusy('create')
+    try {
+      const res = await createUser({ name: name.trim(), role: 'admin', email: email.trim() || undefined })
+      setCreated({ email: res.user.email, password: res.password })
+      setName(''); setEmail('')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+  }
+
+  const changeRole = async (target: User, role: Role) => {
+    if (role === target.role) return
+    setBusy(target.id)
+    try {
+      await api.patch(`/users/${target.id}/role`, { role })
+      await refreshDB()
+      toast.success(`${target.name}'s role changed to ${role}`)
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+  }
+
+  const revoke = async (a: User) => {
+    if (!window.confirm(`Revoke ${a.name}'s admin access? This deletes their account.`)) return
+    setBusy(a.id)
+    const ok = await deleteUser(a.id)
+    if (ok) toast.success('Admin access revoked')
+    else toast.error('Could not revoke access')
+    setBusy(null)
+  }
+
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="font-display text-[clamp(1.6rem,3vw,2.2rem)] font-medium tracking-tight">Admin Management</h1>
-        <p className="mt-1 text-[14px] text-black/50 dark:text-white/50">Superadmin view of all admins and principals</p>
-      </div>
+      <PageHead title="Admin Management" sub="Create school administrators, change staff roles, and revoke access">
+        <button onClick={() => { setCreateOpen(true); setCreated(null) }} className="btn-ink px-5 py-2.5 text-[13.5px] font-semibold">New admin</button>
+      </PageHead>
       <div className="grid gap-4">
-        {admins.map(a => (
-          <div key={a.id} className="flex items-center gap-4 rounded-3xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-5">
-            <Avatar name={a.name} hue={a.avatarHue} size={48} />
-            <div className="flex-1">
-              <p className="text-[15px] font-semibold">{a.name}</p>
-              <p className="text-[13px] text-black/50 dark:text-white/50 capitalize">{a.role} · {a.title}</p>
+        {admins.map(a => {
+          const isSelf = a.id === user?.id
+          const canChangeRole = isSuperAdmin(user) && !isSelf && a.role !== 'superadmin'
+          const canRevoke = user ? canManage(user, a, db.users) : false
+          return (
+            <div key={a.id} className="flex flex-wrap items-center gap-4 rounded-3xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-5">
+              <Avatar name={a.name} hue={a.avatarHue} size={48} />
+              <div className="min-w-48 flex-1">
+                <p className="text-[15px] font-semibold">{a.name}{isSelf ? ' (you)' : ''}</p>
+                <p className="text-[13px] text-black/50 dark:text-white/50">{a.email}</p>
+              </div>
+              {canChangeRole ? (
+                <select value={a.role} onChange={e => changeRole(a, e.target.value as Role)} disabled={busy === a.id} className={`${inputCls} w-auto py-1.5 text-[12.5px] capitalize disabled:opacity-50`}>
+                  {ROLE_CHANGE_OPTIONS.map(r => <option key={r} value={r} className="capitalize">{r}</option>)}
+                </select>
+              ) : (
+                <Pill tone={a.role === 'superadmin' ? 'indigo' : 'slate'}><span className="capitalize">{a.role}</span></Pill>
+              )}
+              {canRevoke && (
+                <button onClick={() => revoke(a)} disabled={busy === a.id} className="rounded-full bg-rose-50 dark:bg-rose-500/10 px-4 py-2 text-[13px] font-semibold text-rose-500 disabled:opacity-50">Revoke</button>
+              )}
             </div>
-            {a.id !== user?.id && (
-              <button onClick={() => { deleteUser(a.id).then(ok => { if (ok) toast.success('Admin access revoked') }) }} className="rounded-full bg-rose-50 dark:bg-rose-500/10 px-4 py-2 text-[13px] font-semibold text-rose-500">Revoke</button>
-            )}
-          </div>
-        ))}
+          )
+        })}
       </div>
+
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title={created ? 'Admin created' : 'New admin'}>
+        {created ? (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 rounded-2xl bg-amber-50 dark:bg-amber-500/10 p-4 text-[13px] text-amber-800 dark:text-amber-300">
+              This password is shown only once — the new admin must change it at first sign-in.
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 rounded-2xl bg-black/[.04] dark:bg-white/[.06] px-4 py-3">
+                <div className="min-w-0 flex-1"><p className="text-[11.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Email</p><p className="select-all truncate font-mono text-[14px]">{created.email}</p></div>
+              </div>
+              <div className="flex items-center gap-3 rounded-2xl bg-black/[.04] dark:bg-white/[.06] px-4 py-3">
+                <div className="min-w-0 flex-1"><p className="text-[11.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Password</p><p className="select-all truncate font-mono text-[14px]">{created.password}</p></div>
+              </div>
+            </div>
+            <button onClick={() => setCreateOpen(false)} className="btn-ink w-full py-3 text-[14px] font-semibold">Done</button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Field label="Full name"><input value={name} onChange={e => setName(e.target.value)} autoFocus className={inputCls} /></Field>
+            <Field label="Email (optional — generated if left blank)"><input type="email" value={email} onChange={e => setEmail(e.target.value)} className={inputCls} /></Field>
+            <button onClick={submitCreate} disabled={!name.trim() || busy === 'create'} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy === 'create' ? 'Creating…' : 'Create admin'}</button>
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }
@@ -498,6 +577,7 @@ export default function Portal() {
   const [pickedTerm, setTerm] = useState('')
   const term = pickedTerm || currentTerm?.id || ''
   const current = mods.find(m => m.id === active) ?? mods[0]
+  const headerPhoto = useFileUrl(user?.photoFileId)
   const groups = useMemo(() => {
     const g: Record<string, Mod[]> = {}
     mods.forEach(m => { (g[m.group] ??= []).push(m) })
@@ -550,7 +630,9 @@ export default function Portal() {
               <span className={`hidden rounded-full bg-gradient-to-r px-3.5 py-1.5 text-[12px] font-bold capitalize text-white sm:block ${ROLE_GRAD[user.role]}`}>
                 {user.role} portal
               </span>
-              <Avatar name={user.name} hue={user.avatarHue} size={38} />
+              <button onClick={() => setActive('profile')} className="rounded-full ring-2 ring-transparent transition hover:ring-indigo-300 dark:hover:ring-indigo-500/50" title="Profile">
+                <Avatar name={user.name} hue={user.avatarHue} size={38} src={headerPhoto} />
+              </button>
             </div>
           </header>
 
