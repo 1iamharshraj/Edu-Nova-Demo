@@ -124,6 +124,44 @@ Signed in as superadmin, on a fresh school:
 - [ ] Delete `CBSE X-A`. **Expect:** confirmation warns about enrollments/subject assignments; card removed.
 - [ ] Overview. **Expect:** step 4 ticked.
 
+## 3b. Timetable (Phase 2)
+
+Prerequisites: §3–4 done (classes with subjects and teachers, a current term).
+
+- [ ] **Periods** (Academic Setup). Add a template `Standard day`: P1 09:00–09:45, P2 09:45–10:30, Break 10:30–10:45 (kind break), P3 10:45–11:30, P4 11:30–12:15. **Expect:** listed with a **Default** pill (first template is default). Reorder P4 above P3 and back; delete attempt on the default while entries exist → refused.
+- [ ] **Timetable Builder**: pick CBSE VIII-A + the current term. **Expect:** grid Mon–Fri × P1–P4 with the break as a narrow strip; side panel lists the class subjects with `0/n` counters.
+- [ ] Click Mon P1 → subject Mathematics (teacher prefilled Kavya), room C-101 → OK. Fill Mon P2 English, Tue P1 Mathematics. **Expect:** *Unsaved changes* pill; counters update (Mathematics 2/7). **Save** → toast; pill clears.
+- [ ] Switch to CBSE VIII-B, put Mathematics (Kavya) in **Mon P1**, Save. **Expect:** save rejected with a conflict banner and the Mon P1 cell marked **Clash** (Kavya is in VIII-A then). Move it to Mon P3 → saves.
+- [ ] VIII-B Mon P2 → any subject with room **C-101** → Save. **Expect:** room clash (VIII-A English is in C-101 at Mon P2). Change room → saves.
+- [ ] **Copy from…** VIII-A → VIII-B (same term). **Expect:** refused because VIII-B is not empty. Clear VIII-B's entries (Clear each cell, Save), copy again → reports copied count and skipped subjects VIII-B lacks.
+- [ ] **Publish** VIII-A. **Expect:** pill turns Published. Publish is disabled while there are unsaved changes.
+- [ ] **Student (Ishaan, VIII-A) → Timetable.** **Expect:** the grid with Mathematics/English cards showing teacher, room, time; the current period is highlighted if you test during it; Overview tile **Next class** shows the next entry today (or "No more classes today").
+- [ ] **Student in VIII-B (unpublished)** → *Timetable not published yet*.
+- [ ] **Teacher Kavya → My Timetable.** **Expect:** her periods across VIII-A and VIII-B with the class label leading; Overview **Classes today** count matches.
+- [ ] As principal, add a **substitution** via the API is not in the UI yet? → It is: Timetable (admin view) → pick a class → click an entry → "Cover this period" with a date and substitute teacher. If that control is missing in your build, skip. **Expect (if present):** the substitute's My Timetable shows the covered period for that week.
+- [ ] Sample school: **Load sample school** → student@edunova.in Timetable shows a full published week for Term 3; teacher@edunova.in sees ~27 periods across 4 classes.
+
+## 3c. Attendance, gradebook, homework (Phase 3)
+
+Prerequisites: §3–4 and §3b (published timetable for CBSE VIII-A with Kavya teaching Mathematics).
+
+- [ ] **Teacher Kavya → Take Attendance.** Class VIII-A, today's date. **Expect:** period list shows her timetable periods for that weekday plus *Whole day*; roster Ishaan + Diya with P/A/L/E toggles; status pill *Not taken*.
+- [ ] Mark Ishaan **A**, Diya **P**, Save. **Expect:** toast; pill *Saved*. Change Ishaan to **L**, Save again → replaced (reload: still L). Click **Lock** → toggles disabled, pill *Locked*.
+- [ ] **Principal → Attendance** (Manage): Students tab, VIII-A, today. **Expect:** the session with counts; **Unlock** works (admin only); **Export CSV** downloads. Staff tab: mark Kavya **P** for today, Save.
+- [ ] **Student Ishaan → Attendance.** **Expect:** today shows **L**; overall % computed; if period sessions exist, a by-subject breakdown. Overview **Attendance** tile matches.
+- [ ] **Parent Meenakshi → Attendance.** **Expect:** same as Ishaan (ward picker if >1 ward).
+- [ ] **Kavya → Gradebook.** Pick VIII-A · Mathematics · current term. **Expect:** no assessments yet; **Add assessment** → `Unit Test 1`, max 25, date today → column appears with a *Draft* pill.
+- [ ] Enter Ishaan 21, Diya 24 → **Save marks**. Try 30 for Ishaan → flagged, save blocked. **Publish** the column.
+- [ ] **Student Ishaan → Marks & Grades.** **Expect:** Mathematics: Unit Test 1 21/25, grade from the default scale (A2 for 84%). **Rank List** → Diya #1, Ishaan #2. Overview **Class rank** = #2.
+- [ ] Kavya adds `Class Test` (max 20), enters marks, leaves it **unpublished** → Ishaan does **not** see it; **Ranks** unchanged.
+- [ ] **Principal → Gradebook → Grade scales**: add `CBSE 8-point` (A1 91, A2 81, B1 71, B2 61, C1 51, C2 41, D 33, E 0). A band out of order → rejected. Ishaan's report card now uses it.
+- [ ] **Kavya → Create Assignment**: VIII-A Mathematics, title `Worksheet 3`, due in 7 days, attach a small PDF or txt. **Expect:** listed with the attachment link.
+- [ ] **Ishaan → Homework Upload**: sees Worksheet 3 as *Pending*; upload a txt → **Submit** → *Submitted*. Upload a `.exe` → rejected.
+- [ ] **Kavya → Create Assignment → Worksheet 3 → submissions**: Ishaan's file downloads; grade `A1`, feedback text → Ishaan sees *Graded A1* + feedback.
+- [ ] **Meenakshi → Homework Status** shows the same for Ishaan.
+- [ ] **My Report** (Ishaan) shows attendance %, marks and rank from the same data.
+- [ ] Sample school: student@edunova.in has ~95% attendance, 3 published assessments per subject per term, rank 1 of 2; teacher@edunova.in Gradebook shows X-A Mathematics with marks.
+
 ---
 
 ## 4. People
@@ -286,10 +324,6 @@ These are scheduled in `.agents/edunova/rebuild-plan.md`:
 
 | Area | Current state | Phase |
 |---|---|---|
-| Timetable | Read-only; no builder; sample data only | 2 |
-| Take Attendance (teacher) | Save shows a toast but writes nothing | 3 |
-| Upload Grades | Writes to a per-term (not per-student) row | 3 |
-| Attendance / Marks / Ranks for a **new** school | Empty until Phase 3 — only sample data has them | 3 |
 | Forced password change (`mustChangePassword`) | Flag exists, not enforced; no password change UI | 4 |
 | Profile editing, notifications, search | Don't exist | 4, 7 |
 | Fees "Assign to all classes" | Creates an owner-less receipt | 5 |
