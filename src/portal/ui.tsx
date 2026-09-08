@@ -20,8 +20,8 @@ export function PageHead({ title, sub, children }: { title: string; sub?: string
   )
 }
 
-export function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <div className={`rounded-3xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-6 ${className}`}>{children}</div>
+export function Card({ children, className = '', onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) {
+  return <div onClick={onClick} className={`rounded-3xl border border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] p-6 ${className}`}>{children}</div>
 }
 
 export function Pill({ tone, children }: { tone: 'green' | 'amber' | 'rose' | 'slate' | 'indigo' | 'sky'; children: React.ReactNode }) {

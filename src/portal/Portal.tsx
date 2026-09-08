@@ -1,10 +1,10 @@
 import React, { createContext, useContext, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
-  Award, Banknote, BookMarked, BookOpen, BrainCircuit, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, Clock3,
-  CloudUpload, CreditCard, DoorOpen, FileBadge, Gavel, GraduationCap, HeartPulse, Home, Landmark, LayoutGrid, Layers,
-  LogOut, Megaphone, MessagesSquare, PartyPopper, PencilLine, Play, School, ScrollText, Settings,
-  ShieldCheck, Sparkles, Trophy, UserCircle2, Umbrella, Users, Video, Wallet, type LucideIcon,
+  Award, Banknote, BedDouble, BookMarked, BookOpen, Boxes, BrainCircuit, Bus, Calculator, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock3,
+  CloudUpload, CreditCard, DoorOpen, FileBadge, FileBarChart2, Gavel, GraduationCap, Handshake, HeartPulse, Home, Landmark, LayoutGrid, Layers,
+  LogOut, Megaphone, MessagesSquare, NotebookPen, PartyPopper, PencilLine, Play, School, ScrollText, Settings, ShoppingCart,
+  ShieldAlert, ShieldCheck, Sparkles, Star, Trophy, Truck, UserCircle2, Umbrella, Undo2, Users, Video, Wallet, type LucideIcon,
 } from 'lucide-react'
 import { Logo } from '@/components/Logo'
 import { api, errorMessage } from '@/lib/api'
@@ -40,6 +40,14 @@ import { useDefaulters, useInvoices } from '@/lib/hooks/useFinance'
 import { StudentReportMod } from './modules/studentReport'
 import { AcademicYearsMod, BoardsMod, ClassesMod, CurriculumMod, PeriodsMod, RoomsMod } from './modules/academic'
 import { SettingsMod } from './modules/settings'
+import { firstName } from './modules/viewer'
+import { MyTeamMod, MyReviewsMod, TeamReviewsMod, StaffConductMod } from './modules/employee'
+import { MyBusMod, TransportMod } from './modules/transport'
+import { AlumniMod } from './modules/alumni'
+import { HostelMod, MyHostelMod } from './modules/hostel'
+import { LibraryCatalogMod, LibraryIssueReturnsMod, LibrarySettingsMod, MyLoansMod } from './modules/library'
+import { InventoryCatalogMod, PurchaseOrdersMod, VendorsMod } from './modules/inventory'
+import { AccountingReportsMod, ChartOfAccountsMod, JournalMod } from './modules/accounting'
 import { toast } from 'sonner'
 
 /* ── term context ──────────────────────────────────────── */
@@ -74,6 +82,10 @@ function modulesFor(role: Role): Mod[] {
       M('leave', 'Holiday Requests', Umbrella, <LeaveMod />, 'Actions'),
       M('health', 'Health Records', HeartPulse, <HealthMod />, 'Actions'),
       M('ach', 'Achievements', Award, <AchievementsMod />, 'Actions'),
+      M('bus', 'My Bus', Bus, <MyBusMod />, 'Actions'),
+      M('myhostel', 'My Hostel', BedDouble, <MyHostelMod />, 'Actions'),
+      M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Actions'),
+      M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Actions'),
       M('pay', 'Payments', CreditCard, <PaymentGatewayMod />, 'Office'),
       M('apps', 'TC & Bonafide', FileBadge, <ApplicationsMod approver={false} />, 'Office'),
       M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Office'),
@@ -92,12 +104,19 @@ function modulesFor(role: Role): Mod[] {
       M('ai', 'AI Doubt Clearing', BrainCircuit, <AIDoubtsMod />, 'Academics'),
       M('report', 'My Report', FileBadge, <StudentReportsMod />, 'Academics'),
       M('feed', 'School Feed', Megaphone, <FeedMod />, 'Community'),
+      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Community'),
       M('meet', 'Meetings', Video, <MeetingsMod />, 'Community'),
       M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Community'),
       M('ffcs', 'Clubs & Chapters', Users, <RegistrationsMod kind="club" title="Clubs & Chapters (FFCS)" sub="Fully flexible club selection — pick what moves you" />, 'Activities'),
       M('iha', 'Inter-House (IHA)', PartyPopper, <RegistrationsMod kind="house" title="Inter-House Activities" sub="Represent your house this term" />, 'Activities'),
       M('exc', 'Extra-Curricular (EXC)', Sparkles, <RegistrationsMod kind="exc" title="EXC Registrations" sub="Weekend extra-curricular coaching" />, 'Activities'),
       M('events', 'Event Registration', Play, <RegistrationsMod kind="event" title="Event Registration" sub="Sign up for upcoming school events" />, 'Activities'),
+      M('health', 'Health Records', HeartPulse, <HealthMod />, 'Actions'),
+      M('ach', 'Achievements', Award, <AchievementsMod />, 'Actions'),
+      M('bus', 'My Bus', Bus, <MyBusMod />, 'Actions'),
+      M('myhostel', 'My Hostel', BedDouble, <MyHostelMod />, 'Actions'),
+      M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Actions'),
+      M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Actions'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Office'),
       M('pay', 'Fee Payments', CreditCard, <PaymentGatewayMod />, 'Office'),
       M('apps', 'Applications', FileBadge, <ApplicationsMod approver={false} />, 'Office'),
@@ -109,20 +128,29 @@ function modulesFor(role: Role): Mod[] {
       M('assign', 'Create Assignment', BookOpen, <CreateAssignmentMod />, 'Classroom'),
       M('grades', 'Gradebook', PencilLine, <GradebookMod />, 'Classroom'),
       M('tt', 'My Timetable', CalendarDays, <TimetableMod />, 'Classroom'),
+      M('feed', 'School Feed', Megaphone, <FeedMod />, 'Classroom'),
       M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Classroom'),
       M('meet', 'Meetings', Video, <MeetingsMod />, 'Classroom'),
       M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Classroom'),
+      M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Classroom'),
+      M('health', 'Health Records', HeartPulse, <HealthMod />, 'Classroom'),
       M('lapprove', 'Leave Approvals', Umbrella, <LeaveApprovalsMod />, 'Classroom'),
       M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Classroom'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Classroom'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Classroom'),
       M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Classroom'),
+      M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Classroom'),
+      M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Classroom'),
+      M('inv', 'Inventory', Boxes, <InventoryCatalogMod />, 'Classroom'),
       M('salary', 'My Payslips', Wallet, <MyPayslipsMod />, 'My HR'),
       M('myleave', 'My Leave', Umbrella, <MyLeaveMod />, 'My HR'),
       M('contract', 'My Contract', ScrollText, <MyContractMod />, 'My HR'),
       M('work', 'Event Duties', PartyPopper, <DutiesMod />, 'My HR'),
       M('freg', 'Faculty Events', Play, <RegistrationsMod kind="faculty" title="Faculty Event Registration" sub="Workshops and panels for teachers" />, 'My HR'),
       M('ach', 'My Achievements', Award, <AchievementsMod />, 'My HR'),
+      M('myteam', 'My Team', Users, <MyTeamMod />, 'My HR'),
+      M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'My HR'),
+      M('teamreviews', 'Team Reviews', ClipboardList, <TeamReviewsMod />, 'My HR'),
       M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
     case 'staff': return [
@@ -135,7 +163,20 @@ function modulesFor(role: Role): Mod[] {
       M('calm', 'Calendar Mgmt', CalendarPlus, <CalendarAdminMod />, 'Operations'),
       M('work', 'Work Assignment', PartyPopper, <DutiesMod manage />, 'Operations'),
       M('actadmin', 'Activities Admin', Sparkles, <ActivitiesAdminMod />, 'Operations'),
+      M('transport', 'Transport', Bus, <TransportMod />, 'Operations'),
+      M('hostel', 'Hostel', BedDouble, <HostelMod />, 'Operations'),
+      M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Operations'),
+      M('libissue', 'Issue & Returns', Undo2, <LibraryIssueReturnsMod />, 'Operations'),
+      M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Operations'),
+      M('inv', 'Inventory', Boxes, <InventoryCatalogMod />, 'Operations'),
+      M('po', 'Purchase Orders', ShoppingCart, <PurchaseOrdersMod />, 'Operations'),
+      M('vendors', 'Vendors', Truck, <VendorsMod />, 'Operations'),
+      M('feed', 'School Feed', Megaphone, <FeedMod />, 'Operations'),
+      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Operations'),
       M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Operations'),
+      M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Operations'),
+      M('health', 'Health Records', HeartPulse, <HealthMod />, 'Operations'),
+      M('ach', 'Achievements', Award, <AchievementsMod />, 'Operations'),
       M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Operations'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Operations'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Operations'),
@@ -144,6 +185,10 @@ function modulesFor(role: Role): Mod[] {
       M('fees', 'Fee Setup', CreditCard, <FeeSetupMod />, 'Finance'),
       M('collect', 'Collections', Landmark, <CollectionsMod />, 'Finance'),
       M('salary', 'My Payslips', ScrollText, <MyPayslipsMod />, 'Finance'),
+      M('myteam', 'My Team', Users, <MyTeamMod />, 'My HR'),
+      M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'My HR'),
+      M('teamreviews', 'Team Reviews', ClipboardList, <TeamReviewsMod />, 'My HR'),
+      M('alumni', 'Alumni', Handshake, <AlumniMod />, 'Alumni'),
       M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
     case 'admin': return [
@@ -164,9 +209,27 @@ function modulesFor(role: Role): Mod[] {
       M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
       M('work', 'Work Assignment', PartyPopper, <DutiesMod manage />, 'Manage'),
       M('actadmin', 'Activities Admin', Sparkles, <ActivitiesAdminMod />, 'Manage'),
+      M('transport', 'Transport', Bus, <TransportMod />, 'Manage'),
+      M('hostel', 'Hostel', BedDouble, <HostelMod />, 'Manage'),
+      M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Manage'),
+      M('libissue', 'Issue & Returns', Undo2, <LibraryIssueReturnsMod />, 'Manage'),
+      M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Manage'),
+      M('inv', 'Inventory', Boxes, <InventoryCatalogMod />, 'Manage'),
+      M('po', 'Purchase Orders', ShoppingCart, <PurchaseOrdersMod />, 'Manage'),
+      M('vendors', 'Vendors', Truck, <VendorsMod />, 'Manage'),
+      M('feed', 'School Feed', Megaphone, <FeedMod />, 'Manage'),
+      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Manage'),
       M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Manage'),
+      M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Manage'),
+      M('health', 'Health Records', HeartPulse, <HealthMod />, 'Manage'),
+      M('ach', 'Achievements', Award, <AchievementsMod />, 'Manage'),
       M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Manage'),
       M('contracts', 'Contracts & Exit', ScrollText, <ContractsResignationsAdminMod />, 'Manage'),
+      M('myteam', 'My Team', Users, <MyTeamMod />, 'Manage'),
+      M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'Manage'),
+      M('teamreviews', 'Team Reviews', ClipboardList, <TeamReviewsMod />, 'Manage'),
+      M('staffconduct', 'Staff Conduct', ShieldAlert, <StaffConductMod />, 'Manage'),
+      M('alumni', 'Alumni', Handshake, <AlumniMod />, 'Alumni'),
       M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Manage'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Finance'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Finance'),
@@ -174,6 +237,10 @@ function modulesFor(role: Role): Mod[] {
       M('fees', 'Fee Setup', CreditCard, <FeeSetupMod />, 'Finance'),
       M('collect', 'Collections', Landmark, <CollectionsMod />, 'Finance'),
       M('payroll', 'Payroll', Wallet, <PayrollMod />, 'Finance'),
+      M('coa', 'Chart of Accounts', Calculator, <ChartOfAccountsMod />, 'Finance'),
+      M('journal', 'Journal', NotebookPen, <JournalMod />, 'Finance'),
+      M('acctreports', 'Accounting Reports', FileBarChart2, <AccountingReportsMod />, 'Finance'),
+      M('libsettings', 'Library Settings', BookMarked, <LibrarySettingsMod />, 'System'),
       M('settings', 'Settings', Settings, <SettingsMod />, 'System'),
       M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
@@ -195,9 +262,27 @@ function modulesFor(role: Role): Mod[] {
       M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
       M('work', 'Work Assignment', PartyPopper, <DutiesMod manage />, 'Manage'),
       M('actadmin', 'Activities Admin', Sparkles, <ActivitiesAdminMod />, 'Manage'),
+      M('transport', 'Transport', Bus, <TransportMod />, 'Manage'),
+      M('hostel', 'Hostel', BedDouble, <HostelMod />, 'Manage'),
+      M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Manage'),
+      M('libissue', 'Issue & Returns', Undo2, <LibraryIssueReturnsMod />, 'Manage'),
+      M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Manage'),
+      M('inv', 'Inventory', Boxes, <InventoryCatalogMod />, 'Manage'),
+      M('po', 'Purchase Orders', ShoppingCart, <PurchaseOrdersMod />, 'Manage'),
+      M('vendors', 'Vendors', Truck, <VendorsMod />, 'Manage'),
+      M('feed', 'School Feed', Megaphone, <FeedMod />, 'Manage'),
+      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Manage'),
       M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Manage'),
+      M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Manage'),
+      M('health', 'Health Records', HeartPulse, <HealthMod />, 'Manage'),
+      M('ach', 'Achievements', Award, <AchievementsMod />, 'Manage'),
       M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Manage'),
       M('contracts', 'Contracts & Exit', ScrollText, <ContractsResignationsAdminMod />, 'Manage'),
+      M('myteam', 'My Team', Users, <MyTeamMod />, 'Manage'),
+      M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'Manage'),
+      M('teamreviews', 'Team Reviews', ClipboardList, <TeamReviewsMod />, 'Manage'),
+      M('staffconduct', 'Staff Conduct', ShieldAlert, <StaffConductMod />, 'Manage'),
+      M('alumni', 'Alumni', Handshake, <AlumniMod />, 'Alumni'),
       M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Manage'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Finance'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Finance'),
@@ -205,6 +290,10 @@ function modulesFor(role: Role): Mod[] {
       M('fees', 'Fee Setup', CreditCard, <FeeSetupMod />, 'Finance'),
       M('collect', 'Collections', Landmark, <CollectionsMod />, 'Finance'),
       M('payroll', 'Payroll', Wallet, <PayrollMod />, 'Finance'),
+      M('coa', 'Chart of Accounts', Calculator, <ChartOfAccountsMod />, 'Finance'),
+      M('journal', 'Journal', NotebookPen, <JournalMod />, 'Finance'),
+      M('acctreports', 'Accounting Reports', FileBarChart2, <AccountingReportsMod />, 'Finance'),
+      M('libsettings', 'Library Settings', BookMarked, <LibrarySettingsMod />, 'System'),
       M('settings', 'Settings', Settings, <SettingsMod />, 'System'),
       M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
@@ -421,7 +510,7 @@ function Overview() {
       case 'parent': {
         const due = (myInvoices ?? []).reduce((a, i) => a + Math.max(0, i.total - (i.paid ?? 0)), 0)
         return [
-          { k: 'Attendance', v: overall, s: ward ? `${termName} · ${ward.name.split(' ')[0]}` : 'No ward linked yet', tone: 'from-emerald-500 to-teal-400' },
+          { k: 'Attendance', v: overall, s: ward ? `${termName} · ${firstName(ward.name)}` : 'No ward linked yet', tone: 'from-emerald-500 to-teal-400' },
           { k: 'Pending homework', v: String(pendingHw), s: termName, tone: 'from-amber-500 to-orange-400' },
           { k: 'Slips to sign', v: String(slips), s: 'awaiting your decision', tone: 'from-indigo-500 to-violet-500' },
           { k: 'Fees due', v: due > 0 ? fmt(due) : '₹0', s: due > 0 ? 'outstanding' : 'nothing outstanding', tone: 'from-rose-500 to-pink-400' },
@@ -496,7 +585,7 @@ function Overview() {
     <div>
       <div className="mb-8">
         <p className="text-[14px] font-medium text-black/45 dark:text-white/45">{greet},</p>
-        <h1 className="font-display mt-1 text-[clamp(1.8rem,3.5vw,2.6rem)] font-medium tracking-tight">{user!.name.split(' ')[0]} 👋</h1>
+        <h1 className="font-display mt-1 text-[clamp(1.8rem,3.5vw,2.6rem)] font-medium tracking-tight">{firstName(user!.name)} 👋</h1>
         <p className="mt-1.5 text-[14.5px] text-black/50 dark:text-white/50">{user!.title}</p>
       </div>
       <div className={`grid gap-5 sm:grid-cols-2 ${cards.length === 5 ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}>
