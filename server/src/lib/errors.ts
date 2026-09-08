@@ -17,7 +17,7 @@ export function wrap(fn: (req: Request, res: Response, next: NextFunction) => Pr
   return (req, res, next) => { fn(req, res, next).catch(next) }
 }
 
-export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
+export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof HttpError) {
     return res.status(err.status).json({ error: err.message, details: err.details, ...err.extra })
   }
@@ -32,6 +32,8 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   if (err instanceof SyntaxError && 'body' in (err as object)) {
     return res.status(400).json({ error: 'Malformed JSON body' })
   }
-  console.error(err)
+  const log = (req as Request & { log?: { error: (obj: unknown, msg?: string) => void } }).log
+  if (log) log.error({ err }, 'unhandled error')
+  else console.error(err)
   res.status(500).json({ error: 'Internal server error' })
 }

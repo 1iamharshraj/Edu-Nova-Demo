@@ -8,6 +8,8 @@ import { validate } from '../../lib/validate'
 import { audit } from '../../lib/audit'
 import { loadSampleData } from '../../sampleData'
 import { purgeSchoolFiles } from '../files/service'
+import { closeSchoolConnections } from '../../lib/realtime'
+import { paginationQuery, paginate } from '../../lib/pagination'
 
 export const adminRouter = Router()
 adminRouter.use(requireAuth)
@@ -31,6 +33,40 @@ adminRouter.post('/reset', requireRole('superadmin'), wrap(async (req, res) => {
   validate(resetBody, req.body)
   const { schoolId } = ctx
   await prisma.$transaction([
+    // Phase 8 tables.
+    prisma.activityRegistration.deleteMany({ where: { activity: { schoolId } } }),
+    prisma.activity.deleteMany({ where: { schoolId } }),
+    prisma.callLog.deleteMany({ where: { schoolId } }),
+    prisma.disciplinaryNote.deleteMany({ where: { case: { schoolId } } }),
+    prisma.disciplinaryCase.deleteMany({ where: { schoolId } }),
+    prisma.achievement.deleteMany({ where: { schoolId } }),
+    prisma.slipResponse.deleteMany({ where: { slip: { schoolId } } }),
+    prisma.permissionSlip.deleteMany({ where: { schoolId } }),
+    prisma.healthRecord.deleteMany({ where: { schoolId } }),
+    // Phase 7 tables.
+    prisma.message.deleteMany({ where: { conversation: { schoolId } } }),
+    prisma.participant.deleteMany({ where: { conversation: { schoolId } } }),
+    prisma.conversation.deleteMany({ where: { schoolId } }),
+    prisma.postComment.deleteMany({ where: { post: { schoolId } } }),
+    prisma.postReaction.deleteMany({ where: { post: { schoolId } } }),
+    prisma.post.deleteMany({ where: { schoolId } }),
+    prisma.notification.deleteMany({ where: { schoolId } }),
+    prisma.meeting.deleteMany({ where: { schoolId } }),
+    prisma.calendarEvent.deleteMany({ where: { schoolId } }),
+    // Phase 6 tables.
+    prisma.leaveRequest.deleteMany({ where: { schoolId } }),
+    prisma.leaveType.deleteMany({ where: { schoolId } }),
+    prisma.contract.deleteMany({ where: { schoolId } }),
+    prisma.resignation.deleteMany({ where: { schoolId } }),
+    prisma.duty.deleteMany({ where: { schoolId } }),
+    // Phase 5 tables (records cascade from their parents where applicable).
+    prisma.feeReminder.deleteMany({ where: { schoolId } }),
+    prisma.payment.deleteMany({ where: { schoolId } }),
+    prisma.feeInvoice.deleteMany({ where: { schoolId } }),
+    prisma.feeStructure.deleteMany({ where: { schoolId } }),
+    prisma.feeHead.deleteMany({ where: { schoolId } }),
+    prisma.payslip.deleteMany({ where: { schoolId } }),
+    prisma.salaryStructure.deleteMany({ where: { schoolId } }),
     // Phase 4 tables (password resets cascade from users).
     prisma.certificate.deleteMany({ where: { schoolId } }),
     prisma.application.deleteMany({ where: { schoolId } }),
@@ -59,24 +95,56 @@ adminRouter.post('/reset', requireRole('superadmin'), wrap(async (req, res) => {
     prisma.guardian.deleteMany({ where: { schoolId } }),
     prisma.classSubject.deleteMany({ where: { schoolId } }),
     prisma.auditLog.deleteMany({ where: { schoolId } }),
-    prisma.schoolData.deleteMany({ where: { schoolId } }),
   ])
   await purgeSchoolFiles(schoolId)
+  closeSchoolConnections(schoolId)
   await audit(schoolId, ctx.actorId, 'reset', 'school', schoolId)
   res.json({ ok: true })
 }))
 
+// `?limit&cursor` cursor pagination (Phase 10 §5) layered on top of the existing `before`/`entity`/
+// `actorId` filters — a caller that passes neither `limit` nor `cursor` gets exactly the old behaviour
+// (first 50, capped at 500 via `limit`). `cursor` is an audit-log id from a previous page's `nextCursor`.
 adminRouter.get('/audit', requireRole('admin', 'superadmin'), wrap(async (req, res) => {
   const ctx = ctxOf(req as AuthedRequest)
-  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 500)
+  const q = validate(paginationQuery, req.query)
   const before = req.query.before ? new Date(String(req.query.before)) : undefined
   if (before && Number.isNaN(before.getTime())) throw new HttpError(400, 'before must be an ISO date')
   const entity = req.query.entity ? String(req.query.entity) : undefined
   const actorId = req.query.actorId ? String(req.query.actorId) : undefined
-  const items = await prisma.auditLog.findMany({
-    where: { schoolId: ctx.schoolId, entity, actorId, ...(before ? { at: { lt: before } } : {}) },
-    orderBy: { at: 'desc' },
-    take: limit,
-  })
-  res.json({ items })
+  const where = { schoolId: ctx.schoolId, entity, actorId, ...(before ? { at: { lt: before } } : {}) }
+  const { items, nextCursor } = await paginate(
+    args => prisma.auditLog.findMany({ where, orderBy: [{ at: 'desc' }, { id: 'desc' }], ...args }),
+    { limit: q.limit, cursor: q.cursor, defaultLimit: 50, maxLimit: 500 },
+  )
+  res.json({ items, nextCursor })
+}))
+
+// Admin-visible list of a user's (or, unfiltered, the whole school's) refresh-token sessions — mainly for
+// "sign this user out everywhere" tooling. Never exposes the token hash.
+const sessionsQuery = paginationQuery.extend({ userId: z.string().min(1).optional() })
+
+adminRouter.get('/sessions', requireRole('admin', 'superadmin'), wrap(async (req, res) => {
+  const ctx = ctxOf(req as AuthedRequest)
+  const q = validate(sessionsQuery, req.query)
+  const where = { user: { schoolId: ctx.schoolId }, ...(q.userId ? { userId: q.userId } : {}) }
+  const { items, nextCursor } = await paginate(
+    args => prisma.session.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, userId: true, createdAt: true, expiresAt: true, revokedAt: true },
+      ...args,
+    }),
+    { limit: q.limit, cursor: q.cursor, defaultLimit: 50, maxLimit: 500 },
+  )
+  res.json({ items, nextCursor })
+}))
+
+adminRouter.post('/sessions/:id/revoke', requireRole('admin', 'superadmin'), wrap(async (req, res) => {
+  const ctx = ctxOf(req as AuthedRequest)
+  const row = await prisma.session.findFirst({ where: { id: req.params.id, user: { schoolId: ctx.schoolId } } })
+  if (!row) throw new HttpError(404, 'Session not found')
+  await prisma.session.update({ where: { id: row.id }, data: { revokedAt: row.revokedAt ?? new Date() } })
+  await audit(ctx.schoolId, ctx.actorId, 'revoke-session', 'session', row.id)
+  res.json({ ok: true })
 }))

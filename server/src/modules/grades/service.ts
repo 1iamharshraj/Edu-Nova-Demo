@@ -4,7 +4,7 @@ import { prisma } from '../../prisma'
 import { audit } from '../../lib/audit'
 import { notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
-import { syncLegacyUserFields, usersTouchingClasses } from '../../lib/legacySync'
+import { syncUserTitle, usersTouchingClasses } from '../../lib/titleSync'
 import { createGrade, patchGrade } from './schema'
 
 export const serializeGrade = (g: Grade) => ({ id: g.id, label: g.label, order: g.order })
@@ -39,7 +39,7 @@ export async function create(ctx: Ctx, input: z.infer<typeof createGrade>) {
 export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchGrade>) {
   const before = await get(ctx, id)
   const row = await prisma.grade.update({ where: { id }, data: input })
-  if (input.label && input.label !== before.label) await syncLegacyUserFields(await usersTouchingClasses(await classIdsOf(id)))
+  if (input.label && input.label !== before.label) await syncUserTitle(await usersTouchingClasses(await classIdsOf(id)))
   await audit(ctx.schoolId, ctx.actorId, 'update', 'grade', id, serializeGrade(before), serializeGrade(row))
   return row
 }
@@ -48,6 +48,6 @@ export async function remove(ctx: Ctx, id: string) {
   const before = await get(ctx, id)
   const affected = await usersTouchingClasses(await classIdsOf(id))
   await prisma.grade.delete({ where: { id } })
-  await syncLegacyUserFields(affected)
+  await syncUserTitle(affected)
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'grade', id, serializeGrade(before))
 }

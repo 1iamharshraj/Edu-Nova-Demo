@@ -4,7 +4,7 @@ import { prisma } from '../../prisma'
 import { audit } from '../../lib/audit'
 import { notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
-import { syncLegacyUserFields } from '../../lib/legacySync'
+import { syncUserTitle } from '../../lib/titleSync'
 import { createSubject, patchSubject } from './schema'
 
 export const serializeSubject = (s: Subject) => ({ id: s.id, name: s.name, code: s.code, color: s.color })
@@ -33,7 +33,7 @@ export async function create(ctx: Ctx, input: z.infer<typeof createSubject>) {
 export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchSubject>) {
   const before = await get(ctx, id)
   const row = await prisma.subject.update({ where: { id }, data: input })
-  if (input.name && input.name !== before.name) await syncLegacyUserFields(await teachersOf(id))
+  if (input.name && input.name !== before.name) await syncUserTitle(await teachersOf(id))
   await audit(ctx.schoolId, ctx.actorId, 'update', 'subject', id, serializeSubject(before), serializeSubject(row))
   return row
 }
@@ -42,6 +42,6 @@ export async function remove(ctx: Ctx, id: string) {
   const before = await get(ctx, id)
   const affected = await teachersOf(id)
   await prisma.subject.delete({ where: { id } })
-  await syncLegacyUserFields(affected)
+  await syncUserTitle(affected)
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'subject', id, serializeSubject(before))
 }

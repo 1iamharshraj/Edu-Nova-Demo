@@ -93,6 +93,58 @@ export async function assertOnRoster(classId: string, studentIds: string[]) {
   if (bad.length) throw new HttpError(400, 'studentId must be an active student of this class', { studentId: bad })
 }
 
+// Class ids a teacher teaches (class-teacher of, or holds a ClassSubject in). See phase-7-communication.md
+// (feed Class audience, messages allowed-pair rules) — mirrors modules/leave/service.ts#teacherClassIds.
+export async function classesTaughtBy(schoolId: string, teacherId: string): Promise<string[]> {
+  const rows = await prisma.class.findMany({
+    where: { schoolId, OR: [{ classTeacherId: teacherId }, { classSubjects: { some: { teacherId } } }] },
+    select: { id: true },
+  })
+  return rows.map(c => c.id)
+}
+
+export async function teacherClassIds(ctx: Ctx): Promise<string[]> {
+  if (ctx.role !== 'teacher') return []
+  return classesTaughtBy(ctx.schoolId, ctx.actorId)
+}
+
+// Active enrolment class ids for a student.
+export async function studentClassIds(studentId: string): Promise<string[]> {
+  const rows = await prisma.enrollment.findMany({ where: { studentId, status: 'active' }, select: { classId: true } })
+  return rows.map(r => r.classId)
+}
+
+// Active enrolment class ids across all of a parent's wards.
+export async function wardClassIds(ctx: Ctx): Promise<string[]> {
+  const wards = (await visibleStudentIds(ctx)) ?? []
+  if (!wards.length) return []
+  const rows = await prisma.enrollment.findMany({ where: { studentId: { in: wards }, status: 'active' }, select: { classId: true } })
+  return [...new Set(rows.map(r => r.classId))]
+}
+
+// The active enrolment class of a student (current academic year, else most recent), or null.
+// Used by Phase 8 welfare modules — see phase-8-welfare.md (health/discipline "class teacher" visibility).
+export async function activeClassOf(studentId: string) {
+  return prisma.enrollment.findFirst({
+    where: { studentId, status: 'active' },
+    orderBy: [{ academicYear: { isCurrent: 'desc' } }, { createdAt: 'desc' }],
+    include: { class: true },
+  })
+}
+
+// True if `ctx` is the class teacher of the student's active class.
+export async function isClassTeacherOfStudent(ctx: Ctx, studentId: string): Promise<boolean> {
+  if (ctx.role !== 'teacher') return false
+  const enrollment = await activeClassOf(studentId)
+  return !!enrollment && enrollment.class.classTeacherId === ctx.actorId
+}
+
+// True if `ctx` is a guardian of the student.
+export async function isGuardianOf(ctx: Ctx, studentId: string): Promise<boolean> {
+  if (ctx.role !== 'parent') return false
+  return !!(await prisma.guardian.findUnique({ where: { parentId_studentId: { parentId: ctx.actorId, studentId } } }))
+}
+
 // The class a student is (actively) enrolled in for the given academic year, or null.
 export async function enrollmentFor(studentId: string, academicYearId: string) {
   return prisma.enrollment.findFirst({

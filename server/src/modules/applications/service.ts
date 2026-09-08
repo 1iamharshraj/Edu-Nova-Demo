@@ -8,7 +8,8 @@ import { HttpError, notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
 import { fmtDate, toDate } from '../../lib/validate'
 import { assertViewStudent, isRestricted, isStaff, visibleStudentIds } from '../../lib/scope'
-import { syncLegacyUserFields } from '../../lib/legacySync'
+import { syncUserTitle } from '../../lib/titleSync'
+import { sendEmail } from '../../lib/notify'
 import { makeEmail, uid } from '../../userDefaults'
 import { assertFileIds } from '../files/service'
 import * as certificates from '../certificates/service'
@@ -215,9 +216,22 @@ async function approveAdmission(ctx: Ctx, app: ApplicationFull): Promise<{ row: 
     return { row, student, parent, existing }
   })
 
-  await syncLegacyUserFields([result.student.id, result.parent.id])
+  await syncUserTitle([result.student.id, result.parent.id])
   await audit(ctx.schoolId, ctx.actorId, 'create', 'user', result.student.id, undefined, { role: 'student', name: result.student.name, email: result.student.email, applicationId: app.id })
   if (!result.existing) await audit(ctx.schoolId, ctx.actorId, 'create', 'user', result.parent.id, undefined, { role: 'parent', name: result.parent.name, email: result.parent.email, applicationId: app.id })
+
+  // Credential delivery (Phase 9 — see phase-9-10-integrations-hardening.md → item 3). Best-effort;
+  // the credentials are also returned in the API response for the admitting staff member to hand over.
+  await sendEmail({
+    to: result.student.email, subject: 'Your EduNova student account',
+    body: `Welcome to EduNova, ${result.student.name}.\nLogin email: ${result.student.email}\nTemporary password: ${studentPassword}\nYou will be asked to set a new password on first login.`,
+  })
+  if (!result.existing) {
+    await sendEmail({
+      to: result.parent.email, subject: 'Your EduNova parent account',
+      body: `Welcome to EduNova. An account has been created for you as guardian of ${app.applicantName}.\nLogin email: ${result.parent.email}\nTemporary password: ${parentPassword}\nYou will be asked to set a new password on first login.`,
+    })
+  }
   return {
     row: result.row,
     created: {
@@ -239,7 +253,7 @@ export async function approve(ctx: Ctx, id: string) {
     if (!studentId) throw new HttpError(400, 'Application has no student')
     if (before.kind === 'TC') {
       await prisma.enrollment.updateMany({ where: { studentId, status: 'active' }, data: { status: 'transferred' } })
-      await syncLegacyUserFields([studentId])
+      await syncUserTitle([studentId])
     }
     row = await prisma.application.update({ where: { id }, data: { status: 'Approved', decidedById: ctx.actorId, decidedAt: new Date() }, include: applicationInclude })
     await certificates.issue(ctx, before.kind as 'TC' | 'Bonafide' | 'Character', studentId, id)

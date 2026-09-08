@@ -5,7 +5,7 @@ import { audit } from '../../lib/audit'
 import { notFound } from '../../lib/errors'
 import { fmtDate, toDate } from '../../lib/validate'
 import type { Ctx } from '../../lib/rbac'
-import { syncLegacyUserFields, usersTouchingClasses } from '../../lib/legacySync'
+import { syncUserTitle, usersTouchingClasses } from '../../lib/titleSync'
 import { createYear, patchYear } from './schema'
 
 export const serializeYear = (y: AcademicYear) => ({
@@ -63,7 +63,7 @@ export async function setCurrent(ctx: Ctx, id: string) {
   ])
   // Which enrollment counts as "current" changed for every student in the school.
   const classes = await prisma.class.findMany({ where: { schoolId: ctx.schoolId }, select: { id: true } })
-  await syncLegacyUserFields(await usersTouchingClasses(classes.map(c => c.id)))
+  await syncUserTitle(await usersTouchingClasses(classes.map(c => c.id)))
   await audit(ctx.schoolId, ctx.actorId, 'set-current', 'year', id, serializeYear(before), serializeYear(row))
   return row
 }
@@ -73,6 +73,6 @@ export async function remove(ctx: Ctx, id: string) {
   const classes = await prisma.class.findMany({ where: { academicYearId: id }, select: { id: true } })
   const affected = await usersTouchingClasses(classes.map(c => c.id))
   await prisma.academicYear.delete({ where: { id } })
-  await syncLegacyUserFields(affected)
+  await syncUserTitle(affected)
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'year', id, serializeYear(before))
 }

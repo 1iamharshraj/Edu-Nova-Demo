@@ -4,7 +4,7 @@ import { prisma } from '../../prisma'
 import { audit } from '../../lib/audit'
 import { HttpError, notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
-import { syncLegacyUserFields } from '../../lib/legacySync'
+import { syncUserTitle } from '../../lib/titleSync'
 import { assertStudent } from '../enrollments/service'
 import { createGuardian } from './schema'
 
@@ -36,7 +36,7 @@ export async function create(ctx: Ctx, input: z.infer<typeof createGuardian>) {
   await assertParent(ctx, input.parentId)
   await assertStudent(ctx, input.studentId)
   const row = await prisma.guardian.create({ data: { schoolId: ctx.schoolId, ...input } })
-  await syncLegacyUserFields([row.studentId, row.parentId])
+  await syncUserTitle([row.studentId, row.parentId])
   await audit(ctx.schoolId, ctx.actorId, 'create', 'guardian', row.id, undefined, serializeGuardian(row))
   return row
 }
@@ -44,6 +44,6 @@ export async function create(ctx: Ctx, input: z.infer<typeof createGuardian>) {
 export async function remove(ctx: Ctx, id: string) {
   const before = await get(ctx, id)
   await prisma.guardian.delete({ where: { id } })
-  await syncLegacyUserFields([before.studentId, before.parentId])
+  await syncUserTitle([before.studentId, before.parentId])
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'guardian', id, serializeGuardian(before))
 }

@@ -4,7 +4,7 @@ import { prisma } from '../../prisma'
 import { audit } from '../../lib/audit'
 import { HttpError, notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
-import { syncLegacyUserFields, usersTouchingClasses } from '../../lib/legacySync'
+import { syncUserTitle, usersTouchingClasses } from '../../lib/titleSync'
 import { toClientUser } from '../../serialize'
 import { serializeEnrollment } from '../enrollments/service'
 import { createClass, patchClass } from './schema'
@@ -109,7 +109,7 @@ export async function create(ctx: Ctx, input: z.infer<typeof createClass>) {
     include: classInclude,
   })
   await applyCurriculum(row)
-  if (row.classTeacherId) await syncLegacyUserFields([row.classTeacherId])
+  if (row.classTeacherId) await syncUserTitle([row.classTeacherId])
   await audit(ctx.schoolId, ctx.actorId, 'create', 'class', row.id, undefined, serializeClass(row))
   return row
 }
@@ -139,7 +139,7 @@ export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchCl
     },
     include: classInclude,
   })
-  await syncLegacyUserFields([...affected, row.classTeacherId ?? ''])
+  await syncUserTitle([...affected, row.classTeacherId ?? ''])
   await audit(ctx.schoolId, ctx.actorId, 'update', 'class', id, serializeClass(before), serializeClass(row))
   return row
 }
@@ -148,7 +148,7 @@ export async function remove(ctx: Ctx, id: string) {
   const before = await get(ctx, id)
   const affected = await usersTouchingClasses([id])
   await prisma.class.delete({ where: { id } })
-  await syncLegacyUserFields(affected)
+  await syncUserTitle(affected)
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'class', id, serializeClass(before))
 }
 

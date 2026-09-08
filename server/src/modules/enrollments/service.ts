@@ -4,7 +4,7 @@ import { prisma } from '../../prisma'
 import { audit } from '../../lib/audit'
 import { HttpError, notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
-import { syncLegacyUserFields } from '../../lib/legacySync'
+import { syncUserTitle } from '../../lib/titleSync'
 import { createEnrollment, patchEnrollment } from './schema'
 
 export const serializeEnrollment = (e: Enrollment) => ({
@@ -55,7 +55,7 @@ export async function create(ctx: Ctx, input: z.infer<typeof createEnrollment>) 
       rollNo: input.rollNo ?? null,
     },
   })
-  await syncLegacyUserFields([row.studentId])
+  await syncUserTitle([row.studentId])
   await audit(ctx.schoolId, ctx.actorId, 'create', 'enrollment', row.id, undefined, serializeEnrollment(row))
   return row
 }
@@ -72,7 +72,7 @@ export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchEn
       status: input.status,
     },
   })
-  await syncLegacyUserFields([row.studentId])
+  await syncUserTitle([row.studentId])
   await audit(ctx.schoolId, ctx.actorId, 'update', 'enrollment', id, serializeEnrollment(before), serializeEnrollment(row))
   return row
 }
@@ -80,6 +80,6 @@ export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchEn
 export async function remove(ctx: Ctx, id: string) {
   const before = await get(ctx, id)
   await prisma.enrollment.delete({ where: { id } })
-  await syncLegacyUserFields([before.studentId])
+  await syncUserTitle([before.studentId])
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'enrollment', id, serializeEnrollment(before))
 }

@@ -4,7 +4,7 @@ import { prisma } from '../../prisma'
 import { audit } from '../../lib/audit'
 import { notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
-import { syncLegacyUserFields } from '../../lib/legacySync'
+import { syncUserTitle } from '../../lib/titleSync'
 import { assertTeacher } from '../classes/service'
 import { createClassSubject, patchClassSubject } from './schema'
 
@@ -43,7 +43,7 @@ export async function create(ctx: Ctx, input: z.infer<typeof createClassSubject>
       periodsPerWeek: input.periodsPerWeek,
     },
   })
-  if (row.teacherId) await syncLegacyUserFields([row.teacherId])
+  if (row.teacherId) await syncUserTitle([row.teacherId])
   await audit(ctx.schoolId, ctx.actorId, 'create', 'classSubject', row.id, undefined, serializeClassSubject(row))
   return row
 }
@@ -53,7 +53,7 @@ export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchCl
   await assertRefs(ctx, input.classId, input.subjectId)
   if ('teacherId' in input) await assertTeacher(ctx, input.teacherId)
   const row = await prisma.classSubject.update({ where: { id }, data: input })
-  await syncLegacyUserFields([before.teacherId ?? '', row.teacherId ?? ''])
+  await syncUserTitle([before.teacherId ?? '', row.teacherId ?? ''])
   await audit(ctx.schoolId, ctx.actorId, 'update', 'classSubject', id, serializeClassSubject(before), serializeClassSubject(row))
   return row
 }
@@ -61,6 +61,6 @@ export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchCl
 export async function remove(ctx: Ctx, id: string) {
   const before = await get(ctx, id)
   await prisma.classSubject.delete({ where: { id } })
-  if (before.teacherId) await syncLegacyUserFields([before.teacherId])
+  if (before.teacherId) await syncUserTitle([before.teacherId])
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'classSubject', id, serializeClassSubject(before))
 }
