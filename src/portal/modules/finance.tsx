@@ -85,16 +85,18 @@ function LinesEditor({ lines, heads, onChange }: { lines: FeeStructureLine[]; he
 /** Name / class helpers over the users + academic slices. */
 function useStudentLookup() {
   const { db } = useStore()
-  const { classOf } = useAcademic()
+  const { classOf, enrollments, currentYear } = useAcademic()
   return useMemo(() => {
     const byId = new Map(db.users.map(u => [u.id, u]))
     return {
       students: db.users.filter(u => u.role === 'student').sort((a, b) => a.name.localeCompare(b.name)),
       nameOf: (id: string, fallback?: string) => fallback ?? byId.get(id)?.name ?? 'Student',
-      classLabel: (id: string, fallback?: string) => fallback ?? classOf(id)?.label ?? byId.get(id)?.class ?? '—',
+      classLabel: (id: string, fallback?: string) => fallback ?? classOf(id)?.label ?? '—',
+      rollOf: (id: string) => (enrollments.find(e => e.studentId === id && e.status === 'active' && (!currentYear || e.academicYearId === currentYear.id))
+        ?? enrollments.find(e => e.studentId === id))?.rollNo,
       userOf: (id: string) => byId.get(id),
     }
-  }, [db.users, classOf])
+  }, [db.users, classOf, enrollments, currentYear])
 }
 
 /* ── Fee Setup: heads · structures · invoices ──────────── */
@@ -415,14 +417,14 @@ function InvoicesTab() {
 /* ── Staff: collections (counter payments) ─────────────── */
 
 export function CollectionsMod() {
-  const { students, classLabel } = useStudentLookup()
+  const { students, classLabel, rollOf } = useStudentLookup()
   const [q, setQ] = useState('')
   const [pickedId, setPickedId] = useState('')
   const matches = useMemo(() => {
     const s = q.trim().toLowerCase()
     if (!s) return []
-    return students.filter(u => u.name.toLowerCase().includes(s) || (u.roll ?? '').toLowerCase() === s || classLabel(u.id).toLowerCase() === s || (u.email ?? '').toLowerCase().includes(s)).slice(0, 8)
-  }, [q, students, classLabel])
+    return students.filter(u => u.name.toLowerCase().includes(s) || (rollOf(u.id) ?? '').toLowerCase() === s || classLabel(u.id).toLowerCase() === s || (u.email ?? '').toLowerCase().includes(s)).slice(0, 8)
+  }, [q, students, classLabel, rollOf])
   const student = students.find(s => s.id === pickedId)
   const invoices = useInvoices({ studentId: pickedId }, !!pickedId)
   const payments = usePayments({ studentId: pickedId }, !!pickedId)
@@ -466,7 +468,7 @@ export function CollectionsMod() {
               <button key={s.id} onClick={() => { setPickedId(s.id); setQ('') }} className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-black/[.03] dark:hover:bg-white/[.05]">
                 <Avatar name={s.name} hue={s.avatarHue} size={30} />
                 <span className="flex-1 text-[14px] font-medium">{s.name}</span>
-                <span className="text-[12.5px] text-black/45 dark:text-white/45">{classLabel(s.id)}{s.roll ? ` · Roll ${s.roll}` : ''}</span>
+                <span className="text-[12.5px] text-black/45 dark:text-white/45">{classLabel(s.id)}{rollOf(s.id) ? ` · Roll ${rollOf(s.id)}` : ''}</span>
               </button>
             ))}
           </div>
@@ -479,7 +481,7 @@ export function CollectionsMod() {
             <Avatar name={student.name} hue={student.avatarHue} size={40} />
             <div className="flex-1">
               <p className="text-[15px] font-semibold">{student.name}</p>
-              <p className="text-[12.5px] text-black/45 dark:text-white/45">{classLabel(student.id)}{student.roll ? ` · Roll ${student.roll}` : ''}</p>
+              <p className="text-[12.5px] text-black/45 dark:text-white/45">{classLabel(student.id)}{rollOf(student.id) ? ` · Roll ${rollOf(student.id)}` : ''}</p>
             </div>
             <Pill tone={totalOut > 0 ? 'rose' : 'green'}>{totalOut > 0 ? `${fmtINR(totalOut)} outstanding` : 'Nothing outstanding'}</Pill>
           </div>
@@ -582,7 +584,7 @@ function StructureRow({ user, structure, onSaved }: { user: User; structure?: Sa
   const [busy, setBusy] = useState(false)
   const start = () => {
     setDraft({
-      basic: structure?.basic ?? user.contract?.salary ?? user.salary ?? 0,
+      basic: structure?.basic ?? 0,
       allowances: structure?.allowances.map(c => ({ ...c })) ?? [],
       deductions: structure?.deductions.map(c => ({ ...c })) ?? [],
       effectiveFrom: structure?.effectiveFrom ?? user.joinDate ?? isoDate(new Date()),
