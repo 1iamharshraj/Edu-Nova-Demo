@@ -1,7 +1,6 @@
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
-import { Prisma } from '@prisma/client'
 import { prisma } from '../prisma'
 import { requireAuth, type AuthedRequest } from '../auth'
 import { toClientUser } from '../serialize'
@@ -11,7 +10,7 @@ import { HttpError, notFound, wrap } from '../lib/errors'
 import { ctxOf, requireRole } from '../lib/rbac'
 import { validate } from '../lib/validate'
 import { audit } from '../lib/audit'
-import { syncLegacyUserFields, usersTouchingClasses } from '../lib/legacySync'
+import { syncUserTitle, usersTouchingClasses } from '../lib/titleSync'
 
 export const usersRouter = Router()
 usersRouter.use(requireAuth)
@@ -29,7 +28,7 @@ const extras = z.object({
 })
 const createBody = extras.extend({ role: z.enum(ROLES), name: z.string().min(1) })
 
-const editable = ['name', 'title', 'avatarHue', 'verified', 'mustChangePassword', 'class', 'section', 'roll', 'subjects', 'department', 'designation', 'reportsTo', 'joinDate', 'phone', 'parentEmail', 'board', 'dob', 'salary', 'wards', 'contract', 'resignation', 'photoFileId', 'emergencyContact', 'address'] as const
+const editable = ['name', 'title', 'avatarHue', 'verified', 'mustChangePassword', 'department', 'designation', 'reportsTo', 'joinDate', 'phone', 'dob', 'photoFileId', 'emergencyContact', 'address'] as const
 
 // Self-service profile edits (PATCH /me). Students cannot change their name.
 const selfBody = z.object({
@@ -124,7 +123,7 @@ usersRouter.post('/', wrap(async (req, res) => {
     return user
   })
 
-  await syncLegacyUserFields([created.id, ...(body.studentIds ?? []), classTeacherOf?.classTeacherId ?? ''])
+  await syncUserTitle([created.id, ...(body.studentIds ?? []), classTeacherOf?.classTeacherId ?? ''])
   const user = await prisma.user.findUniqueOrThrow({ where: { id: created.id } })
   await audit(ctx.schoolId, ctx.actorId, 'create', 'user', user.id, undefined, toClientUser(user))
   res.status(201).json({ user: toClientUser(user, password), password })
@@ -142,7 +141,7 @@ usersRouter.patch('/me', wrap(async (req, res) => {
     if (!f.mime.startsWith('image/')) throw new HttpError(400, 'photoFileId must reference an image')
   }
   const user = await prisma.user.update({ where: { id: ctx.actorId }, data: body })
-  if (body.name !== undefined) await syncLegacyUserFields([user.id])
+  if (body.name !== undefined) await syncUserTitle([user.id])
   const fresh = await prisma.user.findUniqueOrThrow({ where: { id: user.id } })
   await audit(ctx.schoolId, ctx.actorId, 'update', 'user', user.id, toClientUser(before), toClientUser(fresh))
   res.json({ user: toClientUser(fresh) })
@@ -167,9 +166,9 @@ usersRouter.patch('/:id/role', requireRole('superadmin'), wrap(async (req, res) 
       await tx.classSubject.updateMany({ where: { teacherId: target.id }, data: { teacherId: null } })
       await tx.timetableEntry.updateMany({ where: { teacherId: target.id }, data: { teacherId: null } })
     }
-    return tx.user.update({ where: { id: target.id }, data: { role: body.role, subjects: target.role === 'teacher' ? Prisma.DbNull : undefined, class: target.role === 'teacher' ? null : undefined } })
+    return tx.user.update({ where: { id: target.id }, data: { role: body.role } })
   })
-  await syncLegacyUserFields(affected)
+  await syncUserTitle(affected)
   const fresh = await prisma.user.findUniqueOrThrow({ where: { id: user.id } })
   await audit(ctx.schoolId, ctx.actorId, 'change-role', 'user', user.id, { role: target.role }, { role: fresh.role })
   res.json({ user: toClientUser(fresh) })
@@ -245,7 +244,7 @@ const updateUser = wrap(async (req, res) => {
     return user
   })
 
-  await syncLegacyUserFields(affected)
+  await syncUserTitle(affected)
   const user = await prisma.user.findUniqueOrThrow({ where: { id: updated.id } })
   await audit(ctx.schoolId, ctx.actorId, 'update', 'user', user.id, toClientUser(target), toClientUser(user))
   res.json({ user: toClientUser(user) })
@@ -265,7 +264,7 @@ usersRouter.delete('/:id', wrap(async (req, res) => {
   const parents = await prisma.guardian.findMany({ where: { studentId: target.id }, select: { parentId: true } })
   // Enrollment/Guardian cascade; ClassSubject.teacherId and Class.classTeacherId are set null by the DB.
   await prisma.user.delete({ where: { id: target.id } })
-  await syncLegacyUserFields(parents.map(p => p.parentId))
+  await syncUserTitle(parents.map(p => p.parentId))
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'user', target.id, toClientUser(target))
   res.json({ ok: true })
 }))
