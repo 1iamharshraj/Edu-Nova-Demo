@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { fromFile as fileTypeFromFile } from 'file-type'
 import type { File as FileRow } from '@prisma/client'
 import { prisma } from '../../prisma'
 import { audit } from '../../lib/audit'
@@ -24,6 +25,51 @@ export const ALLOWED: Record<string, string> = {
 }
 
 export const extOf = (name: string) => path.extname(name).slice(1).toLowerCase()
+
+// Content-sniffing (Phase 10 §4): the declared extension is only ever a hint from the client, so it is
+// re-checked against the file's actual magic bytes after upload — an executable renamed to `.jpg` (or any
+// other extension swap) is rejected even though multer's extension-based `fileFilter` already let it
+// through. `file-type` returns `undefined` for formats with no magic-number signature (plain text is the
+// only one we allow), so `.txt` gets a lighter heuristic instead: reject it if it sniffs as a *known*
+// binary format, or contains NUL/control bytes that plain text would not.
+const SNIFF_MIME: Partial<Record<string, string>> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+}
+
+async function looksLikeBinary(dest: string): Promise<boolean> {
+  const fh = await fs.promises.open(dest, 'r')
+  try {
+    const buf = Buffer.alloc(4096)
+    const { bytesRead } = await fh.read(buf, 0, 4096, 0)
+    for (let i = 0; i < bytesRead; i++) {
+      const b = buf[i]
+      // NUL or a control byte other than tab/newline/carriage-return is not something real text contains.
+      if (b === 0 || (b < 7) || (b > 13 && b < 32 && b !== 27)) return true
+    }
+    return false
+  } finally {
+    await fh.close()
+  }
+}
+
+async function assertContentMatchesExtension(dest: string, ext: string) {
+  const detected = await fileTypeFromFile(dest)
+  if (ext === 'txt') {
+    if (detected || (await looksLikeBinary(dest))) {
+      throw new HttpError(400, 'File content does not look like plain text — the extension does not match the actual file type', { declaredExt: ext, detectedMime: detected?.mime ?? null })
+    }
+    return
+  }
+  const expected = SNIFF_MIME[ext]
+  if (!detected || detected.mime !== expected) {
+    throw new HttpError(400, `File content does not match its .${ext} extension`, { declaredExt: ext, expectedMime: expected, detectedMime: detected?.mime ?? null })
+  }
+}
 
 export const serializeFile = (f: FileRow) => ({
   id: f.id,
@@ -64,6 +110,13 @@ export async function register(ctx: Ctx, upload: { originalname: string; mimetyp
   const dest = path.join(UPLOAD_ROOT, rel)
   await fs.promises.mkdir(path.dirname(dest), { recursive: true })
   await fs.promises.rename(upload.path, dest)
+
+  try {
+    await assertContentMatchesExtension(dest, ext)
+  } catch (err) {
+    await fs.promises.rm(dest, { force: true })
+    throw err
+  }
 
   const hash = crypto.createHash('sha256')
   await new Promise<void>((resolve, reject) => {
