@@ -5,6 +5,7 @@ import type { SessionStatus, Term, User } from '@/lib/data'
 import {
   STATUS_LABEL, STATUS_SOFT, bandsForClass, gradeFromBands, pctTone, useAttendanceSummary, useGradeScales, useRanks, useReportCard, useStaffSummary,
 } from '@/lib/hooks/useAcademics'
+import { useCalendarEvents } from '@/lib/hooks/useComms'
 import { Avatar, Card, Empty, PageHead, Pill, Progress, TermTabs, inputCls } from '../ui'
 import { firstName, useActiveTerm, useWard } from './viewer'
 
@@ -329,10 +330,14 @@ export function RanksMod() {
 /* ── Calendar ──────────────────────────────────────────── */
 
 export function CalendarMod() {
-  const { db } = useStore()
+  const { db, user } = useStore()
+  const { classOf } = useAcademic()
+  const { ward } = useWard()
   const { term, setTerm, termObj } = useActiveTerm()
   const [mi, setMi] = useState(0)
-  const events = db.events.filter(e => e.term === term)
+  const { items: allEvents } = useCalendarEvents({ termId: term })
+  const myClassId = user?.role === 'student' ? classOf(user.id)?.id : ward ? classOf(ward.id)?.id : undefined
+  const events = (allEvents ?? []).filter(e => e.audience === 'School' || e.classId === myClassId)
   if (!termObj) {
     return (
       <div>
@@ -388,7 +393,7 @@ export function CalendarMod() {
           <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">This term</p>
           <div className="space-y-3">
             {events.map((e) => (
-              <div key={e.date + e.title + e.type} className="flex items-center gap-3.5 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
+              <div key={e.id} className="flex items-center gap-3.5 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
                 <span className={`flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-xl text-[11px] font-bold leading-none
                   ${e.type === 'holiday' ? 'bg-rose-100 text-rose-600' : e.type === 'exam' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-600'}`}>
                   {new Date(e.date).getDate()}

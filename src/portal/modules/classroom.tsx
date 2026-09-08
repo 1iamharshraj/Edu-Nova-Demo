@@ -155,7 +155,7 @@ export function TakeAttendanceMod() {
 
 export function AttendanceMgmtMod() {
   const { db, user } = useStore()
-  const { classes, currentYear, templateFor } = useAcademic()
+  const { classes, currentYear, templateFor, classSubjects, subjectById } = useAcademic()
   const admin = isAdmin(user)
   const [tab, setTab] = useState<'students' | 'staff'>('students')
   const classList = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })), [classes, currentYear])
@@ -194,6 +194,7 @@ export function AttendanceMgmtMod() {
   const [date, setDate] = useState(() => isoDate(new Date()))
   const staffQ = useStaffAttendance(tab === 'staff' ? date : undefined)
   const people = useMemo(() => db.users.filter(u => u.role === 'teacher' || u.role === 'staff' || u.role === 'admin').sort((a, b) => a.role.localeCompare(b.role) || a.name.localeCompare(b.name)), [db.users])
+  const subjectsOf = (teacherId: string) => [...new Set(classSubjects.filter(cs => cs.teacherId === teacherId).map(cs => subjectById.get(cs.subjectId)?.name).filter((n): n is string => !!n))]
   const serverStaff = useMemo(() => new Map((staffQ.items ?? []).map(r => [r.userId, r.status])), [staffQ.items])
   const [staffEdits, setStaffEdits] = useState<{ date: string; cells: Record<string, StaffStatus> }>({ date, cells: {} })
   const staffCells = staffEdits.date === date ? staffEdits.cells : {}
@@ -303,7 +304,7 @@ export function AttendanceMgmtMod() {
                   <Avatar name={p.name} hue={p.avatarHue} size={36} />
                   <div className="flex-1">
                     <p className="text-[14px] font-semibold">{p.name}</p>
-                    <p className="text-[12px] capitalize text-black/45 dark:text-white/45">{p.role}{p.department ? ` · ${p.department}` : p.subjects?.length ? ` · ${p.subjects.join(', ')}` : ''}</p>
+                    <p className="text-[12px] capitalize text-black/45 dark:text-white/45">{p.role}{p.department ? ` · ${p.department}` : subjectsOf(p.id).length ? ` · ${subjectsOf(p.id).join(', ')}` : ''}</p>
                   </div>
                   {!serverStaff.has(p.id) && !(p.id in staffCells) && <span className="text-[11.5px] text-black/35 dark:text-white/35">not marked</span>}
                   <StatusToggle value={staffStatus(p.id)} options={STAFF_STATUSES} onChange={s => setStaffEdits({ date, cells: { ...staffCells, [p.id]: s } })} />

@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
 import { api, errorMessage, uploadFile } from '@/lib/api'
 import { MIN_PASSWORD, fmtDateTime, passwordProblem, useFileUrl } from '@/lib/hooks/useIdentity'
+import { PushToggle } from '@/lib/pwa'
 import { Avatar, Card, Field, PageHead, Pill, VerificationCard, inputCls } from '../ui'
 
 // Profile screen (every role): self-service edits via PATCH /users/me, photo upload, password change,
@@ -132,6 +133,11 @@ export function ProfileMod() {
               <VerificationCard />
             </Card>
           )}
+
+          <Card>
+            {sectionHead('Notifications')}
+            <PushToggle />
+          </Card>
         </div>
 
         <div className="space-y-5">

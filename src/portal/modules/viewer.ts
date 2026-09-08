@@ -6,7 +6,7 @@ import { useTerm } from '../Portal'
 /**
  * Students the logged-in user views "as their own":
  * - student → themself
- * - parent  → wards from the academic guardians table, falling back to the legacy parentEmail match
+ * - parent  → wards from the academic guardians table
  * - anyone else → none
  */
 export function useViewedStudents(): User[] {
@@ -16,11 +16,9 @@ export function useViewedStudents(): User[] {
     if (!user) return []
     if (user.role === 'student') return [db.users.find(u => u.id === user.id) ?? user]
     if (user.role === 'parent') {
-      const byGuardian = wardsOf(user.id)
+      return wardsOf(user.id)
         .map(id => db.users.find(u => u.id === id && u.role === 'student'))
         .filter((u): u is User => !!u)
-      if (byGuardian.length) return byGuardian
-      return db.users.filter(u => u.role === 'student' && !!user.email && u.parentEmail === user.email)
     }
     return []
   }, [db.users, user, wardsOf])
