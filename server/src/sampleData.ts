@@ -11,6 +11,13 @@ import { loadPhase6 } from './samplePhase6'
 import { loadPhase7 } from './samplePhase7'
 import { loadPhase8 } from './samplePhase8'
 import { loadPhase9 } from './samplePhase9'
+import { loadPhase11 } from './samplePhase11'
+import { loadPhase12 } from './samplePhase12'
+import { loadPhase13 } from './samplePhase13'
+import { loadPhase14 } from './samplePhase14'
+import { loadPhase15 } from './samplePhase15'
+import { loadPhase16 } from './samplePhase16'
+import { loadPhase17 } from './samplePhase17'
 
 const YEAR = { label: '2025-26', start: '2025-06-01', end: '2026-05-31' }
 // Fixed term ids matching the seed term list (`sampleConstants.ts`).
@@ -229,6 +236,29 @@ export async function loadSampleData(schoolId: string) {
 
     // Phase 9: event highlights, one example AI tutor conversation.
     await loadPhase9(tx, { schoolId, classIds, userId })
+
+    // Phase 11: employee IDs, reportsTo, performance reviews, staff conduct, employee documents.
+    await loadPhase11(tx, { schoolId, userId })
+
+    // Phase 12: transport routes/stops, vehicles, student stop assignments, recent location pings.
+    await loadPhase12(tx, { schoolId, userId })
+
+    // Phase 13: alumni profiles, one alumni event with RSVPs, a couple of donations.
+    await loadPhase13(tx, { schoolId, userId })
+
+    // Phase 14: one hostel, rooms/beds, a few student allocations (incl. one transfer), a Hostel fee head.
+    await loadPhase14(tx, { schoolId, userId })
+
+    // Phase 15: books/copies across a few categories, active loans, one overdue + one returned-late-with-fine.
+    await loadPhase15(tx, { schoolId, userId })
+
+    // Phase 16: inventory items across a few categories (some below reorder threshold), vendors, one
+    // fully-received PO and one partially-received PO, stock-movement history.
+    await loadPhase16(tx, { schoolId, userId })
+
+    // Phase 17: chart of accounts, a ledger mirroring the Fees/Payroll activity above via the same
+    // auto-posting shape the live hooks use, plus a couple of manual entries (opening balance, Utilities).
+    await loadPhase17(tx, { schoolId, userId })
   }, { timeout: 60_000 })
 
   const all = await prisma.user.findMany({ where: { schoolId }, select: { id: true, email: true } })

@@ -1,16 +1,22 @@
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../prisma'
 import { requireAuth, type AuthedRequest } from '../auth'
 import { toClientUser } from '../serialize'
 import { canManage } from '../access'
-import { makeEmail, rolePassword, uid, idPrefixFor, type Role } from '../userDefaults'
+import { makeEmail, genPassword, uid, idPrefixFor, EMPLOYEE_ROLES, type Role } from '../userDefaults'
 import { HttpError, notFound, wrap } from '../lib/errors'
 import { ctxOf, requireRole } from '../lib/rbac'
+import { isAdmin } from '../lib/scope'
 import { validate } from '../lib/validate'
 import { audit } from '../lib/audit'
 import { syncUserTitle, usersTouchingClasses } from '../lib/titleSync'
+import { logChange } from '../modules/employmentHistory/service'
+import * as docsSvc from '../modules/employeeDocuments/service'
+import { serializeDocument } from '../modules/employeeDocuments/service'
+import { addDocument } from '../modules/employeeDocuments/schema'
 
 export const usersRouter = Router()
 usersRouter.use(requireAuth)
@@ -68,6 +74,38 @@ async function assertRole(schoolId: string, ids: string[], role: Role) {
   if (rows.length !== new Set(ids).size) throw new HttpError(400, `All ids must reference users with role ${role}`, { ids })
 }
 
+// ═══════════════════════════ Phase 11 · A1 employee IDs, A2 reportsTo ═══════════════════════════
+// See phase-11-employee-management.md. A1: "EMP-<joinYear>-<4-digit sequence>", generated at creation
+// time for employee roles only — same count-inside-transaction convention as certificates/payslips/fee
+// invoices (see modules/certificates/service.ts#issue, modules/payroll/service.ts#run).
+
+async function nextEmployeeId(tx: Prisma.TransactionClient, schoolId: string, joinDate: string) {
+  const year = joinDate.slice(0, 4)
+  const base = `EMP-${year}-`
+  const count = await tx.user.count({ where: { schoolId, employeeId: { startsWith: base } } })
+  return `${base}${String(count + 1).padStart(4, '0')}`
+}
+
+// A2: reportsTo must reference another employee-role user of the same school, and must not (transitively)
+// create a cycle. `selfId` is omitted on create (a brand-new id cannot appear in any existing chain).
+async function assertValidManager(schoolId: string, role: string, reportsTo: string, selfId?: string) {
+  if (!EMPLOYEE_ROLES.includes(role as Role)) throw new HttpError(400, 'reportsTo is only valid for employee accounts (teacher/staff/admin/superadmin)')
+  if (selfId && reportsTo === selfId) throw new HttpError(400, 'A user cannot report to themselves')
+  const manager = await prisma.user.findFirst({ where: { id: reportsTo, schoolId, role: { in: EMPLOYEE_ROLES } } })
+  if (!manager) throw new HttpError(400, 'reportsTo must reference an employee of this school', { reportsTo })
+  if (selfId) {
+    let current: string | null = reportsTo
+    const seen = new Set<string>()
+    for (let i = 0; i < 200 && current; i++) {
+      if (current === selfId) throw new HttpError(400, 'That would create a reporting cycle')
+      if (seen.has(current)) break // an already-broken cycle elsewhere in the data — nothing more to check
+      seen.add(current)
+      const row: { reportsTo: string | null } | null = await prisma.user.findUnique({ where: { id: current }, select: { reportsTo: true } })
+      current = row?.reportsTo ?? null
+    }
+  }
+}
+
 usersRouter.get('/', wrap(async (req, res) => {
   const users = await prisma.user.findMany({ where: { schoolId: (req as AuthedRequest).auth!.schoolId } })
   res.json({ users: users.map(u => toClientUser(u)) })
@@ -90,12 +128,22 @@ usersRouter.post('/', wrap(async (req, res) => {
   const classTeacherOf = body.classTeacherOf ? await getClass(ctx.schoolId, body.classTeacherOf) : null
   if (body.studentIds?.length) await assertRole(ctx.schoolId, body.studentIds, 'student')
 
-  const email = (body.email ?? makeEmail(body.name, role)).toLowerCase()
-  const password = body.password ?? rolePassword(role)
-  const passwordHash = await bcrypt.hash(password, 10)
   const raw = req.body as Record<string, unknown>
+  // A2: reportsTo, if given, must be another employee of this school — a brand-new user's id cannot yet
+  // appear in any existing chain, so no cycle check is needed here (only on update).
+  if (raw.reportsTo) await assertValidManager(ctx.schoolId, role, raw.reportsTo as string)
+
+  const email = (body.email ?? makeEmail(body.name, role)).toLowerCase()
+  // Random one-time password, same pattern as admissions (applications/service.ts) and
+  // auth.ts's admin/set-password — never a static per-role password. The account must change it on
+  // first login regardless of whether the password was generated here or supplied by the caller.
+  const password = body.password ?? genPassword()
+  const passwordHash = await bcrypt.hash(password, 10)
+  const joinDate = (raw.joinDate as string) ?? new Date().toISOString().slice(0, 10)
 
   const created = await prisma.$transaction(async tx => {
+    // A1: employee ID, assigned only for teacher/staff/admin/superadmin — see nextEmployeeId() above.
+    const employeeId = EMPLOYEE_ROLES.includes(role) ? await nextEmployeeId(tx, ctx.schoolId, joinDate) : null
     const user = await tx.user.create({
       data: {
         ...pickEditable(raw),
@@ -105,10 +153,12 @@ usersRouter.post('/', wrap(async (req, res) => {
         name: body.name,
         email,
         passwordHash,
+        mustChangePassword: true,
         title: (raw.title as string) ?? `${role} · onboarded`,
         avatarHue: (raw.avatarHue as number) ?? Math.floor(Math.random() * 360),
         verified: (raw.verified as boolean) ?? true,
-        joinDate: (raw.joinDate as string) ?? new Date().toISOString().slice(0, 10),
+        joinDate,
+        employeeId,
       } as any,
     })
     if (cls) {
@@ -147,6 +197,44 @@ usersRouter.patch('/me', wrap(async (req, res) => {
   res.json({ user: toClientUser(fresh) })
 }))
 
+// ═══════════════════════════ Phase 11 · A2 team / org chart ═══════════════════════════
+
+// GET /org-chart — HR/admin only. The whole school's employee-role users as a tree (roots = no manager,
+// or a manager outside the employee-role set / a broken reference). Declared before "/:id/reports" only
+// for readability — the two paths never collide (different shapes, and there is no bare GET "/:id").
+usersRouter.get('/org-chart', requireRole('admin', 'superadmin'), wrap(async (req, res) => {
+  const ctx = ctxOf(req as AuthedRequest)
+  const employees = await prisma.user.findMany({
+    where: { schoolId: ctx.schoolId, role: { in: EMPLOYEE_ROLES } },
+    select: { id: true, name: true, role: true, title: true, designation: true, department: true, employeeId: true, photoFileId: true, reportsTo: true },
+    orderBy: [{ name: 'asc' }],
+  })
+  type Employee = (typeof employees)[number]
+  type Node = Employee & { reports: Node[] }
+  const byId = new Map<string, Node>(employees.map(e => [e.id, { ...e, reports: [] }]))
+  const roots: Node[] = []
+  for (const node of byId.values()) {
+    const manager = node.reportsTo ? byId.get(node.reportsTo) : undefined
+    if (manager) manager.reports.push(node)
+    else roots.push(node)
+  }
+  res.json({ roots })
+}))
+
+// GET /:id/reports — "My Team": the direct reports of a user. Self, or HR/admin for anyone.
+usersRouter.get('/:id/reports', wrap(async (req, res) => {
+  const ctx = ctxOf(req as AuthedRequest)
+  if (ctx.actorId !== req.params.id && !isAdmin(ctx)) throw new HttpError(403, 'You may only view your own team')
+  const target = await prisma.user.findFirst({ where: { id: req.params.id, schoolId: ctx.schoolId } })
+  if (!target) throw notFound('User')
+  const items = await prisma.user.findMany({
+    where: { schoolId: ctx.schoolId, reportsTo: target.id },
+    select: { id: true, name: true, role: true, title: true, designation: true, department: true, employeeId: true, photoFileId: true },
+    orderBy: [{ name: 'asc' }],
+  })
+  res.json({ items })
+}))
+
 // PATCH /:id/role — superadmin only, within admin / staff / teacher.
 usersRouter.patch('/:id/role', requireRole('superadmin'), wrap(async (req, res) => {
   const ctx = ctxOf(req as AuthedRequest)
@@ -171,6 +259,7 @@ usersRouter.patch('/:id/role', requireRole('superadmin'), wrap(async (req, res) 
   await syncUserTitle(affected)
   const fresh = await prisma.user.findUniqueOrThrow({ where: { id: user.id } })
   await audit(ctx.schoolId, ctx.actorId, 'change-role', 'user', user.id, { role: target.role }, { role: fresh.role })
+  await logChange(ctx.schoolId, user.id, 'Role', target.role, fresh.role, ctx.actorId) // A4 (best-effort, never blocks the response)
   res.json({ user: toClientUser(fresh) })
 }))
 
@@ -202,6 +291,9 @@ const updateUser = wrap(async (req, res) => {
   if (body.classId && target.role !== 'student') throw new HttpError(400, 'classId is only valid for students')
   if (body.studentIds && target.role !== 'parent') throw new HttpError(400, 'studentIds is only valid for parents')
   if ('classTeacherOf' in body && target.role !== 'teacher') throw new HttpError(400, 'classTeacherOf is only valid for teachers')
+  // A2: reportsTo, if being changed to a real value, must be another employee of this school with no
+  // resulting cycle. Clearing it (null) needs no validation.
+  if ('reportsTo' in raw && raw.reportsTo) await assertValidManager(ctx.schoolId, target.role, raw.reportsTo as string, target.id)
 
   const cls = body.classId ? await getClass(ctx.schoolId, body.classId) : null
   const classTeacherOf = body.classTeacherOf ? await getClass(ctx.schoolId, body.classTeacherOf) : null
@@ -247,6 +339,9 @@ const updateUser = wrap(async (req, res) => {
   await syncUserTitle(affected)
   const user = await prisma.user.findUniqueOrThrow({ where: { id: updated.id } })
   await audit(ctx.schoolId, ctx.actorId, 'update', 'user', user.id, toClientUser(target), toClientUser(user))
+  // A4 — best-effort employment-history log, never blocks the response (see logChange()).
+  if (target.designation !== user.designation) await logChange(ctx.schoolId, user.id, 'Designation', target.designation, user.designation ?? '—', ctx.actorId)
+  if (target.department !== user.department) await logChange(ctx.schoolId, user.id, 'Department', target.department, user.department ?? '—', ctx.actorId)
   res.json({ user: toClientUser(user) })
 })
 
@@ -267,4 +362,32 @@ usersRouter.delete('/:id', wrap(async (req, res) => {
   await syncUserTitle(parents.map(p => p.parentId))
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'user', target.id, toClientUser(target))
   res.json({ ok: true })
+}))
+
+// ═══════════════════════════ Phase 11 · A6 employee documents + ID card ═══════════════════════════
+// See phase-11-employee-management.md. No new file-storage code: upload via POST /api/files first, then
+// attach the returned fileId here with a label. HR/admin only end to end (see modules/employeeDocuments
+// /service.ts for why the employee's own Profile does not get document management in this phase).
+
+usersRouter.get('/:id/documents', wrap(async (req, res) => {
+  const items = (await docsSvc.listDocuments(ctxOf(req as AuthedRequest), req.params.id)).map(serializeDocument)
+  res.json({ items })
+}))
+usersRouter.post('/:id/documents', wrap(async (req, res) => {
+  const item = serializeDocument(await docsSvc.addDocumentRow(ctxOf(req as AuthedRequest), req.params.id, validate(addDocument, req.body)))
+  res.status(201).json({ item })
+}))
+usersRouter.delete('/:id/documents/:docId', wrap(async (req, res) => {
+  await docsSvc.removeDocument(ctxOf(req as AuthedRequest), req.params.id, req.params.docId)
+  res.json({ ok: true })
+}))
+
+// GET /:id/id-card.pdf — self or HR/admin. The ":id" segment is followed by a literal "/id-card.pdf", so
+// (unlike modules/hr/router.ts's "/contracts/:id.pdf") there is no ordering hazard with a generic "/:id".
+usersRouter.get('/:id/id-card.pdf', wrap(async (req, res) => {
+  const { bytes, name } = await docsSvc.idCardPdf(ctxOf(req as AuthedRequest), req.params.id)
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Length', String(bytes.length))
+  res.setHeader('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`)
+  res.end(bytes)
 }))

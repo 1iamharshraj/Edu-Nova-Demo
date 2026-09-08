@@ -14,6 +14,7 @@ export function toClientUser(u: PrismaUser, plainPassword?: string) {
     avatarHue: u.avatarHue,
     verified: u.verified,
     mustChangePassword: u.mustChangePassword,
+    employeeId: u.employeeId ?? undefined,
     department: u.department ?? undefined,
     designation: u.designation ?? undefined,
     reportsTo: u.reportsTo ?? undefined,

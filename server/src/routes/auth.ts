@@ -12,7 +12,7 @@ import { requireRole, ctxOf } from '../lib/rbac'
 import { validate } from '../lib/validate'
 import { audit } from '../lib/audit'
 import { sendEmail } from '../lib/notify'
-import type { Role } from '../userDefaults'
+import { genPassword, type Role } from '../userDefaults'
 import { deactivateIfPastLastWorkingDate } from '../modules/hr/service'
 
 export const authRouter = Router()
@@ -20,7 +20,6 @@ export const authRouter = Router()
 const RESET_TTL_MS = 60 * 60 * 1000
 const password = z.string().min(8, 'Password must be at least 8 characters').max(200)
 const hashToken = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
-const genPassword = () => crypto.randomBytes(6).toString('base64url').replace(/[^A-Za-z0-9]/g, 'x').slice(0, 8) + '2k'
 
 // Rate limiting (Phase 10 §1) — scoped to `/api/auth/*` only, not the whole app. `login` is the tightest
 // (credential-stuffing target); `forgot`/`reset`/`refresh` are looser but still capped since they touch

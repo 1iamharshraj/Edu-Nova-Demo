@@ -50,6 +50,25 @@ export async function assertWriteClass(ctx: Ctx, classId: string) {
   if (!(await canWriteClass(ctx, classId))) throw new HttpError(403, 'You do not teach this class')
 }
 
+// Precise, subject-scoped write check for assessments/homework (and the analogous per-period attendance
+// case): a teacher may write a resource pinned to one `ClassSubject` row only if they are its
+// `teacherId`, or the class teacher of the class it belongs to. Fixes the bypass where `canWriteClass`
+// (teaches *something* in the class) let a teacher write another subject's data in a class they share.
+export async function canWriteClassSubject(ctx: Ctx, classSubjectId: string): Promise<boolean> {
+  if (isStaff(ctx)) return true
+  if (ctx.role !== 'teacher') return false
+  const cs = await prisma.classSubject.findFirst({
+    where: { id: classSubjectId, schoolId: ctx.schoolId },
+    select: { teacherId: true, class: { select: { classTeacherId: true } } },
+  })
+  if (!cs) return false
+  return cs.teacherId === ctx.actorId || cs.class.classTeacherId === ctx.actorId
+}
+
+export async function assertWriteClassSubject(ctx: Ctx, classSubjectId: string) {
+  if (!(await canWriteClassSubject(ctx, classSubjectId))) throw new HttpError(403, 'You do not teach this subject in this class')
+}
+
 // Read visibility: students only their own class, parents only a ward's class; everyone else any class.
 export async function canViewClass(ctx: Ctx, classId: string): Promise<boolean> {
   if (ctx.role === 'student') return !!(await prisma.enrollment.findFirst({ where: { classId, studentId: ctx.actorId } }))

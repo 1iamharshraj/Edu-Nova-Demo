@@ -38,6 +38,15 @@ import { reportsRouter } from './modules/reports/router'
 import { aiRouter } from './modules/ai/router'
 import { highlightsRouter } from './modules/highlights/router'
 import { pushRouter } from './modules/push/router'
+import { reviewsRouter } from './modules/reviews/router'
+import { employmentHistoryRouter } from './modules/employmentHistory/router'
+import { staffConductRouter } from './modules/staffConduct/router'
+import { transportRouter } from './modules/transport/router'
+import { alumniRouter } from './modules/alumni/router'
+import { hostelRouter } from './modules/hostel/router'
+import { libraryRouter } from './modules/library/router'
+import { inventoryRouter } from './modules/inventory/router'
+import { accountingRouter } from './modules/accounting/router'
 import { errorHandler } from './lib/errors'
 
 export function createApp() {
@@ -96,6 +105,15 @@ export function createApp() {
   app.use('/api/ai', aiRouter)
   app.use('/api/highlights', highlightsRouter)
   app.use('/api/push', pushRouter)
+  app.use('/api/reviews', reviewsRouter)
+  app.use('/api/employment-history', employmentHistoryRouter)
+  app.use('/api/staff-conduct', staffConductRouter)
+  app.use('/api/transport', transportRouter)
+  app.use('/api/alumni', alumniRouter)
+  app.use('/api/hostel', hostelRouter)
+  app.use('/api/library', libraryRouter)
+  app.use('/api/inventory', inventoryRouter)
+  app.use('/api/accounting', accountingRouter)
 
   app.use(errorHandler)
   return app
