@@ -1,18 +1,23 @@
 import { useMemo, useState } from 'react'
 import {
-  AlertCircle, AlertTriangle, BadgeCheck, Briefcase, CalendarPlus, Check, Copy, Download, FileBadge, FileText, Paperclip, Pencil, Plus,
-  School, ScrollText, Search, Send, ShieldAlert, Sparkles, Trash2, UserPlus, X,
+  AlertCircle, AlertTriangle, BadgeCheck, CalendarPlus, Check, Copy, Download, FileBadge, Paperclip, Pencil, Plus,
+  School, Search, Send, ShieldAlert, Sparkles, Trash2, UserPlus, X,
 } from 'lucide-react'
 import { useAcademic, useStore, type CreateUserInput } from '@/lib/store'
-import { api, downloadFile, downloadPath, errorMessage, uploadFile } from '@/lib/api'
+import { api, downloadFile, downloadPath, errorMessage } from '@/lib/api'
 import { canManage, isAdmin, isStaffOrAdmin, isSuperAdmin } from '@/lib/access'
-import { fmtINR, type Board, type BoardRegistration, type BoardRegistrationStatus, type CalEvent, type Certificate, type CertificateKind, type Contract, type ContractStatus, type ParentVerification, type Resignation, type Role, type Term, type User, type VerificationStatus } from '@/lib/data'
+import {
+  type ActivityKind, type ActivityRec, type AdmissionCreated, type ApplicationKind, type ApplicationRec, type ApplicationStatus,
+  type BoardRegistration, type BoardRegistrationStatus, type CalendarEventRec, type Certificate, type CertificateKind,
+  type ParentVerification, type Role, type User, type VerificationStatus,
+} from '@/lib/data'
 import {
   APPLICATION_KINDS, APPLICATION_STATUSES, BOARD_REG_STATUSES, CERTIFICATE_KINDS, KIND_LABEL, boardRegLabel, boardRegTone, certificateFileName,
   isCertificateKind, kindTone, useApplications, useBoardRegistrations, useFileUrl, useVerifications, verificationTone,
-  type AdmissionCreated, type ApplicationKind, type ApplicationRec, type ApplicationStatus,
 } from '@/lib/hooks/useIdentity'
 import { fmtDate, qs, useFetchMany } from '@/lib/hooks/useAcademics'
+import { useCalendarEvents } from '@/lib/hooks/useComms'
+import { ACTIVITY_KIND_LABEL, ACTIVITY_KINDS, activityRegTone, useActivities, useActivityRegistrations } from '@/lib/hooks/useWelfare'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, UploadField, inputCls, statusTone, type UploadedFile } from '../ui'
 import { StudentReportMod } from './studentReport'
 import { useViewedStudents } from './viewer'
@@ -23,185 +28,174 @@ export { AttendanceMgmtMod, CreateAssignmentMod, GradebookMod, TakeAttendanceMod
 
 const todayISO = () => new Date().toISOString().slice(0, 10)
 
-/** Current term id from the legacy `db.terms` shape — falls back to the first term, else ''. */
-function defaultTermId(terms: Term[]): string {
-  return terms.find(t => t.current)?.id ?? terms[0]?.id ?? ''
-}
-
-/* ── Teacher: contract & notice period ─────────────────── */
-
-export function ContractMod() {
-  const { db, user } = useStore()
-  const [notice, setNotice] = useState(false)
-  const [declared, setDeclared] = useState(false)
-  const contract = db.contracts.find(c => c.userId === user?.id)
-  return (
-    <div>
-      <PageHead title="My Contract" sub="Employment terms and declarations" />
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Card>
-          <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><ScrollText size={15} /> Current contract</p>
-          {contract ? (
-            <div>
-              {[
-                ['Employee', `${user?.name} · ${contract.userId.toUpperCase()}`],
-                ['Designation', contract.designation],
-                ['Department', contract.department || '—'],
-                ['Tenure', `${contract.startDate} → ${contract.endDate}`],
-                ['Base salary', fmtINR(contract.salary) + ' / month'],
-                ['Leave policy', '18 paid days / year · deductions per day beyond'],
-                ['Notice period', '60 days, either side'],
-              ].map(([k, v]) => (
-                <div key={k} className="flex justify-between border-b border-black/[.05] dark:border-white/[.07] py-3 text-[14px] last:border-0">
-                  <span className="text-black/50 dark:text-white/50">{k}</span><span className="font-semibold">{v}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <Empty text="No contract on file. Contact the admin office." />
-          )}
-        </Card>
-        <Card>
-          <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><FileBadge size={15} /> Notice period declaration</p>
-          {declared ? (
-            <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 p-5 text-center">
-              <BadgeCheck size={36} className="mx-auto text-emerald-600" />
-              <p className="mt-3 text-[15px] font-semibold text-emerald-700 dark:text-emerald-400">Declaration submitted</p>
-              <p className="mt-1 text-[13px] text-emerald-600/80 dark:text-emerald-400/80">Your 60-day notice clock started on {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}. HR has been notified.</p>
-            </div>
-          ) : (
-            <>
-              <p className="text-[13.5px] leading-relaxed text-black/55 dark:text-white/55">
-                Declaring notice starts your formal exit process. Your timetable duties stay assigned until HR assigns a handover.
-              </p>
-              <label className="mt-4 flex items-start gap-3 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-4 text-[13px] text-black/60 dark:text-white/60">
-                <input type="checkbox" checked={notice} onChange={e => setNotice(e.target.checked)} className="mt-0.5" />
-                I understand this begins a 60-day notice period as per my contract.
-              </label>
-              <button onClick={() => { setDeclared(true); toast.success('Notice period declared') }} disabled={!notice}
-                className="btn-ink mt-4 w-full py-3 text-[14px] font-semibold disabled:opacity-40">Declare notice period</button>
-            </>
-          )}
-        </Card>
-      </div>
-    </div>
-  )
-}
 
 /* ── Teacher/staff: work assignments ───────────────────── */
 
-export function WorkAssignMod({ manage = false }: { manage?: boolean }) {
-  const { db, update } = useStore()
-  const [open, setOpen] = useState(false)
-  const [title, setTitle] = useState('')
-  const [event, setEvent] = useState('Tech Fest ‘26')
-  const toggle = (id: string) => {
-    update(d => { const w = d.workAssign.find(x => x.id === id); if (w) w.status = w.status === 'Done' ? 'Assigned' : 'Done'; return d })
-  }
-  const create = () => {
-    update(d => { d.workAssign.unshift({ id: 'w' + Date.now(), title, event, due: '2026-04-30', status: 'Assigned' }); return d })
-    setOpen(false); setTitle(''); toast.success('Work assignment generated')
-  }
-  return (
-    <div>
-      <PageHead title={manage ? 'Faculty Work Assignment' : 'My Event Duties'} sub={manage ? 'Generate duties from the event seed' : 'Everything you’re rostered for, in one place'}>
-        {manage && <button onClick={() => setOpen(true)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><Plus size={15} /> Generate duty</button>}
-      </PageHead>
-      <div className="grid gap-4 md:grid-cols-2">
-        {db.workAssign.map(w => (
-          <Card key={w.id} className="flex items-center gap-4">
-            <button onClick={() => toggle(w.id)}
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${w.status === 'Done' ? 'bg-emerald-500 text-white' : 'bg-black/[.06] dark:bg-white/[.08] text-black/30 dark:text-white/30 hover:bg-black/10 dark:hover:bg-white/15'}`}>
-              <Check size={18} />
-            </button>
-            <div className="flex-1">
-              <p className={`text-[14.5px] font-semibold ${w.status === 'Done' ? 'text-black/40 dark:text-white/40 line-through' : ''}`}>{w.title}</p>
-              <p className="text-[12.5px] text-black/45 dark:text-white/45">{w.event} · due {new Date(w.due).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
-            </div>
-            <Pill tone={statusTone(w.status)}>{w.status}</Pill>
-          </Card>
-        ))}
-        {db.workAssign.length === 0 && <div className="md:col-span-2"><Empty text={manage ? 'No duties generated yet.' : 'No event duties assigned to you yet.'} /></div>}
-      </div>
-      <Modal open={open} onClose={() => setOpen(false)} title="Generate duty">
-        <div className="space-y-4">
-          <Field label="Duty"><input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Stage lights coordination" className={inputCls} /></Field>
-          <Field label="Event">
-            <select value={event} onChange={e => setEvent(e.target.value)} className={inputCls}>
-              {['Tech Fest ‘26', 'Annual Sports Day', 'Science Exhibition', 'Founders’ Day'].map(e => <option key={e}>{e}</option>)}
-            </select>
-          </Field>
-          <button onClick={create} disabled={!title.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Assign</button>
-        </div>
-      </Modal>
-    </div>
-  )
-}
 
-/* ── Student: registrations (FFCS / events / IHA / EXC) ── */
+/* ── Student/teacher: activity registrations (clubs / IHA / EXC / events / faculty) ── */
+// Real /api/activities-backed registration with capacity + waitlist. See .agents/edunova/phase-8-welfare.md
 
-const CATALOG: Record<string, { name: string; detail: string; tag: string }[]> = {
-  ffcs: [
-    { name: 'Robotics Chapter', detail: 'Tue & Fri · CS Lab · 24 seats', tag: 'Chapter' },
-    { name: 'Astronomy Club', detail: 'Wed · Observatory deck', tag: 'Club' },
-    { name: 'Debate Society', detail: 'Mon · Seminar Hall', tag: 'Club' },
-    { name: 'Photography Circle', detail: 'Thu · Media room', tag: 'Club' },
-  ],
-  iha: [
-    { name: 'Inter-house Basketball', detail: 'Trials 12 Apr · Main court', tag: 'Sport' },
-    { name: 'Inter-house Quiz', detail: 'Prelims 15 Apr', tag: 'Literary' },
-    { name: 'House Choir', detail: 'Auditions 9 Apr', tag: 'Arts' },
-  ],
-  exc: [
-    { name: 'Classical Dance', detail: 'Sat 9 AM · Arts block', tag: 'EXC' },
-    { name: 'Chess Coaching', detail: 'Sat 10 AM · Library annexe', tag: 'EXC' },
-    { name: 'Swimming', detail: 'Sun 7 AM · Aquatic centre', tag: 'EXC' },
-  ],
-  events: [
-    { name: 'Tech Fest ‘26', detail: '24 Apr · Senior block · team of 3', tag: 'Event' },
-    { name: 'Inter-school MUN', detail: '10 May · Kochi · delegate slots', tag: 'Event' },
-    { name: 'Art Exhibition “Chromatic”', detail: 'Open entries till 20 Apr', tag: 'Event' },
-  ],
-  faculty: [
-    { name: 'Tech Fest ‘26 — Judges panel', detail: '24 Apr · Senior block', tag: 'Faculty' },
-    { name: 'STEM Teaching Workshop', detail: '3 May · Kochi convention centre', tag: 'Faculty' },
-  ],
-}
-
-export function RegistrationsMod({ kind, title, sub }: { kind: keyof typeof CATALOG; title: string; sub: string }) {
+export function RegistrationsMod({ kind, title, sub }: { kind: ActivityKind; title: string; sub: string }) {
   const { user } = useStore()
-  const key = 'regs_' + kind + '_' + (user?.id ?? 'x')
-  const [regs, setRegs] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem('edunova_x_' + key) ?? '[]') } catch { return [] }
-  })
-  const toggle = (name: string) => {
-    const next = regs.includes(name) ? regs.filter(r => r !== name) : [...regs, name]
-    setRegs(next); localStorage.setItem('edunova_x_' + key, JSON.stringify(next))
-    toast.success(regs.includes(name) ? 'Registration withdrawn' : `Registered for ${name}`)
+  const { items, loading, error, reload } = useActivities(kind, !!user)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const register = async (a: ActivityRec) => {
+    setBusy(a.id)
+    try { await api.post(`/activities/${a.id}/register`); await reload(); toast.success(`Registered for ${a.title}`) }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
   }
+  const cancel = async (a: ActivityRec) => {
+    setBusy(a.id)
+    try { await api.post(`/activities/${a.id}/cancel`); await reload(); toast.success('Registration withdrawn') }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+  }
+
+  const rows = items ?? []
   return (
     <div>
       <PageHead title={title} sub={sub} />
+      {loading && <p className="text-[13px] text-black/40 dark:text-white/40">Loading…</p>}
+      {error && <p className="text-[13px] text-rose-500">{error}</p>}
+      {!loading && !error && rows.length === 0 && <Empty text="Nothing open for registration right now." />}
       <div className="grid gap-4 md:grid-cols-2">
-        {CATALOG[kind].map(c => {
-          const on = regs.includes(c.name)
+        {rows.map(a => {
+          const full = !!a.capacity && (a.registered ?? 0) >= a.capacity
+          const on = a.myStatus === 'Registered' || a.myStatus === 'Waitlisted'
           return (
-            <Card key={c.name} className="card-lift">
-              <div className="flex items-start justify-between">
+            <Card key={a.id} className="card-lift">
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <Pill tone="indigo">{c.tag}</Pill>
-                  <p className="font-display mt-2.5 text-[16.5px] font-medium">{c.name}</p>
-                  <p className="mt-1 text-[13px] text-black/50 dark:text-white/50">{c.detail}</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Pill tone="indigo">{ACTIVITY_KIND_LABEL[a.kind]}</Pill>
+                    {full && a.myStatus !== 'Registered' && <Pill tone="rose">Full — waitlist</Pill>}
+                  </div>
+                  <p className="font-display mt-2.5 text-[16.5px] font-medium">{a.title}</p>
+                  <p className="mt-1 text-[13px] text-black/50 dark:text-white/50">{a.description}</p>
+                  <p className="mt-1 text-[12px] text-black/40 dark:text-white/40">
+                    {a.capacity ? `${a.registered ?? 0}/${a.capacity} registered` : `${a.registered ?? 0} registered`}
+                  </p>
                 </div>
-                <button onClick={() => toggle(c.name)}
-                  className={`rounded-full px-4 py-2 text-[12.5px] font-semibold transition-colors ${on ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-black text-white hover:bg-black/85'}`}>
-                  {on ? '✓ Registered' : 'Register'}
+                <button onClick={() => (on ? cancel(a) : register(a))} disabled={busy === a.id}
+                  className={`shrink-0 rounded-full px-4 py-2 text-[12.5px] font-semibold transition-colors disabled:opacity-50 ${on ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-black text-white hover:bg-black/85'}`}>
+                  {a.myStatus === 'Registered' ? '✓ Registered' : a.myStatus === 'Waitlisted' ? 'On waitlist — Cancel' : 'Register'}
                 </button>
               </div>
             </Card>
           )
         })}
       </div>
+    </div>
+  )
+}
+
+/* ── Staff/admin: manage activities & view registrations ── */
+
+function ActivityForm({ onDone }: { onDone: () => void }) {
+  const [f, setF] = useState({ kind: 'club' as ActivityKind, title: '', description: '', capacity: '', opensAt: '', closesAt: '' })
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    setBusy(true)
+    try {
+      await api.post('/activities', {
+        kind: f.kind, title: f.title.trim(), description: f.description.trim(),
+        capacity: f.capacity ? Number(f.capacity) : undefined,
+        opensAt: f.opensAt || undefined, closesAt: f.closesAt || undefined,
+        forRoles: f.kind === 'faculty' ? ['teacher', 'staff'] : ['student'],
+      })
+      toast.success('Activity created')
+      onDone()
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Kind">
+          <select value={f.kind} onChange={e => setF(x => ({ ...x, kind: e.target.value as ActivityKind }))} className={inputCls}>
+            {ACTIVITY_KINDS.map(k => <option key={k} value={k}>{ACTIVITY_KIND_LABEL[k]}</option>)}
+          </select>
+        </Field>
+        <Field label="Capacity (optional)"><input type="number" min={1} value={f.capacity} onChange={e => setF(x => ({ ...x, capacity: e.target.value }))} className={inputCls} /></Field>
+      </div>
+      <Field label="Title"><input value={f.title} onChange={e => setF(x => ({ ...x, title: e.target.value }))} className={inputCls} autoFocus /></Field>
+      <Field label="Description"><textarea value={f.description} onChange={e => setF(x => ({ ...x, description: e.target.value }))} rows={3} className={inputCls} /></Field>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Opens (optional)"><input type="date" value={f.opensAt} onChange={e => setF(x => ({ ...x, opensAt: e.target.value }))} className={inputCls} /></Field>
+        <Field label="Closes (optional)"><input type="date" value={f.closesAt} onChange={e => setF(x => ({ ...x, closesAt: e.target.value }))} className={inputCls} /></Field>
+      </div>
+      <button onClick={submit} disabled={!f.title.trim() || !f.description.trim() || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Creating…' : 'Create activity'}</button>
+    </div>
+  )
+}
+
+function ActivityRegistrationsList({ activity }: { activity: ActivityRec }) {
+  const { db } = useStore()
+  const { items, loading } = useActivityRegistrations(activity.id)
+  const nameOf = (id: string) => db.users.find(u => u.id === id)?.name ?? id
+  if (loading) return <p className="text-[13px] text-black/40 dark:text-white/40">Loading…</p>
+  const rows = items ?? []
+  if (rows.length === 0) return <Empty text="No one has registered yet." />
+  return (
+    <div className="divide-y divide-black/[.05] dark:divide-white/[.07]">
+      {rows.map(r => (
+        <div key={r.id} className="flex items-center justify-between py-2.5 text-[13.5px]">
+          <span className="font-medium">{r.userName ?? nameOf(r.userId)}</span>
+          <Pill tone={activityRegTone(r.status)}>{r.status}</Pill>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function ActivitiesAdminMod() {
+  const [kindFilter, setKindFilter] = useState<ActivityKind | ''>('')
+  const { items, loading, reload } = useActivities(kindFilter || undefined)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [viewing, setViewing] = useState<ActivityRec | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const remove = async (a: ActivityRec) => {
+    if (!window.confirm(`Delete "${a.title}"? This cannot be undone.`)) return
+    setBusy(a.id)
+    try { await api.del(`/activities/${a.id}`); await reload(); toast.success('Activity deleted') }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+  }
+
+  const rows = items ?? []
+  return (
+    <div>
+      <PageHead title="Activities Admin" sub="Create clubs, houses, EXC slots, events and faculty programmes; watch capacity fill up">
+        <button onClick={() => setCreateOpen(true)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><Plus size={15} /> New activity</button>
+      </PageHead>
+      <div className="mb-4 inline-flex flex-wrap rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] p-1">
+        {(['', ...ACTIVITY_KINDS] as const).map(k => (
+          <button key={k || 'all'} onClick={() => setKindFilter(k)} className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-all ${kindFilter === k ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>
+            {k ? ACTIVITY_KIND_LABEL[k] : 'All'}
+          </button>
+        ))}
+      </div>
+      <Card className="p-0 divide-y divide-black/[.05] dark:divide-white/[.07]">
+        {loading && <div className="p-6 text-center text-[13px] text-black/40 dark:text-white/40">Loading…</div>}
+        {!loading && rows.length === 0 && <div className="p-6"><Empty text="No activities yet." /></div>}
+        {rows.map(a => (
+          <div key={a.id} className="flex flex-wrap items-center gap-4 px-6 py-4">
+            <Pill tone="indigo">{ACTIVITY_KIND_LABEL[a.kind]}</Pill>
+            <div className="min-w-52 flex-1">
+              <p className="text-[14.5px] font-semibold">{a.title}</p>
+              <p className="text-[12.5px] text-black/45 dark:text-white/45">{a.capacity ? `${a.registered ?? 0}/${a.capacity} registered` : `${a.registered ?? 0} registered`}</p>
+            </div>
+            <button onClick={() => setViewing(a)} className={ghostPill}>View registrations</button>
+            <button onClick={() => remove(a)} disabled={busy === a.id} className="rounded-full p-1.5 text-black/35 hover:bg-rose-50 hover:text-rose-500 dark:text-white/35" title="Delete activity"><Trash2 size={14} /></button>
+          </div>
+        ))}
+      </Card>
+
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New activity">
+        {createOpen && <ActivityForm onDone={() => { setCreateOpen(false); reload() }} />}
+      </Modal>
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing ? `Registrations · ${viewing.title}` : ''}>
+        {viewing && <ActivityRegistrationsList activity={viewing} />}
+      </Modal>
     </div>
   )
 }
@@ -674,7 +668,6 @@ interface PersonForm {
   // student
   classId: string
   rollNo: string
-  board: Board
   dob: string
   parentIds: string[]
   // parent
@@ -683,7 +676,6 @@ interface PersonForm {
   // teacher
   classTeacherOf: string
   joinDate: string
-  salary: number
   // staff / admin
   department: string
   designation: string
@@ -691,9 +683,9 @@ interface PersonForm {
 
 const emptyPersonForm = (role: Role): PersonForm => ({
   name: '', email: '', role,
-  classId: '', rollNo: '', board: 'CBSE', dob: '', parentIds: [],
+  classId: '', rollNo: '', dob: '', parentIds: [],
   studentIds: [], phone: '',
-  classTeacherOf: '', joinDate: todayISO(), salary: 0,
+  classTeacherOf: '', joinDate: todayISO(),
   department: '', designation: '',
 })
 
@@ -820,15 +812,13 @@ export function PeopleMod() {
       name: u.name,
       email: u.email,
       classId: c && yearClasses.some(x => x.id === c.id) ? c.id : '',
-      rollNo: e?.rollNo ?? u.roll ?? '',
-      board: u.board ?? 'CBSE',
+      rollNo: e?.rollNo ?? '',
       dob: u.dob ?? '',
       parentIds: guardiansOf(u.id).map(g => g.parentId),
       studentIds: wardsOf(u.id),
       phone: u.phone ?? '',
       classTeacherOf: classTeacherOf(u.id)?.id ?? '',
       joinDate: u.joinDate ?? todayISO(),
-      salary: u.salary ?? 0,
       department: u.department ?? '',
       designation: u.designation ?? '',
     })
@@ -847,7 +837,7 @@ export function PeopleMod() {
         const id = editing.id
         let touchedAcademic = false
         if (form.role === 'student') {
-          await updateUser(id, { name, classId: form.classId, rollNo: form.rollNo.trim(), board: form.board, dob: form.dob || undefined })
+          await updateUser(id, { name, classId: form.classId, rollNo: form.rollNo.trim(), dob: form.dob || undefined })
           const existing = guardiansOf(id)
           const want = new Set(form.parentIds)
           const toAdd = form.parentIds.filter(pid => !existing.some(g => g.parentId === pid))
@@ -863,7 +853,7 @@ export function PeopleMod() {
           await updateUser(id, { name, phone: form.phone.trim(), studentIds: form.studentIds })
         } else if (form.role === 'teacher') {
           const prev = classTeacherOf(id)
-          await updateUser(id, { name, joinDate: form.joinDate, salary: form.salary, classTeacherOf: form.classTeacherOf || undefined })
+          await updateUser(id, { name, joinDate: form.joinDate, classTeacherOf: form.classTeacherOf || undefined })
           if (prev && !form.classTeacherOf) {
             // Unassign: PATCH /users can only (re)assign, so clear the class directly.
             await api.patch('/academic/classes/' + prev.id, { classTeacherId: null })
@@ -880,9 +870,9 @@ export function PeopleMod() {
         const email = form.email.trim() || undefined
         const base = { role: form.role, name, email }
         const input: CreateUserInput =
-          form.role === 'student' ? { ...base, classId: form.classId, rollNo: form.rollNo.trim() || undefined, board: form.board, dob: form.dob || undefined }
+          form.role === 'student' ? { ...base, classId: form.classId, rollNo: form.rollNo.trim() || undefined, dob: form.dob || undefined }
           : form.role === 'parent' ? { ...base, phone: form.phone.trim() || undefined, studentIds: form.studentIds }
-          : form.role === 'teacher' ? { ...base, joinDate: form.joinDate, salary: form.salary, classTeacherOf: form.classTeacherOf || undefined }
+          : form.role === 'teacher' ? { ...base, joinDate: form.joinDate, classTeacherOf: form.classTeacherOf || undefined }
           : form.role === 'staff' ? { ...base, department: form.department || undefined, designation: form.designation.trim() || undefined, joinDate: form.joinDate }
           : { ...base, designation: form.designation.trim() || undefined, department: form.department || undefined }
         const res = await createUser(input)
@@ -939,7 +929,7 @@ export function PeopleMod() {
             {c?.stream && <Pill tone="sky">{c.stream}</Pill>}
             <span>· Roll {e?.rollNo || '—'}</span>
           </p>
-          <p className={muted}>Board: {u.board ?? '—'}{u.dob ? ` · DOB ${u.dob}` : ''}</p>
+          <p className={muted}>{u.dob ? `DOB ${u.dob}` : 'No DOB on file'}</p>
           <p className={muted}>Parent(s): {gs.length ? gs.join(', ') : '—'}</p>
         </>
       )
@@ -949,7 +939,7 @@ export function PeopleMod() {
       const t = teachingOf(u.id)
       return (
         <>
-          <p className="font-medium">Class teacher of {ct?.label ?? '—'}{u.salary ? ` · ${fmtINR(u.salary)}` : ''}</p>
+          <p className="font-medium">Class teacher of {ct?.label ?? '—'}</p>
           <div className="mt-1 flex flex-wrap gap-1">
             {t.length ? t.map(x => <Pill key={x.id} tone="indigo">{x.label}</Pill>) : <span className={muted}>No subjects assigned</span>}
           </div>
@@ -1148,12 +1138,6 @@ export function PeopleMod() {
                   )}
                 </Field>
                 <Field label="Roll number"><input value={form.rollNo} onChange={e => patch({ rollNo: e.target.value })} placeholder="e.g. 12" className={inputCls} /></Field>
-                <Field label="Board">
-                  <select value={form.board} onChange={e => patch({ board: e.target.value as Board })} className={inputCls}>
-                    <option value="CBSE">CBSE</option>
-                    <option value="Matric">Matric</option>
-                  </select>
-                </Field>
                 <Field label="Date of birth"><input type="date" value={form.dob} onChange={e => patch({ dob: e.target.value })} className={inputCls} /></Field>
               </div>
               <Field label="Parent(s) — optional">
@@ -1183,7 +1167,7 @@ export function PeopleMod() {
 
           {form.role === 'teacher' && (
             <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Class teacher of">
                   <select value={form.classTeacherOf} onChange={e => patch({ classTeacherOf: e.target.value })} className={inputCls}>
                     <option value="">{yearClasses.length ? 'None' : 'No classes yet'}</option>
@@ -1194,8 +1178,8 @@ export function PeopleMod() {
                   </select>
                 </Field>
                 <Field label="Joining date"><input type="date" value={form.joinDate} onChange={e => patch({ joinDate: e.target.value })} className={inputCls} /></Field>
-                <Field label="Salary (₹)"><input type="number" value={form.salary} onChange={e => patch({ salary: +e.target.value })} className={inputCls} /></Field>
               </div>
+              <p className="text-[12px] text-black/45 dark:text-white/45">Set up salary in Finance → Payroll once the account is created.</p>
               <div>
                 <span className="text-[13px] font-semibold text-black/60 dark:text-white/60">Subjects taught</span>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -1283,103 +1267,67 @@ export function PeopleMod() {
 
 /* ── Fees management (admin/staff) ─────────────────────── */
 
-export function FeesMod() {
-  const { db, update } = useStore()
-  const [label, setLabel] = useState('Lab & Activity Fee')
-  const [amount, setAmount] = useState(6500)
-  const termId = defaultTermId(db.terms)
-  const assign = () => {
-    if (!label.trim()) return
-    update(d => {
-      d.receipts.push({ id: 'r' + Date.now(), label: label.trim(), date: todayISO(), amount, status: 'Due', term: termId, kind: 'fee' })
-      return d
-    })
-    toast.success(`Fee assigned to all students: ${label.trim()}`)
-  }
-  const fees = db.receipts.filter(r => r.kind === 'fee')
-  return (
-    <div>
-      <PageHead title="Fees" sub="Update and assign fees across classes" />
-      <div className="grid gap-5 lg:grid-cols-[1fr_1.3fr]">
-        <Card>
-          <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Assign new fee</p>
-          <div className="space-y-4">
-            <Field label="Fee head"><input value={label} onChange={e => setLabel(e.target.value)} className={inputCls} /></Field>
-            <Field label="Amount (₹)"><input type="number" value={amount} onChange={e => setAmount(+e.target.value)} className={inputCls} /></Field>
-            <button onClick={assign} disabled={!label.trim() || !termId} title={termId ? undefined : 'Create a term first in Academic Setup'} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Assign to all classes</button>
-            {!termId && <p className="text-[12.5px] text-black/45 dark:text-white/45">Fees are tied to a term — create one in Academic Setup first.</p>}
-          </div>
-        </Card>
-        <Card className="p-0">
-          <p className="border-b border-black/[.06] dark:border-white/[.08] px-6 py-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Active fee heads</p>
-          {fees.length === 0 && <div className="p-6"><Empty text="No fee heads assigned yet." /></div>}
-          {fees.map(f => (
-            <div key={f.id} className="flex items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3.5 last:border-0">
-              <span className="flex-1 text-[14px] font-medium">{f.label}</span>
-              <span className="text-[14px] font-bold">{fmtINR(f.amount)}</span>
-              <Pill tone={statusTone(f.status)}>{f.status}</Pill>
-            </div>
-          ))}
-        </Card>
-      </div>
-    </div>
-  )
-}
 
 /* ── Calendar & curriculum admin ───────────────────────── */
 
 export function CalendarAdminMod() {
-  const { db, update } = useStore()
+  const academic = useAcademic()
+  const { items: events, reload } = useCalendarEvents()
   const [title, setTitle] = useState('')
   const [date, setDate] = useState(todayISO)
   const [type, setType] = useState<'holiday' | 'exam' | 'event'>('event')
-  const [termPick, setTerm] = useState('')
-  // Fall back to the current term whenever the picked one is unset or no longer exists.
-  const term = db.terms.some(t => t.id === termPick) ? termPick : defaultTermId(db.terms)
-  const [editing, setEditing] = useState<CalEvent | null>(null)
+  const [audience, setAudience] = useState<'School' | 'Class'>('School')
+  const [classId, setClassId] = useState('')
+  const [editing, setEditing] = useState<CalendarEventRec | null>(null)
+  const [saving, setSaving] = useState(false)
 
   const reset = () => {
-    setTitle(''); setDate(todayISO()); setType('event'); setTerm(''); setEditing(null)
+    setTitle(''); setDate(todayISO()); setType('event'); setAudience('School'); setClassId(''); setEditing(null)
   }
 
-  const matches = (a: CalEvent, b: CalEvent) => a.date === b.date && a.title === b.title && a.type === b.type && a.term === b.term
-
-  const save = () => {
-    if (!title.trim() || !term) return
-    update(d => {
-      if (editing) {
-        const idx = d.events.findIndex(e => matches(e, editing))
-        if (idx >= 0) {
-          d.events[idx] = { date, title, type, term }
-          d.events.sort((a, b) => a.date.localeCompare(b.date))
-        }
-      } else {
-        d.events.push({ date, title, type, term })
-        d.events.sort((a, b) => a.date.localeCompare(b.date))
-      }
-      return d
-    })
-    toast.success(editing ? 'Event updated' : 'Calendar updated — visible to all portals')
-    reset()
+  const save = async () => {
+    if (!title.trim() || (audience === 'Class' && !classId)) return
+    setSaving(true)
+    const body = { title, date, type, audience, classId: audience === 'Class' ? classId : null }
+    try {
+      if (editing) await api.patch(`/calendar/${editing.id}`, body)
+      else await api.post('/calendar', body)
+      await reload()
+      toast.success(editing ? 'Event updated' : 'Calendar updated — visible to all portals')
+      reset()
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const remove = (e: CalEvent) => {
-    update(d => { d.events = d.events.filter(x => !matches(x, e)); return d })
-    toast.success('Event removed')
-    if (editing && matches(editing, e)) reset()
+  const remove = async (e: CalendarEventRec) => {
+    try {
+      await api.del(`/calendar/${e.id}`)
+      await reload()
+      toast.success('Event removed')
+      if (editing?.id === e.id) reset()
+    } catch (err) {
+      toast.error(errorMessage(err))
+    }
   }
 
-  const edit = (e: CalEvent) => {
+  const edit = (e: CalendarEventRec) => {
     setEditing(e)
     setTitle(e.title)
     setDate(e.date)
     setType(e.type)
-    setTerm(e.term)
+    setAudience(e.audience)
+    setClassId(e.classId ?? '')
   }
+
+  const list = events ?? []
+  const classLabel = (id?: string | null) => academic.classes.find(c => c.id === id)?.label ?? '—'
 
   return (
     <div>
-      <PageHead title="Calendar Management" sub="Add, edit and remove holidays, exams and events per term" />
+      <PageHead title="Calendar Management" sub="Add, edit and remove holidays, exams and events" />
       <div className="grid gap-5 lg:grid-cols-[1fr_1.3fr]">
         <Card>
           <div className="space-y-4">
@@ -1391,16 +1339,23 @@ export function CalendarAdminMod() {
                   <option value="event">Event</option><option value="holiday">Holiday</option><option value="exam">Exam</option>
                 </select>
               </Field>
-              <Field label="Term">
-                <select value={term} onChange={e => setTerm(e.target.value)} className={inputCls} disabled={db.terms.length === 0}>
-                  {db.terms.length === 0 && <option value="">No terms yet</option>}
-                  {db.terms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              <Field label="Audience">
+                <select value={audience} onChange={e => setAudience(e.target.value as 'School' | 'Class')} className={inputCls}>
+                  <option value="School">Whole school</option>
+                  <option value="Class">One class</option>
                 </select>
               </Field>
             </div>
-            {db.terms.length === 0 && <p className="text-[12.5px] text-black/45 dark:text-white/45">Events belong to a term — create one in Academic Setup first.</p>}
+            {audience === 'Class' && (
+              <Field label="Class">
+                <select value={classId} onChange={e => setClassId(e.target.value)} className={inputCls} disabled={academic.classes.length === 0}>
+                  <option value="">{academic.classes.length === 0 ? 'No classes yet' : 'Select a class'}</option>
+                  {academic.classes.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
+                </select>
+              </Field>
+            )}
             <div className="flex gap-2">
-              <button onClick={save} disabled={!title.trim() || !term} className="btn-ink flex flex-1 items-center justify-center gap-2 py-3 text-[14px] font-semibold disabled:opacity-40">
+              <button onClick={save} disabled={!title.trim() || (audience === 'Class' && !classId) || saving} className="btn-ink flex flex-1 items-center justify-center gap-2 py-3 text-[14px] font-semibold disabled:opacity-40">
                 <CalendarPlus size={16} /> {editing ? 'Update event' : 'Add to calendar'}
               </button>
               {editing && (
@@ -1412,11 +1367,12 @@ export function CalendarAdminMod() {
         <Card className="p-0">
           <p className="border-b border-black/[.06] dark:border-white/[.08] px-6 py-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Upcoming</p>
           <div className="max-h-[380px] overflow-y-auto thin-scroll">
-            {db.events.length === 0 && <div className="p-6"><Empty text="No calendar entries yet." /></div>}
-            {db.events.map(e => (
-              <div key={e.date + e.title + e.type} className="flex items-center gap-3 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3 last:border-0">
+            {list.length === 0 && <div className="p-6"><Empty text="No calendar entries yet." /></div>}
+            {list.map(e => (
+              <div key={e.id} className="flex items-center gap-3 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3 last:border-0">
                 <span className="flex-1 text-[13.5px] font-medium">{e.title}</span>
                 <span className="text-[12px] text-black/40 dark:text-white/40">{e.date}</span>
+                <Pill tone="slate">{e.audience === 'Class' ? classLabel(e.classId) : 'School'}</Pill>
                 <Pill tone={e.type === 'holiday' ? 'rose' : e.type === 'exam' ? 'amber' : 'indigo'}>{e.type}</Pill>
                 <button onClick={() => edit(e)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15" aria-label="Edit"><Pencil size={14} className="text-black/50 dark:text-white/50" /></button>
                 <button onClick={() => remove(e)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-rose-50 dark:hover:bg-rose-500/10" aria-label="Delete"><Trash2 size={14} className="text-rose-500" /></button>
@@ -1453,7 +1409,7 @@ export function BoardRegistrationMod() {
     if (user.role === 'student') return all.filter(s => s.id === user.id)
     if (user.role === 'parent') {
       const wardIds = new Set(wardsOf(user.id))
-      return all.filter(s => wardIds.has(s.id) || (!!user.email && s.parentEmail === user.email))
+      return all.filter(s => wardIds.has(s.id))
     }
     if (user.role === 'teacher') {
       const mine = new Set(classesTaughtBy(user.id).map(c => c.id))
@@ -1858,194 +1814,6 @@ export function VerificationsMod() {
           <Field label="Note"><textarea value={note} onChange={e => setNote(e.target.value)} rows={3} autoFocus placeholder="e.g. The scan is unreadable — please upload a clearer photo." className={inputCls} /></Field>
           <button onClick={() => reject && act(reject, 'reject')} disabled={!note.trim() || !reject || busy === reject.id} className="w-full rounded-xl bg-rose-600 py-3 text-[14px] font-semibold text-white hover:bg-rose-700 disabled:opacity-40">Reject</button>
         </div>
-      </Modal>
-    </div>
-  )
-}
-
-/* ── Admin / HR: contracts & resignations ──────────────── */
-
-const CONTRACT_STATUSES: ContractStatus[] = ['Draft', 'Active', 'Resigned', 'Terminated']
-
-function contractStatusTone(s: ContractStatus): 'green' | 'amber' | 'rose' | 'slate' {
-  if (s === 'Active') return 'green'
-  if (s === 'Draft') return 'amber'
-  if (s === 'Resigned' || s === 'Terminated') return 'rose'
-  return 'slate'
-}
-
-export function ContractsResignationsMod() {
-  const { db, user, update } = useStore()
-  const [tab, setTab] = useState<'contracts' | 'resignations'>('contracts')
-  const [editContract, setEditContract] = useState<Contract | null>(null)
-  const [editResignation, setEditResignation] = useState<Resignation | null>(null)
-  const [notes, setNotes] = useState('')
-
-  const activeContracts = useMemo(() => db.contracts.map(c => ({ c, u: db.users.find(u => u.id === c.userId) })), [db.contracts, db.users])
-
-  const resignations = db.resignations.slice().sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
-
-  const approveResignation = (r: Resignation) => {
-    update(d => {
-      const res = d.resignations.find(x => x.id === r.id)
-      if (res) {
-        res.status = 'Approved'
-        res.approvedBy = user?.name
-        res.approvedAt = new Date().toISOString().slice(0, 10)
-        res.adminNotes = notes.trim() || undefined
-      }
-      const c = d.contracts.find(x => x.userId === r.userId)
-      if (c && c.status === 'Active') c.status = 'Resigned'
-      return d
-    })
-    setEditResignation(null)
-    setNotes('')
-    toast.success('Resignation approved · contract status updated')
-  }
-
-  const declineResignation = (r: Resignation) => {
-    update(d => {
-      const res = d.resignations.find(x => x.id === r.id)
-      if (res) {
-        res.status = 'Declined'
-        res.approvedBy = user?.name
-        res.approvedAt = new Date().toISOString().slice(0, 10)
-        res.adminNotes = notes.trim() || undefined
-      }
-      return d
-    })
-    setEditResignation(null)
-    setNotes('')
-    toast.success('Resignation declined')
-  }
-
-  const saveContract = () => {
-    if (!editContract) return
-    update(d => {
-      const c = d.contracts.find(x => x.id === editContract.id)
-      if (c) {
-        c.designation = editContract.designation
-        c.department = editContract.department
-        c.salary = editContract.salary
-        c.startDate = editContract.startDate
-        c.endDate = editContract.endDate
-        c.status = editContract.status
-        c.clauses = editContract.clauses
-      }
-      return d
-    })
-    setEditContract(null)
-    toast.success('Contract updated')
-  }
-
-  return (
-    <div>
-      <PageHead title="Contracts & Resignations" sub="Manage employment contracts and approve exit requests">
-        <div className="inline-flex rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] p-1">
-          {(['contracts', 'resignations'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`rounded-full px-4 py-1.5 text-[13px] font-semibold transition-all ${tab === t ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>
-              {t === 'contracts' ? 'Contracts' : 'Resignations'}
-            </button>
-          ))}
-        </div>
-      </PageHead>
-
-      {tab === 'contracts' ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {activeContracts.map(({ c, u }) => (
-            <Card key={c.id} className="card-lift">
-              <div className="flex items-start gap-3">
-                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${c.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : c.status === 'Draft' ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'}`}>
-                  <Briefcase size={18} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[15px] font-semibold">{u?.name ?? 'Unknown'}</p>
-                  <p className="text-[12.5px] text-black/50 dark:text-white/50">{c.designation}{c.department ? ' · ' + c.department : ''} · {fmtINR(c.salary)}/mo</p>
-                  <p className="text-[12px] text-black/40 dark:text-white/40">{c.startDate} → {c.endDate}</p>
-                </div>
-                <Pill tone={contractStatusTone(c.status)}>{c.status}</Pill>
-              </div>
-              <div className="mt-4 flex items-start gap-2 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-                <FileText size={16} className="mt-0.5 text-black/40 dark:text-white/40" />
-                <p className="text-[12.5px] leading-relaxed text-black/60 dark:text-white/60">{c.clauses}</p>
-              </div>
-              <button onClick={() => setEditContract(c)} className="btn-ink mt-4 flex w-full items-center justify-center gap-2 py-2.5 text-[13px] font-semibold">
-                <Pencil size={14} /> Edit contract
-              </button>
-            </Card>
-          ))}
-          {activeContracts.length === 0 && <div className="md:col-span-2"><Empty text="No contracts on file." /></div>}
-        </div>
-      ) : (
-        <div className="grid gap-4">
-          {resignations.map(r => {
-            const u = db.users.find(x => x.id === r.userId)
-            return (
-              <Card key={r.id} className="card-lift">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Pill tone={r.status === 'Approved' ? 'green' : r.status === 'Pending' ? 'amber' : 'rose'}>{r.status}</Pill>
-                      {r.status === 'Pending' && <Pill tone="slate"><ShieldAlert size={10} /> awaiting approval</Pill>}
-                    </div>
-                    <p className="font-display mt-3 text-[17px] font-medium">{u?.name ?? 'Unknown'}</p>
-                    <p className="text-[13px] text-black/55 dark:text-white/55">{u?.title}</p>
-                    <p className="mt-2 text-[13px] leading-relaxed text-black/70 dark:text-white/70">{r.reason}</p>
-                    <p className="mt-1 text-[12.5px] text-black/45 dark:text-white/45">Submitted {new Date(r.submittedAt).toLocaleDateString('en-IN')} · Last working day {new Date(r.lastWorkingDate).toLocaleDateString('en-IN')}</p>
-                    {r.adminNotes && <p className="mt-2 text-[12.5px] text-black/50 dark:text-white/50">Admin note: {r.adminNotes}</p>}
-                  </div>
-                  {r.status === 'Pending' && (
-                    <div className="flex gap-2">
-                      <button onClick={() => setEditResignation(r)} className="btn-ink px-4 py-2 text-[13px] font-semibold">Review</button>
-                    </div>
-                  )}
-                </div>
-              </Card>
-            )
-          })}
-          {resignations.length === 0 && <Empty text="No resignation requests." />}
-        </div>
-      )}
-
-      <Modal open={!!editContract} onClose={() => setEditContract(null)} title="Edit contract" wide>
-        {editContract && (
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Designation"><input value={editContract.designation} onChange={e => setEditContract({ ...editContract, designation: e.target.value })} className={inputCls} /></Field>
-              <Field label="Department"><input value={editContract.department ?? ''} onChange={e => setEditContract({ ...editContract, department: e.target.value })} className={inputCls} /></Field>
-              <Field label="Salary"><input type="number" value={editContract.salary} onChange={e => setEditContract({ ...editContract, salary: Number(e.target.value) })} className={inputCls} /></Field>
-              <Field label="Status">
-                <select value={editContract.status} onChange={e => setEditContract({ ...editContract, status: e.target.value as ContractStatus })} className={inputCls}>
-                  {CONTRACT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </Field>
-              <Field label="Start date"><input type="date" value={editContract.startDate} onChange={e => setEditContract({ ...editContract, startDate: e.target.value })} className={inputCls} /></Field>
-              <Field label="End date"><input type="date" value={editContract.endDate} onChange={e => setEditContract({ ...editContract, endDate: e.target.value })} className={inputCls} /></Field>
-            </div>
-            <Field label="Clauses"><textarea value={editContract.clauses} onChange={e => setEditContract({ ...editContract, clauses: e.target.value })} rows={3} className={inputCls} /></Field>
-            <button onClick={saveContract} className="btn-ink w-full py-3 text-[14px] font-semibold">Save contract</button>
-          </div>
-        )}
-      </Modal>
-
-      <Modal open={!!editResignation} onClose={() => { setEditResignation(null); setNotes('') }} title="Review resignation">
-        {editResignation && (
-          <div className="space-y-4">
-            <p className="text-[14px] leading-relaxed text-black/70 dark:text-white/70">{editResignation.reason}</p>
-            <Field label="Admin note">
-              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Notes for the employee file…" className={inputCls} />
-            </Field>
-            <div className="flex gap-2">
-              <button onClick={() => approveResignation(editResignation)} className="btn-ink flex flex-1 items-center justify-center gap-2 py-3 text-[14px] font-semibold">
-                <Check size={16} /> Approve
-              </button>
-              <button onClick={() => declineResignation(editResignation)} className="flex flex-1 items-center justify-center gap-2 rounded-full bg-rose-50 dark:bg-rose-500/10 py-3 text-[14px] font-semibold text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-500/20">
-                <X size={16} /> Decline
-              </button>
-            </div>
-          </div>
-        )}
       </Modal>
     </div>
   )
