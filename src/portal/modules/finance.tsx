@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
 import { api, downloadPath, errorMessage } from '@/lib/api'
 import { isAdmin } from '@/lib/access'
-import { fmtINR, type FeeHead, type FeeInvoice, type FeeStructure, type FeeStructureLine, type InvoiceStatus, type Payment, type PaymentMethod, type Payslip, type SalaryComponent, type SalaryStructure, type User } from '@/lib/data'
+import { compareClasses, fmtINR, type FeeHead, type FeeInvoice, type FeeStructure, type FeeStructureLine, type InvoiceStatus, type Payment, type PaymentMethod, type Payslip, type SalaryComponent, type SalaryStructure, type User } from '@/lib/data'
 import { fmtDate } from '@/lib/hooks/useAcademics'
 import { isoDate } from '@/lib/hooks/useTimetable'
 import {
@@ -186,8 +186,8 @@ function HeadsTab() {
 }
 
 function StructuresTab() {
-  const { classes, terms, currentYear } = useAcademic()
-  const classList = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })), [classes, currentYear])
+  const { classes, terms, currentYear, gradeById } = useAcademic()
+  const classList = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort(compareClasses(gradeById)), [classes, currentYear, gradeById])
   const termList = useMemo(() => terms.filter(t => !currentYear || t.academicYearId === currentYear.id).sort((a, b) => a.startDate.localeCompare(b.startDate)), [terms, currentYear])
   const structures = useFeeStructures()
   const heads = useFeeHeads()
@@ -285,9 +285,9 @@ function StructuresTab() {
 }
 
 function InvoicesTab() {
-  const { classes, terms, currentYear, currentTerm, classOf } = useAcademic()
+  const { classes, terms, currentYear, currentTerm, classOf, gradeById } = useAcademic()
   const { students, nameOf, classLabel } = useStudentLookup()
-  const classList = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })), [classes, currentYear])
+  const classList = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort(compareClasses(gradeById)), [classes, currentYear, gradeById])
   const [classId, setClassId] = useState('')
   const [termPick, setTermPick] = useState('')
   const termId = terms.some(t => t.id === termPick) ? termPick : (currentTerm?.id ?? '')

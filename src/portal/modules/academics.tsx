@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Mail, Phone, Trophy } from 'lucide-react'
 import { useAcademic, useStore } from '@/lib/store'
-import type { SessionStatus, Term, User } from '@/lib/data'
+import { compareClasses, type SessionStatus, type Term, type User } from '@/lib/data'
 import {
   STATUS_LABEL, STATUS_SOFT, bandsForClass, gradeFromBands, pctTone, useAttendanceSummary, useGradeScales, useRanks, useReportCard, useStaffSummary,
 } from '@/lib/hooks/useAcademics'
@@ -270,7 +270,7 @@ export function MarksMod() {
 
 export function RanksMod() {
   const { db, user } = useStore()
-  const { classOf, classesTaughtBy, classes, classById, currentYear } = useAcademic()
+  const { classOf, classesTaughtBy, classes, classById, currentYear, gradeById } = useAcademic()
   const { term, setTerm } = useActiveTerm()
   const { students, ward, wardId, setWardId } = useWard()
   const isViewer = user?.role === 'student' || user?.role === 'parent'
@@ -278,8 +278,8 @@ export function RanksMod() {
   const pickable = useMemo(() => {
     if (!user || isViewer) return []
     const list = user.role === 'teacher' ? classesTaughtBy(user.id) : classes.filter(c => !currentYear || c.academicYearId === currentYear.id)
-    return [...list].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
-  }, [user, isViewer, classesTaughtBy, classes, currentYear])
+    return [...list].sort(compareClasses(gradeById))
+  }, [user, isViewer, classesTaughtBy, classes, currentYear, gradeById])
   const [picked, setPicked] = useState('')
   const classId = isViewer ? classOf(wardId)?.id : (pickable.some(c => c.id === picked) ? picked : pickable[0]?.id)
   const cls = classId ? classById.get(classId) : undefined

@@ -6,6 +6,7 @@ import { api, errorMessage, uploadFile } from '@/lib/api'
 import { MIN_PASSWORD, fmtDateTime, passwordProblem, useFileUrl } from '@/lib/hooks/useIdentity'
 import { PushToggle } from '@/lib/pwa'
 import { Avatar, Card, Field, PageHead, Pill, VerificationCard, inputCls } from '../ui'
+import { EmploymentHistoryTimeline, IdCardButton } from './employee'
 
 // Profile screen (every role): self-service edits via PATCH /users/me, photo upload, password change,
 // and a read-only view of the wards / classes the account is linked to. See phase-4-admissions-identity.md
@@ -46,6 +47,8 @@ export function ProfileMod() {
 
   if (!user) return null
   const isStudent = user.role === 'student'
+  const isEmployee = user.role === 'teacher' || user.role === 'staff' || user.role === 'admin' || user.role === 'superadmin'
+  const managerName = user.reportsTo ? (db.users.find(u => u.id === user.reportsTo)?.name ?? user.reportsTo) : undefined
   const dirty = form.name !== (user.name ?? '') || form.phone !== (user.phone ?? '') || form.dob !== (user.dob ?? '') || form.address !== (user.address ?? '') || form.emergencyContact !== (user.emergencyContact ?? '')
 
   const save = async () => {
@@ -109,8 +112,11 @@ export function ProfileMod() {
             </div>
             <dl className="mt-6 w-full space-y-2 text-left text-[13.5px]">
               <div className="flex justify-between gap-3"><dt className="text-black/50 dark:text-white/50">Email</dt><dd className="truncate font-medium">{user.email}</dd></div>
+              {user.employeeId && <div className="flex justify-between gap-3"><dt className="text-black/50 dark:text-white/50">Employee ID</dt><dd className="font-mono font-medium">{user.employeeId}</dd></div>}
+              {isEmployee && <div className="flex justify-between gap-3"><dt className="text-black/50 dark:text-white/50">Reports to</dt><dd className="font-medium">{managerName || '—'}</dd></div>}
               <div className="flex justify-between gap-3"><dt className="text-black/50 dark:text-white/50">Last sign-in</dt><dd className="font-medium">{fmtDateTime(user.lastLoginAt)}</dd></div>
             </dl>
+            {isEmployee && <div className="mt-5"><IdCardButton userId={user.id} /></div>}
           </Card>
 
           {links.length > 0 && (
@@ -131,6 +137,13 @@ export function ProfileMod() {
             <Card>
               {sectionHead('Parent verification')}
               <VerificationCard />
+            </Card>
+          )}
+
+          {isEmployee && (
+            <Card>
+              {sectionHead('Employment history')}
+              <EmploymentHistoryTimeline userId={user.id} />
             </Card>
           )}
 

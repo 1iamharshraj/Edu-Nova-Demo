@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
 import { api, downloadFile, errorMessage, uploadFile } from '@/lib/api'
 import { isAdmin } from '@/lib/access'
-import type { Assessment, GradeScale, HomeworkRec, HomeworkSubmission, SessionStatus, StaffStatus } from '@/lib/data'
+import { compareClasses, type Assessment, type GradeScale, type HomeworkRec, type HomeworkSubmission, type SessionStatus, type StaffStatus } from '@/lib/data'
 import { isoDate, sortedPeriods, useFetch, type TeacherTimetable } from '@/lib/hooks/useTimetable'
 import {
   SESSION_STATUSES, STAFF_STATUSES, STATUS_LABEL, STATUS_SOLID, bandsForClass, downloadCsv, fmtDate, gradeFromBands, termForDate,
@@ -38,8 +38,8 @@ function StatusToggle<S extends SessionStatus>({ value, options, onChange, disab
 
 export function TakeAttendanceMod() {
   const { db, user } = useStore()
-  const { classesTaughtBy, classById, templateFor, terms, currentTerm } = useAcademic()
-  const myClasses = useMemo(() => (user ? [...classesTaughtBy(user.id)] : []).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })), [classesTaughtBy, user])
+  const { classesTaughtBy, classById, templateFor, terms, currentTerm, gradeById } = useAcademic()
+  const myClasses = useMemo(() => (user ? [...classesTaughtBy(user.id)] : []).sort(compareClasses(gradeById)), [classesTaughtBy, user, gradeById])
   const [picked, setPicked] = useState('')
   const classId = myClasses.some(c => c.id === picked) ? picked : (myClasses[0]?.id ?? '')
   const cls = classById.get(classId)
@@ -155,10 +155,10 @@ export function TakeAttendanceMod() {
 
 export function AttendanceMgmtMod() {
   const { db, user } = useStore()
-  const { classes, currentYear, templateFor, classSubjects, subjectById } = useAcademic()
+  const { classes, currentYear, templateFor, classSubjects, subjectById, gradeById } = useAcademic()
   const admin = isAdmin(user)
   const [tab, setTab] = useState<'students' | 'staff'>('students')
-  const classList = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })), [classes, currentYear])
+  const classList = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort(compareClasses(gradeById)), [classes, currentYear, gradeById])
 
   // students
   const [picked, setPicked] = useState('')

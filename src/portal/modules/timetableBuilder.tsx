@@ -213,7 +213,10 @@ export function TimetableBuilderMod() {
         : !template ? <Empty text="No period template applies to this class." />
         : subjectRows.length === 0 ? <Empty text={`${cls?.label ?? 'This class'} has no subjects yet — add them under Classes & Sections → Subjects.`} />
         : (
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_240px]">
+          // Side panel stacks below the grid up to 2xl (1536px) — on a normal 1280–1440px laptop screen the
+          // grid needs the full width to show a whole day's periods without scrolling; only very wide
+          // monitors have room to show both at once.
+          <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_240px]">
             <div className="min-w-0">
               <TimetableGrid template={template} days={days} dense renderCell={(d, p) => {
                 const key = cellKey(d, p.idx)
@@ -231,8 +234,12 @@ export function TimetableBuilderMod() {
                 const row = subjectRows.find(r => r.cs.id === cell.classSubjectId)
                 const teacher = cell.teacherId ? lookup.userName(cell.teacherId) : row?.teacher?.name
                 return (
-                  <button onClick={() => openCell(d, p)} className="w-full text-left" aria-label={`Edit ${DAY_LABELS[d]} ${p.label}`}>
+                  // `group` here so PeriodCard's hover/focus detail overlay (a descendant) reacts to this
+                  // button being hovered/focused — PeriodCard itself is not focusable (focusable={false})
+                  // since this button is already the interactive element for the cell.
+                  <button onClick={() => openCell(d, p)} className="group w-full text-left" aria-label={`Edit ${DAY_LABELS[d]} ${p.label}`}>
                     <PeriodCard title={row?.name ?? 'Unknown subject'} color={row?.color ?? '#94a3b8'} teacher={teacher} room={cell.roomId ? roomList.find(r => r.id === cell.roomId)?.name : undefined}
+                      time={`${p.start} – ${p.end}`} focusable={false}
                       className={`min-h-[76px] ${clash ? 'border-rose-400 ring-2 ring-rose-200 dark:ring-rose-500/30' : changed ? 'border-indigo-300 dark:border-indigo-500/40' : ''}`}
                       badge={clash ? <Pill tone="rose">Clash</Pill> : changed ? <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">edited</span> : undefined} />
                   </button>

@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import {
-  AlertCircle, AlertTriangle, BadgeCheck, CalendarPlus, Check, Copy, Download, FileBadge, Paperclip, Pencil, Plus,
+  AlertCircle, AlertTriangle, BadgeCheck, CalendarPlus, Check, Copy, Download, FileBadge, History, Paperclip, Pencil, Plus,
   School, Search, Send, ShieldAlert, Sparkles, Trash2, UserPlus, X,
 } from 'lucide-react'
 import { useAcademic, useStore, type CreateUserInput } from '@/lib/store'
 import { api, downloadFile, downloadPath, errorMessage } from '@/lib/api'
 import { canManage, isAdmin, isStaffOrAdmin, isSuperAdmin } from '@/lib/access'
 import {
+  compareClasses,
   type ActivityKind, type ActivityRec, type AdmissionCreated, type ApplicationKind, type ApplicationRec, type ApplicationStatus,
   type BoardRegistration, type BoardRegistrationStatus, type CalendarEventRec, type Certificate, type CertificateKind,
   type ParentVerification, type Role, type User, type VerificationStatus,
@@ -18,8 +19,10 @@ import {
 import { fmtDate, qs, useFetchMany } from '@/lib/hooks/useAcademics'
 import { useCalendarEvents } from '@/lib/hooks/useComms'
 import { ACTIVITY_KIND_LABEL, ACTIVITY_KINDS, activityRegTone, useActivities, useActivityRegistrations } from '@/lib/hooks/useWelfare'
+import { useEmployees } from '@/lib/hooks/useFinance'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, UploadField, inputCls, statusTone, type UploadedFile } from '../ui'
 import { StudentReportMod } from './studentReport'
+import { EmployeeDetailModal, SearchableUserPicker } from './employee'
 import { useViewedStudents } from './viewer'
 import { toast } from 'sonner'
 
@@ -414,8 +417,8 @@ export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
 }
 
 function AdmissionForm({ onDone }: { onDone: () => void }) {
-  const { classes, classById, currentYear } = useAcademic()
-  const options = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })), [classes, currentYear])
+  const { classes, classById, currentYear, gradeById } = useAcademic()
+  const options = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort(compareClasses(gradeById)), [classes, currentYear, gradeById])
   const [f, setF] = useState({ applicantName: '', dob: '', gender: '', gName: '', gPhone: '', gEmail: '', gRelation: 'Parent', targetClassId: options[0]?.id ?? '' })
   const [docs, setDocs] = useState<UploadedFile[]>([])
   const [busy, setBusy] = useState(false)
@@ -679,6 +682,8 @@ interface PersonForm {
   // staff / admin
   department: string
   designation: string
+  // teacher / staff / admin — A2: reporting line
+  reportsTo: string
 }
 
 const emptyPersonForm = (role: Role): PersonForm => ({
@@ -687,6 +692,7 @@ const emptyPersonForm = (role: Role): PersonForm => ({
   studentIds: [], phone: '',
   classTeacherOf: '', joinDate: todayISO(),
   department: '', designation: '',
+  reportsTo: '',
 })
 
 function PickList({ items, selected, onToggle, empty }: { items: { id: string; label: string; sub?: string }[]; selected: string[]; onToggle: (id: string) => void; empty: string }) {
@@ -742,7 +748,9 @@ export function PeopleMod() {
   const [saving, setSaving] = useState(false)
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [viewReportId, setViewReportId] = useState<string | null>(null)
+  const [viewEmployee, setViewEmployee] = useState<User | null>(null)
   const [created, setCreated] = useState<{ name: string; email: string; password: string } | null>(null)
+  const employeeOptions = useEmployees()
 
   const setTab = (t: PeopleTabId) => { setTabState(t); setCls(''); setSubject(''); setDepartment('') }
 
@@ -751,8 +759,8 @@ export function PeopleMod() {
 
   /* ── entity lookups ── */
   const yearClasses = useMemo(
-    () => academic.classes.filter(c => !currentYear || c.academicYearId === currentYear.id).slice().sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })),
-    [academic.classes, currentYear],
+    () => academic.classes.filter(c => !currentYear || c.academicYearId === currentYear.id).slice().sort(compareClasses(academic.gradeById)),
+    [academic.classes, academic.gradeById, currentYear],
   )
   const userById = useMemo(() => new Map(db.users.map(u => [u.id, u])), [db.users])
   const students = useMemo(() => db.users.filter(u => u.role === 'student').sort(byName), [db.users])
@@ -821,6 +829,7 @@ export function PeopleMod() {
       joinDate: u.joinDate ?? todayISO(),
       department: u.department ?? '',
       designation: u.designation ?? '',
+      reportsTo: u.reportsTo ?? '',
     })
     setModalOpen(true)
   }
@@ -853,16 +862,16 @@ export function PeopleMod() {
           await updateUser(id, { name, phone: form.phone.trim(), studentIds: form.studentIds })
         } else if (form.role === 'teacher') {
           const prev = classTeacherOf(id)
-          await updateUser(id, { name, joinDate: form.joinDate, classTeacherOf: form.classTeacherOf || undefined })
+          await updateUser(id, { name, joinDate: form.joinDate, classTeacherOf: form.classTeacherOf || undefined, phone: form.phone.trim(), reportsTo: form.reportsTo || null })
           if (prev && !form.classTeacherOf) {
             // Unassign: PATCH /users can only (re)assign, so clear the class directly.
             await api.patch('/academic/classes/' + prev.id, { classTeacherId: null })
             touchedAcademic = true
           }
         } else if (form.role === 'staff') {
-          await updateUser(id, { name, department: form.department, designation: form.designation.trim(), joinDate: form.joinDate })
+          await updateUser(id, { name, department: form.department, designation: form.designation.trim(), joinDate: form.joinDate, phone: form.phone.trim(), reportsTo: form.reportsTo || null })
         } else {
-          await updateUser(id, { name, designation: form.designation.trim(), department: form.department })
+          await updateUser(id, { name, designation: form.designation.trim(), department: form.department, phone: form.phone.trim(), reportsTo: form.reportsTo || null })
         }
         if (touchedAcademic) await Promise.all([refreshAcademic(), refreshDB()])
         toast.success(`${name} updated`)
@@ -872,9 +881,9 @@ export function PeopleMod() {
         const input: CreateUserInput =
           form.role === 'student' ? { ...base, classId: form.classId, rollNo: form.rollNo.trim() || undefined, dob: form.dob || undefined }
           : form.role === 'parent' ? { ...base, phone: form.phone.trim() || undefined, studentIds: form.studentIds }
-          : form.role === 'teacher' ? { ...base, joinDate: form.joinDate, classTeacherOf: form.classTeacherOf || undefined }
-          : form.role === 'staff' ? { ...base, department: form.department || undefined, designation: form.designation.trim() || undefined, joinDate: form.joinDate }
-          : { ...base, designation: form.designation.trim() || undefined, department: form.department || undefined }
+          : form.role === 'teacher' ? { ...base, joinDate: form.joinDate, classTeacherOf: form.classTeacherOf || undefined, phone: form.phone.trim() || undefined, reportsTo: form.reportsTo || undefined }
+          : form.role === 'staff' ? { ...base, department: form.department || undefined, designation: form.designation.trim() || undefined, joinDate: form.joinDate, phone: form.phone.trim() || undefined, reportsTo: form.reportsTo || undefined }
+          : { ...base, designation: form.designation.trim() || undefined, department: form.department || undefined, phone: form.phone.trim() || undefined, reportsTo: form.reportsTo || undefined }
         const res = await createUser(input)
         if (form.role === 'student' && form.parentIds.length) {
           await Promise.all(form.parentIds.map(parentId => api.post('/academic/guardians', { parentId, studentId: res.user.id })))
@@ -915,6 +924,7 @@ export function PeopleMod() {
 
   const roleTone = (r: Role) => r === 'student' ? 'sky' : r === 'teacher' ? 'indigo' : r === 'parent' ? 'green' : r === 'staff' ? 'amber' : 'rose'
   const muted = 'text-[12.5px] text-black/50 dark:text-white/50'
+  const isEmployeeRole = (r: Role) => r === 'teacher' || r === 'staff' || r === 'admin' || r === 'superadmin'
 
   const details = (u: User) => {
     if (u.role === 'student') {
@@ -943,6 +953,7 @@ export function PeopleMod() {
           <div className="mt-1 flex flex-wrap gap-1">
             {t.length ? t.map(x => <Pill key={x.id} tone="indigo">{x.label}</Pill>) : <span className={muted}>No subjects assigned</span>}
           </div>
+          {u.employeeId && <p className={muted}>ID: {u.employeeId}</p>}
         </>
       )
     }
@@ -960,6 +971,7 @@ export function PeopleMod() {
         <>
           <p className="font-medium">{u.designation || u.title || '—'}</p>
           <p className={muted}>{u.department || '—'}{u.joinDate ? ` · since ${u.joinDate}` : ''}</p>
+          {u.employeeId && <p className={muted}>ID: {u.employeeId}</p>}
         </>
       )
     }
@@ -967,6 +979,7 @@ export function PeopleMod() {
       <>
         <p className="font-medium">{u.designation || u.title || u.role}</p>
         <p className={muted}>Access: {u.department || '—'}</p>
+        {u.employeeId && <p className={muted}>ID: {u.employeeId}</p>}
       </>
     )
   }
@@ -1058,6 +1071,9 @@ export function PeopleMod() {
                       {u.role === 'student' && (
                         <button onClick={() => setViewReportId(u.id)} className="rounded-full bg-indigo-50 dark:bg-indigo-500/10 p-2 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20" title="View full report"><FileBadge size={15} /></button>
                       )}
+                      {isEmployeeRole(u.role) && (
+                        <button onClick={() => setViewEmployee(u)} className="rounded-full bg-indigo-50 dark:bg-indigo-500/10 p-2 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20" title="View profile — history, documents, ID card"><History size={15} /></button>
+                      )}
                       <button onClick={() => openEdit(u)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15" title="Edit"><Pencil size={15} /></button>
                       <button onClick={() => setConfirmId(u.id)} className="rounded-full bg-rose-50 p-2 text-rose-500 hover:bg-rose-100" title="Revoke access"><Trash2 size={15} /></button>
                     </div>
@@ -1090,6 +1106,9 @@ export function PeopleMod() {
                   {u.role === 'student' && (
                     <button onClick={() => setViewReportId(u.id)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><FileBadge size={14} /> Report</button>
                   )}
+                  {isEmployeeRole(u.role) && (
+                    <button onClick={() => setViewEmployee(u)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><History size={14} /> Profile</button>
+                  )}
                   <button onClick={() => openEdit(u)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><Pencil size={14} /> Edit</button>
                   <button onClick={() => setConfirmId(u.id)} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-rose-50 py-2 text-[13px] font-semibold text-rose-500"><Trash2 size={14} /> Delete</button>
                 </div>
@@ -1103,6 +1122,7 @@ export function PeopleMod() {
       {/* add/edit modal */}
       <Modal open={modalOpen} onClose={() => !saving && setModalOpen(false)} title={editing ? `Edit ${editing.name}` : `Add ${form.role}`} wide>
         <div className="space-y-4">
+          {editing?.employeeId && <p className="text-[12.5px] text-black/45 dark:text-white/45">Employee ID: <span className="font-mono">{editing.employeeId}</span></p>}
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Full name">
               <input value={form.name} onChange={e => patch({ name: e.target.value })} placeholder="e.g. Kavya Nair" className={inputCls} autoFocus />
@@ -1179,6 +1199,10 @@ export function PeopleMod() {
                 </Field>
                 <Field label="Joining date"><input type="date" value={form.joinDate} onChange={e => patch({ joinDate: e.target.value })} className={inputCls} /></Field>
               </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Phone"><input value={form.phone} onChange={e => patch({ phone: e.target.value })} placeholder="+91 …" className={inputCls} /></Field>
+                <SearchableUserPicker label="Reports to" employees={employeeOptions} value={form.reportsTo} onChange={id => patch({ reportsTo: id })} excludeId={editing?.id} />
+              </div>
               <p className="text-[12px] text-black/45 dark:text-white/45">Set up salary in Finance → Payroll once the account is created.</p>
               <div>
                 <span className="text-[13px] font-semibold text-black/60 dark:text-white/60">Subjects taught</span>
@@ -1193,30 +1217,42 @@ export function PeopleMod() {
           )}
 
           {form.role === 'staff' && (
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Field label="Department">
-                <select value={form.department} onChange={e => patch({ department: e.target.value })} className={inputCls}>
-                  <option value="">Select department</option>
-                  {Array.from(new Set([...departmentOptions, 'Administration', 'Finance', 'Admissions', 'Operations'])).map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </Field>
-              <Field label="Designation"><input value={form.designation} onChange={e => patch({ designation: e.target.value })} placeholder="e.g. Office Superintendent" className={inputCls} /></Field>
-              <Field label="Joining date"><input type="date" value={form.joinDate} onChange={e => patch({ joinDate: e.target.value })} className={inputCls} /></Field>
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Field label="Department">
+                  <select value={form.department} onChange={e => patch({ department: e.target.value })} className={inputCls}>
+                    <option value="">Select department</option>
+                    {Array.from(new Set([...departmentOptions, 'Administration', 'Finance', 'Admissions', 'Operations'])).map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </Field>
+                <Field label="Designation"><input value={form.designation} onChange={e => patch({ designation: e.target.value })} placeholder="e.g. Office Superintendent" className={inputCls} /></Field>
+                <Field label="Joining date"><input type="date" value={form.joinDate} onChange={e => patch({ joinDate: e.target.value })} className={inputCls} /></Field>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Phone"><input value={form.phone} onChange={e => patch({ phone: e.target.value })} placeholder="+91 …" className={inputCls} /></Field>
+                <SearchableUserPicker label="Reports to" employees={employeeOptions} value={form.reportsTo} onChange={id => patch({ reportsTo: id })} excludeId={editing?.id} />
+              </div>
             </div>
           )}
 
           {(form.role === 'admin' || form.role === 'superadmin') && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Designation"><input value={form.designation} onChange={e => patch({ designation: e.target.value })} placeholder="e.g. School Administrator" className={inputCls} /></Field>
-              <Field label="Access scope">
-                <select value={form.department} onChange={e => patch({ department: e.target.value })} className={inputCls}>
-                  <option value="">Select scope</option>
-                  <option value="Full access">Full access</option>
-                  <option value="Finance">Finance only</option>
-                  <option value="Academics">Academics only</option>
-                  <option value="Admissions">Admissions only</option>
-                </select>
-              </Field>
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Designation"><input value={form.designation} onChange={e => patch({ designation: e.target.value })} placeholder="e.g. School Administrator" className={inputCls} /></Field>
+                <Field label="Access scope">
+                  <select value={form.department} onChange={e => patch({ department: e.target.value })} className={inputCls}>
+                    <option value="">Select scope</option>
+                    <option value="Full access">Full access</option>
+                    <option value="Finance">Finance only</option>
+                    <option value="Academics">Academics only</option>
+                    <option value="Admissions">Admissions only</option>
+                  </select>
+                </Field>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Phone"><input value={form.phone} onChange={e => patch({ phone: e.target.value })} placeholder="+91 …" className={inputCls} /></Field>
+                <SearchableUserPicker label="Reports to" employees={employeeOptions} value={form.reportsTo} onChange={id => patch({ reportsTo: id })} excludeId={editing?.id} />
+              </div>
             </div>
           )}
 
@@ -1261,6 +1297,8 @@ export function PeopleMod() {
       <Modal open={!!viewReportId} onClose={() => setViewReportId(null)} title="Student Profile Report" wide>
         {viewReportId ? <StudentReportMod studentId={viewReportId} /> : <Empty text="Select a student to view the report." />}
       </Modal>
+
+      <EmployeeDetailModal user={viewEmployee} onClose={() => setViewEmployee(null)} />
     </div>
   )
 }
@@ -1288,7 +1326,10 @@ export function CalendarAdminMod() {
   const save = async () => {
     if (!title.trim() || (audience === 'Class' && !classId)) return
     setSaving(true)
-    const body = { title, date, type, audience, classId: audience === 'Class' ? classId : null }
+    // classId must be omitted (not null) for whole-school events — the server schema declares it
+    // `.optional()`, which accepts a missing key but rejects an explicit null; JSON.stringify drops
+    // undefined-valued keys, so this is the fix for "Validation failed" on every whole-school save.
+    const body = { title, date, type, audience, classId: audience === 'Class' ? classId : undefined }
     try {
       if (editing) await api.patch(`/calendar/${editing.id}`, body)
       else await api.post('/calendar', body)

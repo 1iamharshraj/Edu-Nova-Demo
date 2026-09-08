@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
 import { api, errorMessage } from '@/lib/api'
 import { canViewFeeDefaulters } from '@/lib/access'
-import { fmtINR, type CallOutcome, type CallReason, type FeeDefaulter, type FeeInvoice, type ReminderChannel } from '@/lib/data'
+import { compareClasses, fmtINR, type CallOutcome, type CallReason, type FeeDefaulter, type FeeInvoice, type ReminderChannel } from '@/lib/data'
 import { fmtDate } from '@/lib/hooks/useAcademics'
 import { isoDate } from '@/lib/hooks/useTimetable'
 import { isOutstanding, outstandingOf, useDefaulters } from '@/lib/hooks/useFinance'
@@ -27,19 +27,22 @@ export function FeeDefaultersAndCallsMod() {
 
   const canView = user && canViewFeeDefaulters(user)
 
-  const { classes, currentYear } = useAcademic()
+  const { classes, currentYear, gradeById } = useAcademic()
 
   const { term } = useActiveTerm()
   const [classId, setClassId] = useState('')
-  const classList = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })), [classes, currentYear])
+  const classList = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort(compareClasses(gradeById)), [classes, currentYear, gradeById])
   const defaulters = useDefaulters({ termId: term || undefined, classId: classId || undefined }, !!canView && tab === 'defaulters')
 
+  // Group order follows the same class label → grade-order lookup as the picker above, so a full I–XII
+  // school's defaulter groups read in real academic order instead of alphabetically on the Roman numeral.
+  const labelOrder = useMemo(() => new Map(classes.map(c => [c.label, gradeById.get(c.gradeId)?.order ?? 0])), [classes, gradeById])
   const groups = useMemo(() => {
     const map: Record<string, FeeDefaulter[]> = {}
     ;(defaulters.items ?? []).forEach(d => { (map[d.classLabel || 'Unassigned'] ??= []).push(d) })
     Object.values(map).forEach(list => list.sort((a, b) => b.outstanding - a.outstanding))
-    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
-  }, [defaulters.items])
+    return Object.entries(map).sort((a, b) => (labelOrder.get(a[0]) ?? 0) - (labelOrder.get(b[0]) ?? 0) || a[0].localeCompare(b[0], undefined, { numeric: true }))
+  }, [defaulters.items, labelOrder])
   const totalOutstanding = (defaulters.items ?? []).reduce((a, d) => a + d.outstanding, 0)
 
   // Send reminder: pick the oldest overdue invoice (from the row when the server attaches them, else fetched).

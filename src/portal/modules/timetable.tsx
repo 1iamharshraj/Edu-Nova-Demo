@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Coffee, Sun, Utensils, Clock, MapPin, User, Users } from 'lucide-react'
 import { useAcademic, useStore } from '@/lib/store'
 import type { PeriodDef, PeriodTemplate } from '@/lib/data'
@@ -25,6 +25,26 @@ function breakMeta(label: string): BreakMeta {
   return BREAKS[2]
 }
 
+/**
+ * Tracks whether a horizontally-scrollable element currently has more content hidden to its left/right,
+ * so the grid can show an edge-fade affordance instead of relying on a barely-visible native scrollbar.
+ */
+function useHScrollEdges<T extends HTMLElement>() {
+  const ref = useRef<T>(null)
+  const [edges, setEdges] = useState({ left: false, right: false })
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const update = () => setEdges({ left: el.scrollLeft > 2, right: el.scrollLeft < el.scrollWidth - el.clientWidth - 2 })
+    update()
+    el.addEventListener('scroll', update, { passive: true })
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => { el.removeEventListener('scroll', update); ro.disconnect() }
+  }, [])
+  return { ref, ...edges }
+}
+
 /* ── grid (desktop) + day list (mobile) ─────────────────── */
 
 export function TimetableGrid({ template, days, renderCell, now, dense }: {
@@ -39,9 +59,18 @@ export function TimetableGrid({ template, days, renderCell, now, dense }: {
   const periods = sortedPeriods(template)
   const [dayIdx, setDayIdx] = useState(0)
   const activeDay = days[dayIdx] ?? days[0]
-  const colTemplate = `64px ${periods.map(p => p.kind === 'break' ? '0.42fr' : '1fr').join(' ')}`
-  // wide enough that a subject name fits on one line per class column; scrolls horizontally beyond that
-  const minWidth = 64 + periods.reduce((w, p) => w + (p.kind === 'break' ? 46 : 112), 0)
+  const dayColWidth = 48
+  // minmax(0, …fr) — plain `fr` tracks refuse to shrink below their content's intrinsic min-width (long
+  // room/teacher text, badges), which silently pushed the grid wider than `minWidth` below and defeated
+  // the whole point of sizing it to fit. minmax(0, …) lets a track actually shrink to its share of the
+  // available space, so cell text truncates (compact view) instead of the grid overflowing further.
+  const colTemplate = `${dayColWidth}px ${periods.map(p => p.kind === 'break' ? 'minmax(0,0.36fr)' : 'minmax(0,1fr)').join(' ')}`
+  // Sized to fit a full 8-period school day on a 1280–1440px laptop screen without scrolling (a short
+  // subject/teacher label reads fine at this width; the full label is available on hover/focus via
+  // PeriodCard's detail overlay, so this doesn't need to be wide enough for the longest possible name).
+  // Longer templates still scroll horizontally — the edge-fade + sticky day column below make that obvious.
+  const minWidth = dayColWidth + periods.reduce((w, p) => w + (p.kind === 'break' ? 34 : 92), 0)
+  const { ref: scrollRef, left: canScrollLeft, right: canScrollRight } = useHScrollEdges<HTMLDivElement>()
   const t = now ? hhmm(now) : ''
   const isNow = (p: PeriodDef) => !!now && p.start <= t && t < p.end
   const today = now?.getDay()
@@ -60,29 +89,32 @@ export function TimetableGrid({ template, days, renderCell, now, dense }: {
   return (
     <>
       {/* Desktop */}
-      <Card className="hidden overflow-hidden p-0 md:block">
-        <div className="overflow-x-auto thin-scroll">
-          <div className="p-4" style={{ minWidth }}>
-            <div className="sticky top-0 z-10 gap-2 border-b border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] pb-3" style={{ display: 'grid', gridTemplateColumns: colTemplate }}>
-              <div />
+      <Card className="relative hidden overflow-hidden p-0 md:block">
+        <div ref={scrollRef} data-timetable-scroll className="overflow-x-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/20 dark:[&::-webkit-scrollbar-thumb]:bg-white/20">
+          <div className="p-3" style={{ minWidth }}>
+            <div className="sticky top-0 z-20 gap-1.5 border-b border-black/[.06] dark:border-white/[.08] bg-white dark:bg-[#14141f] pb-3" style={{ display: 'grid', gridTemplateColumns: colTemplate }}>
+              <div className="sticky left-0 z-10 bg-white dark:bg-[#14141f]" />
               {periods.map(p => (
-                <div key={p.idx} className={`rounded-xl px-1 py-2 text-center ${isNow(p) ? 'bg-indigo-50 dark:bg-indigo-500/10' : ''}`}>
+                <div key={p.idx} className={`overflow-hidden rounded-xl px-1 py-2 text-center ${isNow(p) ? 'bg-indigo-50 dark:bg-indigo-500/10' : ''}`}>
                   {p.kind === 'break' ? (
-                    <div className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-bold uppercase tracking-wider ${breakMeta(p.label).bg} ${breakMeta(p.label).text}`}>
-                      {breakMeta(p.label).icon} Break
-                    </div>
+                    // Break columns are the narrowest — a full "☀ Break" pill doesn't fit and was spilling
+                    // into the next column's label, so the header shows only the icon (the day-row break
+                    // cells below still spell out "MORNING BREAK" etc. in full).
+                    <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${breakMeta(p.label).bg} ${breakMeta(p.label).text}`} title={p.label}>
+                      {breakMeta(p.label).icon}
+                    </span>
                   ) : (
-                    <p className="text-[12px] font-bold text-black/50 dark:text-white/50">{p.label}</p>
+                    <p className="truncate text-[12px] font-bold text-black/50 dark:text-white/50">{p.label}</p>
                   )}
-                  <p className="mt-1 text-[10px] text-black/40 dark:text-white/40">{p.start} – {p.end}</p>
+                  {p.kind !== 'break' && <p className="mt-1 truncate text-[10px] text-black/40 dark:text-white/40">{p.start} – {p.end}</p>}
                 </div>
               ))}
             </div>
-            <div className="gap-2 pt-3" style={{ display: 'grid', gridTemplateColumns: colTemplate }}>
+            <div className="gap-1.5 pt-3" style={{ display: 'grid', gridTemplateColumns: colTemplate }}>
               {/* `contents` wrappers keep the grid flat without keyed Fragments (the dev inspector plugin decorates every JSX element) */}
               {days.map(d => (
                 <div key={d} className="contents">
-                  <div className={`flex items-center py-4 text-[12px] font-bold uppercase tracking-wider ${today === d ? 'text-indigo-600 dark:text-indigo-400' : 'text-black/40 dark:text-white/40'}`}>
+                  <div className={`sticky left-0 z-10 flex items-center bg-white py-4 text-[12px] font-bold uppercase tracking-wider dark:bg-[#14141f] ${today === d ? 'text-indigo-600 dark:text-indigo-400' : 'text-black/40 dark:text-white/40'}`}>
                     {DAY_LABELS[d].slice(0, 3)}
                   </div>
                   {periods.map(p => p.kind === 'break'
@@ -93,6 +125,10 @@ export function TimetableGrid({ template, days, renderCell, now, dense }: {
             </div>
           </div>
         </div>
+        {/* Edge-fade affordance: a barely-visible native scrollbar was the only clue there was more to
+            see, so periods 7-8 read as "the day ends here" instead of "scroll for more". */}
+        {canScrollRight && <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-white dark:from-[#14141f] to-transparent" />}
+        {canScrollLeft && <div className="pointer-events-none absolute inset-y-0 left-12 z-10 w-8 bg-gradient-to-r from-white dark:from-[#14141f] to-transparent" />}
       </Card>
 
       {/* Mobile */}
@@ -132,28 +168,61 @@ export function TimetableGrid({ template, days, renderCell, now, dense }: {
   )
 }
 
-/** The readable card used for a scheduled period. */
-export function PeriodCard({ title, color, teacher, room, note, highlight, badge, className = '' }: {
-  title: string; color: string; teacher?: string; room?: string; note?: string; highlight?: boolean; badge?: React.ReactNode; className?: string
+/**
+ * The readable card used for a scheduled period. At narrow column widths the compact view truncates
+ * subject/teacher names, so hovering (or focusing, for keyboard users) reveals a real detail overlay
+ * with the untruncated text instead of relying on the native title tooltip alone.
+ * `focusable` should be false when the card is already wrapped in its own interactive element (e.g. the
+ * builder's edit button) — the group-hover/focus classes work either way since :hover/:focus-visible
+ * cascade through the DOM regardless of which ancestor carries the `group` class.
+ */
+export function PeriodCard({ title, color, teacher, room, note, time, highlight, badge, className = '', focusable = true }: {
+  title: string; color: string; teacher?: string; room?: string; note?: string; time?: string
+  highlight?: boolean; badge?: React.ReactNode; className?: string; focusable?: boolean
 }) {
   return (
-    <div title={[title, teacher, room].filter(Boolean).join(' · ')}
-      className={`relative flex min-h-[92px] flex-col overflow-hidden rounded-xl border bg-white dark:bg-[#14141f] py-2.5 pl-2 pr-2 transition-shadow hover:shadow-md ${highlight ? 'border-indigo-300 ring-2 ring-indigo-200 dark:border-indigo-500/50 dark:ring-indigo-500/30' : 'border-black/[.06] dark:border-white/[.08]'} ${className}`}>
+    <div title={[title, teacher, room].filter(Boolean).join(' · ')} tabIndex={focusable ? 0 : undefined}
+      className={`group relative flex min-h-[92px] flex-col overflow-hidden rounded-xl border bg-white dark:bg-[#14141f] py-2.5 pl-2 pr-2 outline-none transition-shadow hover:shadow-md focus-visible:ring-2 focus-visible:ring-indigo-400 ${highlight ? 'border-indigo-300 ring-2 ring-indigo-200 dark:border-indigo-500/50 dark:ring-indigo-500/30' : 'border-black/[.06] dark:border-white/[.08]'} ${className}`}>
       <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: color }} />
-      <p className="pl-2 text-[12.5px] font-semibold leading-tight" style={{ color }}>{title}</p>
-      {teacher && (
-        <p className="mt-1 flex items-center gap-1 truncate pl-2 text-[11px] text-black/50 dark:text-white/50">
-          <User size={11} className="shrink-0" /><span className="truncate">{teacher}</span>
-        </p>
-      )}
-      {note && <p className="mt-1 truncate pl-2 text-[11px] font-medium text-amber-700 dark:text-amber-300">{note}</p>}
-      <div className="mt-auto flex flex-wrap items-center gap-1.5 pl-2 pt-2">
-        {room && (
-          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-black/[.04] dark:bg-white/[.06] px-1.5 py-0.5 text-[10px] font-semibold text-black/50 dark:text-white/50">
-            <MapPin size={10} />{room}
-          </span>
+
+      {/* compact view — fades out on hover/focus so the detail overlay can take over */}
+      <div className="flex h-full flex-col transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0">
+        <p className="truncate pl-2 text-[12.5px] font-semibold leading-tight" style={{ color }}>{title}</p>
+        {teacher && (
+          <p className="mt-1 flex items-center gap-1 truncate pl-2 text-[11px] text-black/50 dark:text-white/50">
+            <User size={11} className="shrink-0" /><span className="truncate">{teacher}</span>
+          </p>
         )}
-        {badge}
+        {note && <p className="mt-1 truncate pl-2 text-[11px] font-medium text-amber-700 dark:text-amber-300">{note}</p>}
+        <div className="mt-auto flex flex-wrap items-center gap-1.5 pl-2 pt-2">
+          {room && (
+            <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-black/[.04] dark:bg-white/[.06] px-1.5 py-0.5 text-[10px] font-semibold text-black/50 dark:text-white/50">
+              <MapPin size={10} />{room}
+            </span>
+          )}
+          {badge}
+        </div>
+      </div>
+
+      {/* hover/focus detail overlay — untruncated subject, teacher, room, time */}
+      <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-center gap-1 rounded-xl bg-white p-2.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 dark:bg-[#14141f]">
+        <p className="break-words pl-1.5 text-[12px] font-semibold leading-tight" style={{ color }}>{title}</p>
+        {time && (
+          <p className="flex items-center gap-1.5 pl-1.5 text-[10.5px] text-black/55 dark:text-white/55">
+            <Clock size={10} className="shrink-0" />{time}
+          </p>
+        )}
+        {teacher && (
+          <p className="flex items-center gap-1.5 pl-1.5 text-[10.5px] text-black/55 dark:text-white/55">
+            <User size={10} className="shrink-0" /><span className="break-words">{teacher}</span>
+          </p>
+        )}
+        {room && (
+          <p className="flex items-center gap-1.5 pl-1.5 text-[10.5px] text-black/55 dark:text-white/55">
+            <MapPin size={10} className="shrink-0" />{room}
+          </p>
+        )}
+        {note && <p className="break-words pl-1.5 text-[10.5px] font-medium text-amber-700 dark:text-amber-300">{note}</p>}
       </div>
     </div>
   )
@@ -258,7 +327,7 @@ function OwnTimetable({ term }: { term: string }) {
               const e = byKey.get(cellKey(d, p.idx))
               if (!e) return <FreeCell />
               return <PeriodCard title={lookup.subjectOf(e)} color={lookup.colorOf(e)} teacher={lookup.teacherOf(e)} room={lookup.roomOf(e)}
-                highlight={isRunning(p, d, now)} />
+                time={`${p.start} – ${p.end}`} highlight={isRunning(p, d, now)} />
             }} />
             <Legend entries={entries} lookup={lookup} template={template} />
           </>
@@ -302,14 +371,14 @@ function TeacherView({ term, teacherId }: { term: string; teacherId: string }) {
           const cover = coveringByKey.get(cellKey(d, p.idx))
           if (!cover?.entry) return <FreeCell />
           return <PeriodCard title={lookup.classLabelOf(cover.entry) ?? lookup.subjectOf(cover.entry)} color={lookup.colorOf(cover.entry)} room={lookup.roomOf(cover.entry)}
-            teacher={lookup.subjectOf(cover.entry)}
+            teacher={lookup.subjectOf(cover.entry)} time={`${p.start} – ${p.end}`}
             note={`You cover · ${fmtDay(cover.date)}`} highlight={isRunning(p, d, now)}
             badge={<Pill tone="amber">Substitution</Pill>} className="border-dashed bg-amber-50/60 dark:bg-amber-500/5" />
         }
         const sub = coveredByEntry.get(e.id)
         // teachers scan by class first, so the class label leads and the subject sits underneath
         return <PeriodCard title={lookup.classLabelOf(e) ?? lookup.subjectOf(e)} color={lookup.colorOf(e)} room={lookup.roomOf(e)}
-          teacher={lookup.subjectOf(e)}
+          teacher={lookup.subjectOf(e)} time={`${p.start} – ${p.end}`}
           note={sub ? `Covered by ${lookup.userName(sub.substituteTeacherId) ?? 'a colleague'} · ${fmtDay(sub.date)}` : undefined}
           highlight={isRunning(p, d, now)}
           className={sub ? 'bg-amber-50/60 dark:bg-amber-500/5' : ''} />
@@ -374,7 +443,7 @@ function ClassPicker({ term }: { term: string }) {
               const e = byKey.get(cellKey(d, p.idx))
               if (!e) return <FreeCell />
               return <PeriodCard title={lookup.subjectOf(e)} color={lookup.colorOf(e)} teacher={lookup.teacherOf(e)} room={lookup.roomOf(e)}
-                highlight={isRunning(p, d, now)} />
+                time={`${p.start} – ${p.end}`} highlight={isRunning(p, d, now)} />
             }} />
             <Legend entries={entries} lookup={lookup} template={template} />
           </>

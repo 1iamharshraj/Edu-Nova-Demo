@@ -229,6 +229,13 @@ export function LeaveApprovalsMod() {
   const requests = useLeaveRequests({ scope: 'approvals', status }, !!user)
   const list = useMemo(() => [...(requests.items ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [requests.items])
   const nameOf = (id: string, fallback?: string) => fallback ?? db.users.find(u => u.id === id)?.name ?? id
+  // Mirrors server assertCanDecide(): student leave → any staff/admin/superadmin; non-student
+  // (staff/teacher) leave → admin/superadmin only. Staff otherwise sees an Approve button that 403s.
+  const canDecide = (r: LeaveRequest) => {
+    const forUserRole = db.users.find(u => u.id === r.forUserId)?.role
+    if (forUserRole === 'student') return true
+    return user?.role === 'admin' || user?.role === 'superadmin'
+  }
   const [decline, setDecline] = useState<LeaveRequest | null>(null)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -267,7 +274,7 @@ export function LeaveApprovalsMod() {
                 {r.requesterId !== r.forUserId && <p className="text-[12px] text-black/40 dark:text-white/40">Requested by {nameOf(r.requesterId, r.requesterName)}</p>}
               </div>
               <Pill tone={leaveTone(r.status)}>{r.status}</Pill>
-              {r.status === 'Pending' && (
+              {r.status === 'Pending' && canDecide(r) && (
                 <div className="flex gap-2">
                   <button onClick={() => approve(r)} disabled={busy === r.id} className="rounded-full bg-emerald-600 px-4 py-1.5 text-[12.5px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">Approve</button>
                   <button onClick={() => { setDecline(r); setNote('') }} disabled={busy === r.id} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-1.5 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15 disabled:opacity-40">Decline</button>

@@ -85,7 +85,7 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
       ...(rc ? [`  Overall: ${rc.overall.grade} (${Math.round(rc.overall.pct)}%)`, ...rc.subjects.map(s => `    ${s.subject}: ${s.grade} (${s.total}/${s.max})`)] : ['  No marks published yet']),
       ``,
       `Rank`,
-      `  ${myRank ? `#${myRank.rank} of ${dossier.ranks?.assessments ?? '—'}` : '—'}`,
+      `  ${myRank ? `#${myRank.rank} of ${rc?.overall.classSize ?? '—'} students` : '—'}`,
       ``,
       `Achievements`,
       ...(dossier.achievements.length ? dossier.achievements.map(a => `  ${a.date}: ${a.title} — ${a.detail}`) : ['  None']),
@@ -181,7 +181,7 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
       <Card>
         <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><TrendingUp size={15} /> Class rank</p>
         {myRank ? (
-          <p className="font-display text-3xl font-medium">#{myRank.rank} <span className="text-[14px] font-normal text-black/50 dark:text-white/50">of {dossier.ranks?.assessments} assessed</span></p>
+          <p className="font-display text-3xl font-medium">#{myRank.rank} <span className="text-[14px] font-normal text-black/50 dark:text-white/50">of {rc?.overall.classSize ?? '—'} students</span></p>
         ) : <Empty text="No rank data for this term." />}
       </Card>
 

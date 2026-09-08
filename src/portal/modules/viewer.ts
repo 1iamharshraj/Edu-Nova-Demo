@@ -44,4 +44,11 @@ export function useActiveTerm() {
   return { term: id, setTerm, termObj: db.terms.find(t => t.id === id) }
 }
 
-export const firstName = (name?: string) => (name ?? '').split(' ')[0]
+// Strips a leading honorific ("Dr.", "Mr.", "Mrs.", "Ms.", "Er.") before taking the first token, so a
+// seeded name like "Dr. Arun Nambiar" greets as "Arun", not "Dr.".
+const HONORIFICS = /^(dr|mr|mrs|ms|miss|er|prof)\.?$/i
+export const firstName = (name?: string) => {
+  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean)
+  const first = HONORIFICS.test(parts[0] ?? '') ? parts[1] : parts[0]
+  return first ?? ''
+}

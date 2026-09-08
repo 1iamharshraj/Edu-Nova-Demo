@@ -807,11 +807,10 @@ export function AIDoubtsMod() {
   )
   const subjectName = (id?: string) => (id ? subjectById.get(id)?.name : undefined)
 
-  const list = conversations ?? []
-  // Default to the most recent thread once conversations land; explicit picks in the sidebar override this.
-  const [syncedList, setSyncedList] = useState(list)
-  if (syncedList !== list) { setSyncedList(list); if (!activeConvoId && list.length) setActiveConvoId(list[0].id) }
-  const active = activeConvoId ? list.find(c => c.id === activeConvoId) : undefined
+  const list = useMemo(() => conversations ?? [], [conversations])
+  // Default to the most recent thread until an explicit pick (sidebar click, or a fresh `ask()`) sets
+  // activeConvoId — derived at render time so there's no effect/setState loop over the list reference.
+  const active = (activeConvoId ? list.find(c => c.id === activeConvoId) : undefined) ?? list[0]
   const activeMessages = active?.messages ?? []
 
   const ask = async (question?: string) => {
