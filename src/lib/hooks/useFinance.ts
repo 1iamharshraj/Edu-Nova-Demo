@@ -80,7 +80,7 @@ export const fmtMonth = (m?: string) => (m && /^\d{4}-\d{2}$/.test(m) ? new Date
 /** Everyone payroll covers: teachers, staff and admins, sorted by role then name. */
 export function useEmployees(): User[] {
   const { db } = useStore()
-  return useMemo(() => db.users.filter(u => u.role === 'teacher' || u.role === 'staff' || u.role === 'admin').sort((a, b) => a.role.localeCompare(b.role) || a.name.localeCompare(b.name)), [db.users])
+  return useMemo(() => db.users.filter(u => u.role === 'teacher' || u.role === 'staff' || u.role === 'admin' || u.role === 'superadmin').sort((a, b) => a.role.localeCompare(b.role) || a.name.localeCompare(b.name)), [db.users])
 }
 
 /** One `GET /payroll/structures/:userId` per employee (the contract has no list endpoint); missing → undefined. */

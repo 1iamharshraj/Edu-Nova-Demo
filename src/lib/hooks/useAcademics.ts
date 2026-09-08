@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { useAcademic, useStore } from '../store'
 import { isoDate, useFetch } from './useTimetable'
+import { compareClasses } from '../data'
 import type {
   Assessment, AttendanceSession, AttendanceSummary, ClassRec, ClassSubject, GradeBand, GradeScale, HomeworkRec, RankEntry, ReportCard,
   SessionStatus, StaffAttendance, StaffStatus, SubjectRec, User,
@@ -159,12 +160,13 @@ export interface ClassSubjectRow { cs: ClassSubject; cls: ClassRec; subject?: Su
  */
 export function useTeachableClassSubjects(): ClassSubjectRow[] {
   const { db, user } = useStore()
-  const { classes, classSubjects, subjectById, classById, classesTaughtBy, currentYear } = useAcademic()
+  const { classes, classSubjects, subjectById, classById, classesTaughtBy, currentYear, gradeById } = useAcademic()
   return useMemo(() => {
     if (!user) return []
     const anyClass = user.role === 'staff' || user.role === 'admin' || user.role === 'superadmin'
     const mine = anyClass ? classes.filter(c => !currentYear || c.academicYearId === currentYear.id) : classesTaughtBy(user.id)
     const ids = new Set(mine.map(c => c.id))
+    const byClass = compareClasses(gradeById)
     return classSubjects
       .filter(cs => ids.has(cs.classId) && (anyClass || cs.teacherId === user.id || classById.get(cs.classId)?.classTeacherId === user.id))
       .map(cs => {
@@ -172,8 +174,8 @@ export function useTeachableClassSubjects(): ClassSubjectRow[] {
         const subject = subjectById.get(cs.subjectId)
         return { cs, cls, subject, teacher: cs.teacherId ? db.users.find(u => u.id === cs.teacherId) : undefined, label: `${cls.label} · ${subject?.name ?? 'Subject'}` }
       })
-      .sort((a, b) => a.cls.label.localeCompare(b.cls.label, undefined, { numeric: true }) || (a.subject?.name ?? '').localeCompare(b.subject?.name ?? ''))
-  }, [user, classes, classSubjects, subjectById, classById, classesTaughtBy, currentYear, db.users])
+      .sort((a, b) => byClass(a.cls, b.cls) || (a.subject?.name ?? '').localeCompare(b.subject?.name ?? ''))
+  }, [user, classes, classSubjects, subjectById, classById, classesTaughtBy, currentYear, gradeById, db.users])
 }
 
 /* ── misc ──────────────────────────────────────────────── */

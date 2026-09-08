@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { api, getToken, getRefreshToken, setTokens } from './api'
-import { emptyAcademic } from './data'
+import { compareClasses, emptyAcademic } from './data'
 import type { AcademicState, DB, Role, User } from './data'
 
 export { API_BASE } from './api'
@@ -180,10 +180,13 @@ export function useAcademic() {
   return useMemo(() => {
     const currentYear = academic.years.find(y => y.isCurrent) ?? academic.years[0]
     const currentTerm = academic.terms.find(t => t.isCurrent) ?? academic.terms[0]
-    const classById = new Map(academic.classes.map(c => [c.id, c]))
+    const gradeById = new Map(academic.grades.map(g => [g.id, g]))
+    // Sorted once here, in true grade order (Grade.order, not the Roman-numeral label string) — every
+    // consumer that reads `classes` off this hook gets the correct order for free.
+    const classes = [...academic.classes].sort(compareClasses(gradeById))
+    const classById = new Map(classes.map(c => [c.id, c]))
     const subjectById = new Map(academic.subjects.map(s => [s.id, s]))
     const boardById = new Map(academic.boards.map(b => [b.id, b]))
-    const gradeById = new Map(academic.grades.map(g => [g.id, g]))
     const streamById = new Map(academic.streams.map(s => [s.id, s]))
     /** Curriculum rows that apply to a class: its board + grade, for its stream or no stream. */
     const curriculumFor = (c: { boardId: string; gradeId: string; streamId?: string }) =>
@@ -197,7 +200,7 @@ export function useAcademic() {
     const classesTaughtBy = (teacherId: string) => {
       const ids = new Set(academic.classSubjects.filter(cs => cs.teacherId === teacherId).map(cs => cs.classId))
       academic.classes.filter(c => c.classTeacherId === teacherId).forEach(c => ids.add(c.id))
-      return academic.classes.filter(c => ids.has(c.id))
+      return classes.filter(c => ids.has(c.id))
     }
     const defaultTemplate = academic.periodTemplates.find(t => t.isDefault) ?? academic.periodTemplates[0]
     /** Effective period template for a class: its override, else the school default (else the first template). */
@@ -205,7 +208,7 @@ export function useAcademic() {
       const c = classId ? classById.get(classId) : undefined
       return (c?.periodTemplateId ? academic.periodTemplates.find(t => t.id === c.periodTemplateId) : undefined) ?? defaultTemplate
     }
-    return { ...academic, currentYear, currentTerm, classById, subjectById, boardById, gradeById, streamById, curriculumFor, classOf, wardsOf, classesTaughtBy, defaultTemplate, templateFor }
+    return { ...academic, classes, currentYear, currentTerm, classById, subjectById, boardById, gradeById, streamById, curriculumFor, classOf, wardsOf, classesTaughtBy, defaultTemplate, templateFor }
   }, [academic])
 }
 

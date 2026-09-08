@@ -22,7 +22,7 @@ export interface User {
   subjects?: string[]
   department?: string
   designation?: string
-  reportsTo?: string
+  reportsTo?: string | null
   joinDate?: string
   phone?: string
   parentEmail?: string
@@ -38,6 +38,9 @@ export interface User {
   emergencyContact?: string | null
   address?: string | null
   lastLoginAt?: string | null
+  // Phase 11 — employee management (see phase-11-employee-management.md). `employeeId` is only ever
+  // set for teacher/staff/admin/superadmin; `reportsTo` (above) becomes a real FK once the server relation lands.
+  employeeId?: string | null
 }
 
 export interface Term { id: string; name: string; range: string; months: string[]; current?: boolean }
@@ -433,6 +436,21 @@ export const emptyAcademic = (): AcademicState => ({
   periodTemplates: [],
 })
 
+/**
+ * Comparator for classes in true academic order — by each class's `Grade.order` (I, II, III … XII) —
+ * rather than `label.localeCompare(..., { numeric: true })`, which is built for decimal digit runs
+ * ("item2" vs "item10") and has no notion of Roman-numeral magnitude, so it misorders a full I–XII
+ * school as I, II, III, IV, IX, V, VI, VII, VIII, X, XI, XII. Ties (same grade) break by board, then
+ * stream, then section.
+ */
+export function compareClasses(gradeById: Map<string, Grade>) {
+  return (a: ClassRec, b: ClassRec) =>
+    (gradeById.get(a.gradeId)?.order ?? 0) - (gradeById.get(b.gradeId)?.order ?? 0)
+    || a.boardCode.localeCompare(b.boardCode)
+    || (a.stream ?? '').localeCompare(b.stream ?? '')
+    || a.section.localeCompare(b.section, undefined, { numeric: true })
+}
+
 // The demo seed generator (`seedDB()`) and its exclusive helpers/constants (SUBJECTS, TIMESLOTS, DAYS,
 // makeTT, makeDays, makeMarks, makeRanks, makeContract, gradeFor, pctFor, cgpaFromMarks, matricGrade, …)
 // were removed in Phase 10 — the demo school is now seeded server-side from real Prisma tables
@@ -827,4 +845,505 @@ export interface HighlightRec {
   classId?: string | null
   publishedAt: string
   createdById?: string
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 11 — Employee management: reporting line, performance reviews, employment history,
+// staff conduct records, employee documents & ID card. See .agents/edunova/phase-11-employee-management.md
+// ─────────────────────────────────────────────────────────────
+
+export type ReviewStatus = 'Draft' | 'Shared' | 'Acknowledged'
+export interface PerformanceReviewRec {
+  id: string
+  employeeId: string
+  reviewerId: string
+  cycle: string
+  periodStart: string
+  periodEnd: string
+  overallRating: number
+  strengths: string
+  areasForImprovement: string
+  goals: string
+  employeeComments?: string | null
+  status: ReviewStatus
+  createdAt: string
+  sharedAt?: string | null
+  acknowledgedAt?: string | null
+  /** Decorations some servers attach so the UI doesn't need an extra lookup. */
+  employeeName?: string
+  reviewerName?: string
+}
+
+export type EmploymentChangeType = 'Role' | 'Designation' | 'Department' | 'Salary' | 'ClassTeacherAssignment' | 'Other'
+export interface EmploymentHistoryEntry {
+  id: string
+  userId: string
+  changeType: EmploymentChangeType
+  fromValue?: string | null
+  toValue: string
+  effectiveDate: string
+  changedById: string
+  note?: string | null
+  createdAt: string
+  changedByName?: string
+}
+
+export type StaffConductCategory = 'Conduct' | 'Performance' | 'Policy' | 'Attendance' | 'Other'
+export type StaffConductStatus = 'Reported' | 'UnderReview' | 'Resolved'
+export interface StaffConductRecord {
+  id: string
+  employeeId: string
+  reportedById: string
+  title: string
+  description: string
+  category: StaffConductCategory
+  status: StaffConductStatus
+  actionTaken?: string | null
+  fileIds: string[]
+  createdAt: string
+  resolvedAt?: string | null
+  resolvedById?: string | null
+  /** Decorations some servers attach so the UI doesn't need an extra lookup. */
+  employeeName?: string
+  reportedByName?: string
+}
+
+export interface EmployeeDocumentRec {
+  id: string
+  userId: string
+  fileId: string
+  label: string
+  uploadedAt: string
+  fileName?: string
+}
+
+/* ── Phase 13 — Alumni management ──────────────────────── */
+
+export interface AlumniProfile {
+  id: string
+  studentUserId?: string | null
+  name: string
+  email?: string | null
+  phone?: string | null
+  graduationYear: number
+  lastClassLabel: string
+  currentOccupation?: string | null
+  currentOrganization?: string | null
+  currentCity?: string | null
+  linkedInUrl?: string | null
+  notes?: string | null
+  convertedAt: string
+  convertedById: string
+  /** Decorations some servers attach so the UI doesn't need an extra lookup. */
+  convertedByName?: string
+}
+
+export interface AlumniEvent {
+  id: string
+  title: string
+  description?: string | null
+  date: string
+  location?: string | null
+  createdById: string
+  createdByName?: string
+}
+
+export type AlumniRsvpStatus = 'Interested' | 'Going' | 'Declined'
+export interface AlumniEventRsvp {
+  id: string
+  eventId: string
+  alumniId: string
+  status: AlumniRsvpStatus
+  respondedAt: string
+  alumniName?: string
+}
+
+export interface AlumniDonation {
+  id: string
+  alumniId: string
+  amount: number
+  purpose?: string | null
+  donatedAt: string
+  recordedById: string
+  note?: string | null
+  alumniName?: string
+  recordedByName?: string
+}
+
+/* ── Phase 12 — Transport / Bus management ─────────────────
+ * Routes with ordered stops, vehicles (driver/conductor as plain fields, not User accounts), student→stop
+ * assignments, and a VehicleLocation log the future native driver app will write to via a ping endpoint —
+ * this web app only ever reads locations. See .agents/edunova/phase-12-transport.md */
+
+export interface RouteRec {
+  id: string
+  schoolId?: string
+  name: string
+  description?: string | null
+  createdAt: string
+  /** Decoration: some servers attach a stop count so the list view doesn't need a second call. */
+  stopCount?: number
+}
+
+export interface StopRec {
+  id: string
+  routeId: string
+  name: string
+  /** Order along the route, 1-based. */
+  sequence: number
+  latitude?: number | null
+  longitude?: number | null
+  /** Minutes from route start — a rough ETA estimate. */
+  arrivalOffsetMin?: number | null
+  /** Decoration. */
+  routeName?: string
+}
+
+export type BoardingType = 'Pickup' | 'Drop' | 'Both'
+
+export interface VehicleRec {
+  id: string
+  schoolId?: string
+  registrationNo: string
+  capacity: number
+  routeId?: string | null
+  driverName: string
+  driverPhone: string
+  conductorName?: string | null
+  conductorPhone?: string | null
+  /** Optional link to an existing staff `User`, for the future native app's driver auth — not required. */
+  driverUserId?: string | null
+  /** Decoration. */
+  routeName?: string
+}
+
+export interface StudentStopAssignmentRec {
+  id: string
+  studentId: string
+  stopId: string
+  boardingType: BoardingType
+  createdAt: string
+  /** Decorations some servers attach so the UI doesn't need an extra lookup. */
+  studentName?: string
+  stopName?: string
+  routeId?: string
+  routeName?: string
+}
+
+/** One GPS ping, written by the future native driver app — history is kept, only the latest per vehicle
+ * matters for "where is the bus now." */
+export interface VehicleLocationRec {
+  id: string
+  vehicleId: string
+  latitude: number
+  longitude: number
+  recordedAt: string
+  tripDate?: string
+}
+
+/** One row of a `GET /transport/my-stop` response — a student can have distinct Pickup and Drop stops (or a
+ * single "Both" row), so the endpoint answers with one of these per boarding type the student has. */
+export interface MyStopAssignmentRec {
+  id: string
+  boardingType: BoardingType
+  stop: StopRec
+  route: RouteRec
+  vehicle?: VehicleRec | null
+  location?: VehicleLocationRec | null
+}
+
+/** `GET /transport/my-stop` response: a parent/student's stop(s), route, vehicle and its latest location
+ * bundled in one call so the UI doesn't have to stitch three requests together. */
+export interface MyStopRec {
+  studentId: string
+  assignments: MyStopAssignmentRec[]
+}
+
+/* ── Phase 15 — Library Management ──────────────────────────
+ * Books (catalog, one row per title) with BookCopies (one row per physical copy, since a title can have
+ * several copies), Loans against a specific copy, and a per-school LibrarySettings row (loan period, per-role
+ * active-loan limits, fine rate) so the numbers aren't hardcoded. See .agents/edunova/phase-15-library.md */
+
+export type BookCondition = 'New' | 'Good' | 'Worn' | 'Damaged'
+export type CopyStatus = 'Available' | 'Loaned' | 'Lost' | 'Retired'
+export type FineStatus = 'None' | 'Pending' | 'Paid' | 'Waived'
+
+export interface BookRec {
+  id: string
+  schoolId?: string
+  title: string
+  author: string
+  isbn?: string | null
+  publisher?: string | null
+  category?: string | null
+  coverFileId?: string | null
+  createdAt?: string
+  /** Decoration: catalog list/detail carries copy counts so the browse screen doesn't need N+1 calls. */
+  totalCopies?: number
+  availableCopies?: number
+}
+
+export interface BookCopyRec {
+  id: string
+  bookId: string
+  barcode: string
+  condition?: BookCondition | null
+  status: CopyStatus
+  acquiredAt?: string | null
+  /** Decoration. */
+  bookTitle?: string
+}
+
+/** Matches `server/src/modules/library/service.ts#serializeLoan` exactly (verified against the live server) —
+ * the book/borrower/issuedBy/returnedBy context is nested, not flattened onto the loan row. */
+export interface LoanRec {
+  id: string
+  copyId: string
+  copy: { id: string; barcode: string; status: CopyStatus; condition?: BookCondition; book: { id: string; title: string; author: string } }
+  borrowerId: string
+  borrower: { id: string; name: string; role: Role }
+  issuedAt: string
+  dueDate: string
+  returnedAt?: string | null
+  fineAmount?: number | null
+  fineStatus: FineStatus
+  issuedById: string
+  issuedBy?: { id: string; name: string }
+  returnedById?: string | null
+  returnedBy?: { id: string; name: string }
+  createdAt?: string
+}
+
+export interface LibrarySettingsRec {
+  id: string
+  schoolId?: string
+  loanPeriodDays: number
+  maxActiveLoansStudent: number
+  maxActiveLoansStaff: number
+  finePerDayOverdue: number
+}
+
+/* ── Phase 14 — Hostel Management ──────────────────────────
+ * Hostels → rooms → beds (one row per physical bed, so occupancy is exact — not just a capacity counter) and
+ * student allocations (Active | Vacated | Transferred). A transfer is vacate-old + allocate-new as fresh rows,
+ * never a mutated bedId, so the allocation history stays honest. Shapes here mirror
+ * server/src/modules/hostel/service.ts's serializers exactly (verified against the live server — allocations
+ * carry NO name/label decorations, unlike Transport's assignments; the UI cross-references bed/room/hostel/user
+ * lists client-side, same as transport.tsx's AssignmentsSection does for stop/route names).
+ * See .agents/edunova/phase-14-hostel.md */
+
+export type HostelType = 'Boys' | 'Girls' | 'Mixed'
+
+export interface HostelRec {
+  id: string
+  schoolId?: string
+  name: string
+  type: HostelType
+  wardenUserId?: string
+  address?: string
+  createdAt: string
+  /** Decorations from `GET /hostel/hostels` only (not on `GET /hostel/hostels/:id`). */
+  totalBeds?: number
+  occupiedBeds?: number
+}
+
+export interface HostelRoomRec {
+  id: string
+  hostelId: string
+  roomNumber: string
+  floor?: string
+  /** Kept in sync with the room's bed count by the server (createRoom/resizeRoom/createBed/removeBed). */
+  capacity: number
+  roomType?: string
+  createdAt?: string
+  /** Decorations from `GET /hostel/rooms`. */
+  bedCount?: number
+  occupiedCount?: number
+}
+
+/** A bed's current occupant, nested under `HostelBedRec.occupant` (not flat fields). */
+export interface HostelBedOccupant {
+  allocationId: string
+  studentId: string
+  studentName: string
+  checkInDate: string
+}
+
+export interface HostelBedRec {
+  id: string
+  roomId: string
+  bedLabel: string
+  createdAt?: string
+  /** Decoration from `GET /hostel/beds` (and the nested `GET /hostel/hostels/:id`) — `null` while vacant. */
+  occupant?: HostelBedOccupant | null
+}
+
+export type HostelAllocationStatus = 'Active' | 'Vacated' | 'Transferred'
+
+/** No name/label decorations — `GET /hostel/allocations` answers bare rows; resolve student/bed/room/hostel
+ * names by cross-referencing the corresponding list hooks (see `useHostel.ts`). */
+export interface HostelAllocationRec {
+  id: string
+  studentId: string
+  bedId: string
+  checkInDate: string
+  checkOutDate?: string
+  status: HostelAllocationStatus
+  allocatedById?: string
+  notes?: string
+  createdAt: string
+}
+
+/* ── Phase 16 — Inventory / Procurement ─────────────────────
+ * Catalog items (consumable or fixed-asset) whose `currentStock` is denormalized but ONLY ever changes via a
+ * `StockMovement` write (direct adjustment, or received against a PurchaseOrder) — never editable through the
+ * item-update endpoint itself. Vendors and PurchaseOrders (Draft → Ordered → PartiallyReceived/Received,
+ * or Cancelled) round out procurement. See .agents/edunova/phase-16-inventory.md.
+ *
+ * Matches server/src/modules/inventory/service.ts's serializers exactly (verified against the live server —
+ * every response is UNDECORATED: no nested `item`/`vendor`/`recordedBy` context on movements or PO lines, so
+ * the UI cross-references the sibling items/vendors lists client-side, same as hostel.tsx resolving
+ * bed/room/hostel names). See useInventory.ts's header note for the reconciled endpoint paths/body shapes.
+ */
+
+export type StockMovementType = 'In' | 'Out' | 'Adjustment'
+export type PurchaseOrderStatus = 'Draft' | 'Ordered' | 'PartiallyReceived' | 'Received' | 'Cancelled'
+
+export interface InventoryItemRec {
+  id: string
+  schoolId?: string
+  name: string
+  category?: string | null
+  unit: string
+  isConsumable: boolean
+  /** Only meaningful for consumables — a fixed asset (e.g. a projector) has no reorder point. */
+  reorderThreshold?: number | null
+  /** Denormalized, server-computed — kept in sync by StockMovement writes. Never sent on an item update. */
+  currentStock: number
+  /** Server-computed: `reorderThreshold != null && currentStock <= reorderThreshold`. */
+  lowStock?: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+/** No nested `item`/`recordedBy` — bare row, matching `serializeMovement` exactly. `quantity` is a positive
+ * int for In/Out (direction implied by `type`) but SIGNED for Adjustment (positive = added/found, negative =
+ * damage/loss) — see useInventory.ts's `movementDelta`. */
+export interface StockMovementRec {
+  id: string
+  itemId: string
+  type: StockMovementType
+  quantity: number
+  reason?: string | null
+  relatedPoId?: string | null
+  recordedById: string
+  recordedAt: string
+}
+
+export interface VendorRec {
+  id: string
+  schoolId?: string
+  name: string
+  contactName?: string | null
+  phone?: string | null
+  email?: string | null
+  address?: string | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+/** No nested `item` — matching `serializePoLine` exactly; resolve the item's name/unit via `itemId` against
+ * the items list. */
+export interface PurchaseOrderLineRec {
+  id: string
+  poId: string
+  itemId: string
+  quantityOrdered: number
+  quantityReceived: number
+  unitCost?: number | null
+}
+
+/** No nested `vendor` — matching `serializePo` exactly; resolve the vendor's name via `vendorId`. */
+export interface PurchaseOrderRec {
+  id: string
+  schoolId?: string
+  vendorId: string
+  status: PurchaseOrderStatus
+  orderedAt?: string | null
+  expectedDate?: string | null
+  notes?: string | null
+  createdById: string
+  createdAt?: string
+  updatedAt?: string
+  lines: PurchaseOrderLineRec[]
+}
+
+/* ── Phase 17: Accounting / General Ledger ──────────────── */
+
+export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense'
+
+export interface AccountRec {
+  id: string
+  schoolId?: string
+  code: string
+  name: string
+  type: AccountType
+  /** A simple one-level hierarchy (e.g. "Cash"/"Bank" under "Current Assets") — nullable, no relation object. */
+  parentId?: string | null
+  /** True for accounts the Fees/Payroll auto-posting integration relies on — the UI discourages (does not
+   * necessarily forbid) deleting/deactivating these. */
+  isSystem: boolean
+  active: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type JournalSourceType = 'Manual' | 'FeePayment' | 'Payroll' | 'Other'
+
+/** `debit`/`credit` are both present per line; exactly one is non-zero, enforced server-side. */
+export interface JournalLineRec {
+  id: string
+  entryId: string
+  accountId: string
+  debit: number
+  credit: number
+}
+
+/** A JournalEntry is posted immediately on creation (no draft/approval workflow) — `postedAt` is always set. */
+export interface JournalEntryRec {
+  id: string
+  schoolId?: string
+  date: string
+  memo: string
+  reference?: string | null
+  sourceType: JournalSourceType
+  /** Polymorphic FK-by-convention to the originating FeePayment/Payslip id — not a real relation. */
+  sourceId?: string | null
+  createdById: string
+  createdAt: string
+  postedAt: string
+  lines: JournalLineRec[]
+  /** Server-computed decorations (sum of the lines) — convenient for a list row's total column. */
+  totalDebit?: number
+  totalCredit?: number
+}
+
+export interface TrialBalanceRow { accountId: string; code: string; name: string; type: AccountType; debit: number; credit: number }
+export interface TrialBalanceRec { asOf: string; accounts: TrialBalanceRow[]; totalDebit: number; totalCredit: number }
+
+export interface ProfitAndLossRow { accountId: string; code: string; name: string; amount: number }
+export interface ProfitAndLossRec {
+  from: string; to: string
+  income: ProfitAndLossRow[]; expense: ProfitAndLossRow[]
+  totalIncome: number; totalExpense: number; netIncome: number
+}
+
+/** `accountId`/`code` are null on the one synthetic "Retained Earnings (Net Income)" row the server folds
+ * into Equity (this phase has no period-close workflow — see service.ts's balanceSheet for why that row is
+ * needed for Assets to equal Liabilities + Equity). */
+export interface BalanceSheetRow { accountId: string | null; code: string | null; name: string; amount: number }
+export interface BalanceSheetRec {
+  asOf: string
+  assets: BalanceSheetRow[]; liabilities: BalanceSheetRow[]; equity: BalanceSheetRow[]
+  totalAssets: number; totalLiabilities: number; totalEquity: number; totalLiabilitiesAndEquity: number
 }

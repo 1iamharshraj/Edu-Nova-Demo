@@ -85,9 +85,13 @@ async function request<T>(method: string, path: string, body?: unknown, _retried
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
   const res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
-  // A 401 on anything but the auth endpoints themselves gets one silent refresh-and-retry — avoids
-  // bouncing the user to a re-login just because their 15-minute access token expired mid-session.
-  if (res.status === 401 && !_retried && !path.startsWith('/auth/')) {
+  // A 401 gets one silent refresh-and-retry — avoids bouncing the user to a re-login just because
+  // their 15-minute access token expired mid-session. This must cover `/auth/me` too (the boot-time
+  // session check): excluding all `/auth/*` paths previously meant an expired access token on page
+  // load/reload always logged the user out even with a perfectly valid refresh token. Only `/auth/login`
+  // (a 401 there means wrong credentials, not an expired token) and `/auth/refresh` itself (would recurse)
+  // are excluded.
+  if (res.status === 401 && !_retried && path !== '/auth/login' && path !== '/auth/refresh') {
     if (await refreshAccessToken()) return request<T>(method, path, body, true)
   }
   if (res.status === 204) return null as T
