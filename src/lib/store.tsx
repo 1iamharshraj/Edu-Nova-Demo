@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { api, getToken, setToken } from './api'
+import { api, getToken, getRefreshToken, setTokens } from './api'
 import { emptyAcademic } from './data'
 import type { AcademicState, DB, Role, User } from './data'
 
@@ -39,8 +39,6 @@ export type UpdateUserInput = Partial<CreateUserInput>
 interface StoreCtx {
   db: DB
   academic: AcademicState
-  /** Legacy optimistic mutation of the JSON blob — new screens should use the API directly. */
-  update: (fn: (db: DB) => DB) => void
   user: User | null
   login: (email: string, password: string) => Promise<User | null>
   logout: () => void
@@ -83,7 +81,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setUserState(me.user)
         await loadAll()
       } catch {
-        setToken(null)
+        setTokens(null)
         setUserState(null)
       } finally {
         if (!cancelled) setLoading(false)
@@ -92,25 +90,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     boot()
     return () => { cancelled = true }
   }, [loadAll])
-
-  // Legacy blob sync — fire-and-forget, last write wins. The server ignores users/terms/subjects.
-  function syncData(next: DB) {
-    const { users: _u, terms: _t, subjects: _s, ...rest } = next
-    void _u; void _t; void _s
-    api.put('/data', rest).catch(err => console.error('Failed to sync data to server', err))
-  }
-
-  // A few legacy call sites mutate db.users directly via update() (self-verification, inline edits).
-  function syncChangedUsers(prev: DB, next: DB) {
-    const prevById = new Map(prev.users.map(u => [u.id, u]))
-    for (const u of next.users) {
-      const before = prevById.get(u.id)
-      if (!before) continue // creation must go through createUser
-      if (JSON.stringify(before) !== JSON.stringify(u)) {
-        api.patch(`/users/${u.id}`, { ...u, password: undefined }).catch(err => console.error('Failed to sync user', err))
-      }
-    }
-  }
 
   const refreshDB = useCallback(async () => { setDb(await fetchFullDB()) }, [])
   const refreshAcademic = useCallback(async () => { setAcademic(await fetchAcademic()) }, [])
@@ -129,24 +108,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     academic,
     loading,
     user,
-    update: (fn) => {
-      setDb(prev => {
-        const next = fn(structuredClone(prev))
-        syncData(next)
-        if (next.users !== prev.users) syncChangedUsers(prev, next)
-        return next
-      })
-    },
     login: async (email, password) => {
       const res = await api.post('/auth/login', { email, password })
-      setToken(res.token)
+      setTokens({ token: res.token, refreshToken: res.refreshToken })
       setUserState(res.user)
       await loadAll()
       return res.user
     },
     logout: () => {
-      api.post('/auth/logout').catch(() => {})
-      setToken(null)
+      api.post('/auth/logout', { refreshToken: getRefreshToken() }).catch(() => {})
+      setTokens(null)
       setUserState(null)
       setDb(emptyDB())
       setAcademic(emptyAcademic())

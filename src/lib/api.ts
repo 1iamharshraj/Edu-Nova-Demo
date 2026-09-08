@@ -5,6 +5,7 @@ import type { FileRec } from './data'
 
 export const API_BASE = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE || 'http://localhost:4000/api'
 const TOKEN_KEY = 'edunova_token_v1'
+const REFRESH_TOKEN_KEY = 'edunova_refresh_token_v1'
 
 export class ApiError extends Error {
   status: number
@@ -30,12 +31,65 @@ export function setToken(t: string | null) {
   } catch { /* storage unavailable */ }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+/** The rotating refresh token from `/auth/login` or `/auth/refresh` — stored alongside the access token
+ * (same header/localStorage transport the app already used) so a 401 on an expired access token can be
+ * retried once after silently minting a new one. */
+export function getRefreshToken(): string | null {
+  try { return localStorage.getItem(REFRESH_TOKEN_KEY) } catch { return null }
+}
+export function setRefreshToken(t: string | null) {
+  try {
+    if (t) localStorage.setItem(REFRESH_TOKEN_KEY, t)
+    else localStorage.removeItem(REFRESH_TOKEN_KEY)
+  } catch { /* storage unavailable */ }
+}
+
+/** Stores both tokens from a `/auth/login` or `/auth/refresh` response in one call. */
+export function setTokens(t: { token: string; refreshToken?: string } | null) {
+  setToken(t?.token ?? null)
+  if (t) { if (t.refreshToken) setRefreshToken(t.refreshToken) } else setRefreshToken(null)
+}
+
+// Access tokens are short-lived (15 min, see server/src/auth.ts) — a single in-flight refresh is shared so
+// concurrent 401s don't each race to rotate the refresh token (rotation revokes the old one, so a second,
+// slightly-late refresh call with the now-stale token would otherwise fail).
+let refreshInFlight: Promise<boolean> | null = null
+
+async function refreshAccessToken(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      const refreshToken = getRefreshToken()
+      if (!refreshToken) return false
+      try {
+        const res = await fetch(`${API_BASE}/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        })
+        if (!res.ok) { setTokens(null); return false }
+        const json = await res.json().catch(() => ({}))
+        if (!json.token) { setTokens(null); return false }
+        setTokens({ token: json.token, refreshToken: json.refreshToken })
+        return true
+      } catch {
+        return false
+      }
+    })().finally(() => { refreshInFlight = null })
+  }
+  return refreshInFlight
+}
+
+async function request<T>(method: string, path: string, body?: unknown, _retried = false): Promise<T> {
   const headers: Record<string, string> = {}
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
   const res = await fetch(`${API_BASE}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+  // A 401 on anything but the auth endpoints themselves gets one silent refresh-and-retry — avoids
+  // bouncing the user to a re-login just because their 15-minute access token expired mid-session.
+  if (res.status === 401 && !_retried && !path.startsWith('/auth/')) {
+    if (await refreshAccessToken()) return request<T>(method, path, body, true)
+  }
   if (res.status === 204) return null as T
   const json = await res.json().catch(() => ({}))
   if (!res.ok) throw new ApiError(res.status, json.error || `Request failed (${res.status})`, json.details, json)
@@ -51,7 +105,7 @@ export const api = {
   post: <T = Loose>(path: string, body?: unknown) => request<T>('POST', path, body ?? {}),
   patch: <T = Loose>(path: string, body: unknown) => request<T>('PATCH', path, body),
   put: <T = Loose>(path: string, body: unknown) => request<T>('PUT', path, body),
-  del: <T = Loose>(path: string) => request<T>('DELETE', path),
+  del: <T = Loose>(path: string, body?: unknown) => request<T>('DELETE', path, body),
 }
 
 /** `POST /files` (multipart, field `file`, ≤ 10 MB). Returns the stored file's record. */
@@ -86,11 +140,14 @@ export async function downloadFile(id: string, name = 'file') {
 }
 
 /** Authenticated GET of any API path as a Response (for PDFs / images the server streams). Throws `ApiError` on failure. */
-export async function fetchAuthed(path: string): Promise<Response> {
+export async function fetchAuthed(path: string, _retried = false): Promise<Response> {
   const headers: Record<string, string> = {}
   const token = getToken()
   if (token) headers.Authorization = `Bearer ${token}`
   const res = await fetch(`${API_BASE}${path}`, { headers })
+  if (res.status === 401 && !_retried) {
+    if (await refreshAccessToken()) return fetchAuthed(path, true)
+  }
   if (!res.ok) {
     const json = await res.json().catch(() => ({}))
     throw new ApiError(res.status, json.error || `Request failed (${res.status})`, json.details, json)
