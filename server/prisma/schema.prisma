@@ -8,11 +8,10 @@ datasource db {
 }
 
 model School {
-  id        String      @id @default(cuid())
+  id        String   @id @default(cuid())
   name      String
-  createdAt DateTime    @default(now())
+  createdAt DateTime @default(now())
   users     User[]
-  data      SchoolData?
 
   years         AcademicYear[]
   terms         Term[]
@@ -44,6 +43,36 @@ model School {
   certificates        Certificate[]
   boardRegistrations  BoardRegistration[]
   parentVerifications ParentVerification[]
+
+  feeHeads         FeeHead[]
+  feeStructures    FeeStructure[]
+  feeInvoices      FeeInvoice[]
+  payments         Payment[]
+  feeReminders     FeeReminder[]
+  salaryStructures SalaryStructure[]
+  payslips         Payslip[]
+
+  leaveTypes    LeaveType[]
+  leaveRequests LeaveRequest[]
+  contracts     Contract[]
+  resignations  Resignation[]
+  duties        Duty[]
+
+  posts          Post[]
+  conversations  Conversation[]
+  notifications  Notification[]
+  meetings       Meeting[]
+  calendarEvents CalendarEvent[]
+
+  healthRecords     HealthRecord[]
+  permissionSlips   PermissionSlip[]
+  achievements      Achievement[]
+  disciplinaryCases DisciplinaryCase[]
+  callLogs          CallLog[]
+  activities        Activity[]
+
+  aiConversations AiConversation[]
+  highlights      Highlight[]
 }
 
 model User {
@@ -58,24 +87,15 @@ model User {
   title              String
   avatarHue          Int
   verified           Boolean @default(false)
+  active             Boolean @default(true)
 
-  // Legacy denormalised columns — kept in sync by src/lib/legacySync.ts (see phase-0-1-contract.md).
-  class       String?
-  section     String?
-  roll        String?
-  subjects    Json?
+  // Real (still-editable) profile fields — not derived from academic entities.
   department  String?
   designation String?
   reportsTo   String?
   joinDate    String?
   phone       String?
-  parentEmail String?
-  board       String?
   dob         String?
-  salary      Int?
-  wards       String?
-  contract    Json?
-  resignation Json?
 
   // Phase 4 profile / identity fields.
   photoFileId      String?
@@ -114,15 +134,60 @@ model User {
   parentVerification    ParentVerification?  @relation("VerificationParent")
   verificationsDone     ParentVerification[] @relation("VerificationVerifiedBy")
 
-  @@index([schoolId])
-}
+  feeInvoices        FeeInvoice[]     @relation("FeeInvoiceStudent")
+  paymentsRecorded   Payment[]        @relation("PaymentRecordedBy")
+  feeRemindersSent   FeeReminder[]    @relation("FeeReminderSentBy")
+  salaryStructure    SalaryStructure? @relation("SalaryStructureUser")
+  payslips           Payslip[]        @relation("PayslipUser")
+  payslipsMarkedPaid Payslip[]        @relation("PayslipPaidBy")
 
-model SchoolData {
-  id        String   @id @default(cuid())
-  schoolId  String   @unique
-  school    School   @relation(fields: [schoolId], references: [id])
-  data      Json
-  updatedAt DateTime @updatedAt
+  leaveRequestsMade    LeaveRequest[] @relation("LeaveRequester")
+  leaveRequestsFor     LeaveRequest[] @relation("LeaveForUser")
+  leaveRequestsDecided LeaveRequest[] @relation("LeaveDecidedBy")
+  contracts            Contract[]     @relation("ContractUser")
+  contractsAdminSigned Contract[]     @relation("ContractAdminSignedBy")
+  resignations         Resignation[]  @relation("ResignationUser")
+  resignationsDecided  Resignation[]  @relation("ResignationDecidedBy")
+  dutiesAssigned       Duty[]         @relation("DutyAssignee")
+  dutiesCreated        Duty[]         @relation("DutyCreatedBy")
+
+  postsAuthored         Post[]          @relation("PostAuthor")
+  postReactions         PostReaction[]
+  postComments          PostComment[]
+  conversationsCreated  Conversation[]  @relation("ConversationCreatedBy")
+  participations        Participant[]
+  messagesSent          Message[]
+  notifications         Notification[]
+  meetingsRequested     Meeting[]       @relation("MeetingRequester")
+  meetingsWith          Meeting[]       @relation("MeetingWithUser")
+  meetingsAsStudent     Meeting[]       @relation("MeetingStudent")
+  meetingsDecided       Meeting[]       @relation("MeetingDecidedBy")
+  calendarEventsCreated CalendarEvent[] @relation("CalendarEventCreatedBy")
+
+  healthRecordsAsStudent HealthRecord[]         @relation("HealthRecordStudent")
+  healthRecordsAdded     HealthRecord[]         @relation("HealthRecordAddedBy")
+  healthRecordsVerified  HealthRecord[]         @relation("HealthRecordVerifiedBy")
+  slipsCreated           PermissionSlip[]       @relation("SlipCreatedBy")
+  slipResponsesAsStudent SlipResponse[]         @relation("SlipResponseStudent")
+  slipResponsesAsParent  SlipResponse[]         @relation("SlipResponseParent")
+  achievementsOwned      Achievement[]          @relation("AchievementUser")
+  achievementsVerified   Achievement[]          @relation("AchievementVerifiedBy")
+  disciplinaryAsStudent  DisciplinaryCase[]     @relation("DisciplinaryCaseStudent")
+  disciplinaryReported   DisciplinaryCase[]     @relation("DisciplinaryCaseReportedBy")
+  disciplinaryNotes      DisciplinaryNote[]     @relation("DisciplinaryNoteAuthor")
+  callLogsAsStudent      CallLog[]              @relation("CallLogStudent")
+  callLogsAsParent       CallLog[]              @relation("CallLogParent")
+  callLogsMade           CallLog[]              @relation("CallLogBy")
+  activitiesCreated      Activity[]             @relation("ActivityCreatedBy")
+  activityRegistrations  ActivityRegistration[] @relation("ActivityRegistrationUser")
+
+  aiConversations   AiConversation[]   @relation("AiConversationStudent")
+  highlightsCreated Highlight[]        @relation("HighlightCreatedBy")
+  pushSubscriptions PushSubscription[] @relation("PushSubscriptionUser")
+
+  sessions Session[]
+
+  @@index([schoolId])
 }
 
 // ───────────────────────── Phase 1 academic entities ─────────────────────────
@@ -159,6 +224,9 @@ model Term {
   timetableEntries   TimetableEntry[]
   timetablePublishes TimetablePublish[]
   assessments        Assessment[]
+  feeStructures      FeeStructure[]
+  feeInvoices        FeeInvoice[]
+  calendarEvents     CalendarEvent[]
 
   @@index([schoolId])
   @@index([academicYearId])
@@ -259,6 +327,15 @@ model Class {
   timetableEntries   TimetableEntry[]
   timetablePublishes TimetablePublish[]
   attendanceSessions AttendanceSession[]
+  feeStructures      FeeStructure[]
+
+  posts          Post[]
+  conversations  Conversation[]
+  calendarEvents CalendarEvent[]
+
+  permissionSlips   PermissionSlip[]
+  disciplinaryCases DisciplinaryCase[]
+  highlights        Highlight[]
 
   @@unique([schoolId, academicYearId, boardId, gradeId, section])
   @@index([schoolId])
@@ -274,8 +351,9 @@ model Subject {
   color     String
   createdAt DateTime @default(now())
 
-  classSubjects ClassSubject[]
-  curriculum    CurriculumSubject[]
+  classSubjects   ClassSubject[]
+  curriculum      CurriculumSubject[]
+  aiConversations AiConversation[]
 
   @@unique([schoolId, name])
   @@index([schoolId])
@@ -458,6 +536,8 @@ model File {
   path       String
   sha256     String
   createdAt  DateTime @default(now())
+
+  highlightThumbnails Highlight[]
 
   @@index([schoolId])
 }
@@ -708,3 +788,692 @@ model ParentVerification {
 
   @@index([schoolId, status])
 }
+
+// ───────────────────────── Phase 5: finance (fees, payments, payroll) ─────────────────────────
+
+model FeeHead {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name        String
+  isRecurring Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+}
+
+// lines: [{ feeHeadId, amount }]
+model FeeStructure {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classId   String
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  termId    String
+  term      Term     @relation(fields: [termId], references: [id], onDelete: Cascade)
+  dueDate   DateTime @db.Date
+  lines     Json
+  createdAt DateTime @default(now())
+
+  invoices FeeInvoice[]
+
+  @@unique([classId, termId])
+  @@index([schoolId])
+}
+
+// lines: [{ feeHeadId, name, amount }]. invoiceNo: "INV/2026/0001" — sequential per school + year.
+// unique(studentId, feeStructureId): Postgres treats NULL as distinct, so ad-hoc invoices (feeStructureId
+// null) don't collide; generate-invoices relies on this to be idempotent per structure.
+model FeeInvoice {
+  id             String        @id @default(cuid())
+  schoolId       String
+  school         School        @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  studentId      String
+  student        User          @relation("FeeInvoiceStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  feeStructureId String?
+  feeStructure   FeeStructure? @relation(fields: [feeStructureId], references: [id], onDelete: SetNull)
+  termId         String
+  term           Term          @relation(fields: [termId], references: [id], onDelete: Cascade)
+  lines          Json
+  total          Float
+  concession     Float         @default(0)
+  dueDate        DateTime      @db.Date
+  status         String        @default("Due") // Due | PartiallyPaid | Paid | Waived
+  invoiceNo      String
+  createdAt      DateTime      @default(now())
+
+  payments  Payment[]
+  reminders FeeReminder[]
+
+  @@unique([studentId, feeStructureId])
+  @@unique([schoolId, invoiceNo])
+  @@index([schoolId])
+  @@index([termId])
+  @@index([studentId])
+}
+
+// receiptNo: "RCPT/2026/0001" — sequential per school + year.
+model Payment {
+  id           String     @id @default(cuid())
+  schoolId     String
+  school       School     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  invoiceId    String
+  invoice      FeeInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount       Float
+  method       String // UPI | Card | NetBanking | Cash | Cheque
+  reference    String?
+  paidAt       DateTime   @default(now())
+  recordedById String?
+  recordedBy   User?      @relation("PaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+  receiptNo    String
+  note         String?
+
+  @@unique([schoolId, receiptNo])
+  @@index([invoiceId])
+  @@index([schoolId])
+}
+
+model FeeReminder {
+  id        String     @id @default(cuid())
+  schoolId  String
+  school    School     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  invoiceId String
+  invoice   FeeInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  sentById  String?
+  sentBy    User?      @relation("FeeReminderSentBy", fields: [sentById], references: [id], onDelete: SetNull)
+  channel   String // InApp | Email | SMS
+  sentAt    DateTime   @default(now())
+  note      String?
+
+  @@index([invoiceId])
+  @@index([schoolId])
+}
+
+// allowances/deductions: [{ name, amount }]
+model SalaryStructure {
+  id            String   @id @default(cuid())
+  schoolId      String
+  school        School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  userId        String   @unique
+  user          User     @relation("SalaryStructureUser", fields: [userId], references: [id], onDelete: Cascade)
+  basic         Float
+  allowances    Json
+  deductions    Json
+  effectiveFrom DateTime @db.Date
+  createdAt     DateTime @default(now())
+
+  @@index([schoolId])
+}
+
+// month: "2026-06". slipNo: "PAY/2026/0001" — sequential per school + year.
+model Payslip {
+  id         String    @id @default(cuid())
+  schoolId   String
+  school     School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User      @relation("PayslipUser", fields: [userId], references: [id], onDelete: Cascade)
+  month      String
+  basic      Float
+  allowances Json
+  deductions Json
+  gross      Float
+  net        Float
+  status     String    @default("Generated") // Generated | Paid
+  paidAt     DateTime?
+  paidById   String?
+  paidBy     User?     @relation("PayslipPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  slipNo     String
+  createdAt  DateTime  @default(now())
+
+  @@unique([userId, month])
+  @@unique([schoolId, slipNo])
+  @@index([schoolId])
+}
+
+// ───────────────────────── Phase 6 HR (leave, contracts, resignations, duties) ─────────────────────────
+
+// appliesTo: student | staff. daysPerYear 0 means unlimited (e.g. student leave).
+model LeaveType {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name        String
+  daysPerYear Int
+  appliesTo   String
+  createdAt   DateTime @default(now())
+
+  requests LeaveRequest[]
+
+  @@unique([schoolId, name, appliesTo])
+  @@index([schoolId])
+}
+
+// days: computed on create, excluding Sundays in [fromDate, toDate].
+model LeaveRequest {
+  id           String     @id @default(cuid())
+  schoolId     String
+  school       School     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  requesterId  String
+  requester    User       @relation("LeaveRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  forUserId    String
+  forUser      User       @relation("LeaveForUser", fields: [forUserId], references: [id], onDelete: Cascade)
+  leaveTypeId  String?
+  leaveType    LeaveType? @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
+  fromDate     DateTime   @db.Date
+  toDate       DateTime   @db.Date
+  days         Int
+  reason       String
+  status       String     @default("Pending") // Pending | Approved | Declined | Cancelled
+  decidedById  String?
+  decidedBy    User?      @relation("LeaveDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt    DateTime?
+  decisionNote String?
+  createdAt    DateTime   @default(now())
+
+  @@index([schoolId])
+  @@index([forUserId])
+}
+
+model Contract {
+  id               String    @id @default(cuid())
+  schoolId         String
+  school           School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User      @relation("ContractUser", fields: [userId], references: [id], onDelete: Cascade)
+  designation      String
+  department       String?
+  startDate        DateTime  @db.Date
+  endDate          DateTime? @db.Date
+  terms            String
+  status           String    @default("Draft") // Draft | Active | Ended
+  employeeSignedAt DateTime?
+  adminSignedAt    DateTime?
+  adminSignedById  String?
+  adminSignedBy    User?     @relation("ContractAdminSignedBy", fields: [adminSignedById], references: [id], onDelete: SetNull)
+  endedAt          DateTime?
+  endReason        String?
+  pdfFileId        String?
+  createdAt        DateTime  @default(now())
+
+  @@index([schoolId])
+  @@index([userId])
+}
+
+model Resignation {
+  id              String    @id @default(cuid())
+  schoolId        String
+  school          School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User      @relation("ResignationUser", fields: [userId], references: [id], onDelete: Cascade)
+  reason          String
+  submittedAt     DateTime  @default(now())
+  lastWorkingDate DateTime  @db.Date
+  status          String    @default("Pending") // Pending | Approved | Declined | Withdrawn
+  decidedById     String?
+  decidedBy       User?     @relation("ResignationDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt       DateTime?
+  notes           String?
+
+  @@index([schoolId])
+  @@index([userId])
+}
+
+model Duty {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  title       String
+  eventTitle  String
+  eventDate   DateTime @db.Date
+  assigneeId  String?
+  assignee    User?    @relation("DutyAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdById String
+  createdBy   User     @relation("DutyCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  status      String   @default("Assigned") // Assigned | Done
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([assigneeId])
+}
+
+// ───────────────────────── Phase 7 Communication (feed, messages, notifications, meetings, calendar) ─────────────────────────
+
+// audience: School | Class | Role. classId set when audience=Class, role set when audience=Role.
+model Post {
+  id           String   @id @default(cuid())
+  schoolId     String
+  school       School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User     @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  audience     String
+  classId      String?
+  class        Class?   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  role         String?
+  title        String?
+  body         String
+  mediaFileIds String[] @default([])
+  pinned       Boolean  @default(false)
+  publishedAt  DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  reactions PostReaction[]
+  comments  PostComment[]
+
+  @@index([schoolId])
+  @@index([classId])
+}
+
+model PostReaction {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+  @@index([postId])
+}
+
+model PostComment {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([postId])
+}
+
+// kind: DM | Group. classId set for a class group conversation.
+model Conversation {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  kind        String
+  title       String?
+  classId     String?
+  class       Class?   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User     @relation("ConversationCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  participants Participant[]
+  messages     Message[]
+
+  @@index([schoolId])
+  @@index([classId])
+}
+
+model Participant {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastReadAt     DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  body           String
+  fileIds        String[]     @default([])
+  sentAt         DateTime     @default(now())
+
+  @@index([conversationId])
+  @@index([senderId])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  schoolId  String
+  school    School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String
+  title     String
+  body      String?
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([schoolId])
+  @@index([userId])
+}
+
+// status: Requested | Scheduled | Completed | Cancelled | Declined. link generated on Scheduled (Jitsi).
+model Meeting {
+  id          String    @id @default(cuid())
+  schoolId    String
+  school      School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  requesterId String
+  requester   User      @relation("MeetingRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  withUserId  String
+  withUser    User      @relation("MeetingWithUser", fields: [withUserId], references: [id], onDelete: Cascade)
+  studentId   String?
+  student     User?     @relation("MeetingStudent", fields: [studentId], references: [id], onDelete: SetNull)
+  purpose     String
+  scheduledAt DateTime
+  durationMin Int       @default(30)
+  link        String?
+  status      String    @default("Requested")
+  decidedById String?
+  decidedBy   User?     @relation("MeetingDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt   DateTime?
+  note        String?
+  createdAt   DateTime  @default(now())
+
+  @@index([schoolId])
+  @@index([requesterId])
+  @@index([withUserId])
+}
+
+// type: holiday | exam | event. audience: School | Class.
+model CalendarEvent {
+  id          String    @id @default(cuid())
+  schoolId    String
+  school      School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  title       String
+  date        DateTime  @db.Date
+  endDate     DateTime? @db.Date
+  type        String
+  audience    String
+  classId     String?
+  class       Class?    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  termId      String?
+  term        Term?     @relation(fields: [termId], references: [id], onDelete: SetNull)
+  createdById String
+  createdBy   User      @relation("CalendarEventCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@index([schoolId])
+  @@index([classId])
+}
+
+// ── Phase 8 — welfare & compliance. See phase-8-welfare.md. ──
+
+// kind: Vaccination|Allergy|Condition|Checkup|Other. Visible only to the student, guardians, class
+// teacher, staff/admin (enforced in service, not schema).
+model HealthRecord {
+  id           String    @id @default(cuid())
+  schoolId     String
+  school       School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  studentId    String
+  student      User      @relation("HealthRecordStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  kind         String
+  title        String
+  detail       String
+  date         DateTime  @db.Date
+  addedById    String
+  addedBy      User      @relation("HealthRecordAddedBy", fields: [addedById], references: [id], onDelete: Cascade)
+  verifiedById String?
+  verifiedBy   User?     @relation("HealthRecordVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
+  verifiedAt   DateTime?
+  fileIds      String[]  @default([])
+  createdAt    DateTime  @default(now())
+
+  @@index([schoolId])
+  @@index([studentId])
+}
+
+// classId null = all classes. requiresVerifiedParent gates SlipResponse on the parent's `verified` flag.
+model PermissionSlip {
+  id                     String   @id @default(cuid())
+  schoolId               String
+  school                 School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  title                  String
+  detail                 String
+  dueDate                DateTime @db.Date
+  classId                String?
+  class                  Class?   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  createdById            String
+  createdBy              User     @relation("SlipCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  requiresVerifiedParent Boolean  @default(true)
+  createdAt              DateTime @default(now())
+
+  responses SlipResponse[]
+
+  @@index([schoolId])
+  @@index([classId])
+}
+
+// decision: Approved|Declined.
+model SlipResponse {
+  id          String         @id @default(cuid())
+  slipId      String
+  slip        PermissionSlip @relation(fields: [slipId], references: [id], onDelete: Cascade)
+  studentId   String
+  student     User           @relation("SlipResponseStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  parentId    String
+  parent      User           @relation("SlipResponseParent", fields: [parentId], references: [id], onDelete: Cascade)
+  decision    String
+  respondedAt DateTime       @default(now())
+  note        String?
+
+  @@unique([slipId, studentId])
+  @@index([slipId])
+}
+
+// category: Academic|Sports|Arts|Service|Other.
+model Achievement {
+  id           String    @id @default(cuid())
+  schoolId     String
+  school       School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation("AchievementUser", fields: [userId], references: [id], onDelete: Cascade)
+  title        String
+  detail       String
+  date         DateTime  @db.Date
+  category     String
+  verifiedById String?
+  verifiedBy   User?     @relation("AchievementVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull)
+  verifiedAt   DateTime?
+  fileIds      String[]  @default([])
+  createdAt    DateTime  @default(now())
+
+  @@index([schoolId])
+  @@index([userId])
+}
+
+// status: Reported|Scheduled|Heard|Decision|Action Taken|Appealed|Closed. Soft delete via deletedAt
+// (admin only) — excluded from default lists but kept for audit.
+model DisciplinaryCase {
+  id            String    @id @default(cuid())
+  schoolId      String
+  school        School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  studentId     String
+  student       User      @relation("DisciplinaryCaseStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  classId       String?
+  class         Class?    @relation(fields: [classId], references: [id], onDelete: SetNull)
+  title         String
+  description   String
+  reportedById  String
+  reportedBy    User      @relation("DisciplinaryCaseReportedBy", fields: [reportedById], references: [id], onDelete: Cascade)
+  witnesses     String?
+  fileIds       String[]  @default([])
+  status        String    @default("Reported")
+  hearingDate   DateTime?
+  decision      String?
+  actionTaken   String?
+  appeal        String?
+  relatedPeople String?
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  notes DisciplinaryNote[]
+
+  @@index([schoolId])
+  @@index([studentId])
+}
+
+// Status-change log + free-form notes on a disciplinary case.
+model DisciplinaryNote {
+  id        String           @id @default(cuid())
+  caseId    String
+  case      DisciplinaryCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User             @relation("DisciplinaryNoteAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime         @default(now())
+
+  @@index([caseId])
+}
+
+// reason: fee|attendance|disciplinary|general. outcome: confirmed|callback|unreachable|refused|other.
+// Replaces the AI call simulation — a real call staff/teacher/admin made and logged.
+model CallLog {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  studentId   String
+  student     User     @relation("CallLogStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  parentId    String?
+  parent      User?    @relation("CallLogParent", fields: [parentId], references: [id], onDelete: SetNull)
+  byId        String
+  by          User     @relation("CallLogBy", fields: [byId], references: [id], onDelete: Cascade)
+  reason      String
+  summary     String
+  outcome     String
+  calledAt    DateTime @default(now())
+  durationMin Int?
+
+  @@index([schoolId])
+  @@index([studentId])
+}
+
+// kind: club|house|exc|event|faculty. forRoles gates who may register; capacity → waitlist.
+model Activity {
+  id          String    @id @default(cuid())
+  schoolId    String
+  school      School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  kind        String
+  title       String
+  description String
+  capacity    Int?
+  opensAt     DateTime?
+  closesAt    DateTime?
+  forRoles    String[]  @default([])
+  createdById String
+  createdBy   User      @relation("ActivityCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  registrations ActivityRegistration[]
+
+  @@index([schoolId])
+}
+
+// status: Registered|Waitlisted|Cancelled.
+model ActivityRegistration {
+  id           String   @id @default(cuid())
+  activityId   String
+  activity     Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User     @relation("ActivityRegistrationUser", fields: [userId], references: [id], onDelete: Cascade)
+  registeredAt DateTime @default(now())
+  status       String   @default("Registered")
+
+  @@unique([activityId, userId])
+  @@index([activityId])
+}
+
+// ── Phase 9 — integrations & AI. See phase-9-10-integrations-hardening.md. ──
+
+// One conversation thread per student (optionally scoped to a subject). Messages are the exchange with the
+// Claude API; role is "user" | "assistant". Rate-limited to 30 user messages/day/student (see modules/ai).
+model AiConversation {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  studentId String
+  student   User     @relation("AiConversationStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  subjectId String?
+  subject   Subject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  title     String?
+  createdAt DateTime @default(now())
+
+  messages AiMessage[]
+
+  @@index([schoolId])
+  @@index([studentId])
+}
+
+model AiMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  createdAt      DateTime       @default(now())
+
+  @@index([conversationId])
+}
+
+// Event highlights CMS. url = YouTube/Drive link; audience mirrors CalendarEvent (School | Class).
+model Highlight {
+  id              String   @id @default(cuid())
+  schoolId        String
+  school          School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  title           String
+  url             String
+  thumbnailFileId String?
+  thumbnailFile   File?    @relation(fields: [thumbnailFileId], references: [id], onDelete: SetNull)
+  audience        String
+  classId         String?
+  class           Class?   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  publishedAt     DateTime @default(now())
+  createdById     String
+  createdBy       User     @relation("HighlightCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([classId])
+}
+
+// Web Push subscriptions (PWA). One row per browser/device subscription for a user.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation("PushSubscriptionUser", fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ───────────────────────────── Phase 10: hardening ─────────────────────────────
+
+// Refresh-token sessions for JWT refresh (see phase-9-10-integrations-hardening.md → Phase 10 §2).
+// Access tokens are short-lived (15 min); a Session row backs a longer-lived, rotating refresh token.
+// Only a sha256 hash of the raw refresh token is ever stored.
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String    @unique
+  createdAt        DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// Telephony (real outbound/inbound calling) is explicitly out of scope for Phase 9 — the Call log
+// (Phase 8, modules/calls) is the shipped replacement for the old AI-call simulation. If real telephony
+// is ever added, it would live here as a `modules/telephony` wrapper around a provider (Twilio/Exotel)
+// following this same module pattern.
