@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { AlertTriangle, Database, History, Sparkles } from 'lucide-react'
 import { useStore } from '@/lib/store'
@@ -15,14 +15,27 @@ export function SettingsMod() {
   const [confirmText, setConfirmText] = useState('')
   const [busy, setBusy] = useState<'sample' | 'reset' | null>(null)
   const [audit, setAudit] = useState<AuditRow[] | null>(null)
+  const [entityFilter, setEntityFilter] = useState('')
+  const [actorFilter, setActorFilter] = useState('')
 
   const hasData = academic.classes.length > 0 || db.users.length > 1
 
   useEffect(() => {
-    api.get<{ items: AuditRow[] }>('/admin/audit?limit=30')
-      .then(r => setAudit(r.items))
-      .catch(() => setAudit([]))
-  }, [db, academic])
+    let cancelled = false
+    const params = new URLSearchParams({ limit: '30' })
+    if (entityFilter) params.set('entity', entityFilter)
+    if (actorFilter) params.set('actorId', actorFilter)
+    api.get<{ items: AuditRow[] }>(`/admin/audit?${params.toString()}`)
+      .then(r => { if (!cancelled) setAudit(r.items) })
+      .catch(() => { if (!cancelled) setAudit([]) })
+    return () => { cancelled = true }
+  }, [db, academic, entityFilter, actorFilter])
+
+  const entityOptions = useMemo(() => Array.from(new Set((audit ?? []).map(r => r.entity))).sort(), [audit])
+  const actorOptions = useMemo(() => {
+    const ids = Array.from(new Set(db.users.map(u => u.id)))
+    return ids.map(id => ({ id, name: db.users.find(u => u.id === id)?.name ?? id })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [db.users])
 
   const runSample = async () => {
     setBusy('sample')
@@ -108,8 +121,24 @@ export function SettingsMod() {
         )}
 
         <Card className="lg:col-span-2">
-          <div className="mb-3 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">
-            <History size={14} /> Recent activity
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">
+              <History size={14} /> Recent activity
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select value={entityFilter} onChange={e => setEntityFilter(e.target.value)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Entity">
+                <option value="">All entities</option>
+                {entityFilter && !entityOptions.includes(entityFilter) && <option value={entityFilter}>{entityFilter}</option>}
+                {entityOptions.map(e => <option key={e} value={e}>{e}</option>)}
+              </select>
+              <select value={actorFilter} onChange={e => setActorFilter(e.target.value)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Actor">
+                <option value="">All actors</option>
+                {actorOptions.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              {(entityFilter || actorFilter) && (
+                <button onClick={() => { setEntityFilter(''); setActorFilter('') }} className="text-[12px] font-semibold text-black/40 hover:text-black dark:text-white/40 dark:hover:text-white">Clear</button>
+              )}
+            </div>
           </div>
           {audit === null ? (
             <p className="text-[13px] text-black/40 dark:text-white/40">Loading…</p>
