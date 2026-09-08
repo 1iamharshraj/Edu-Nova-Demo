@@ -71,7 +71,7 @@ export async function createMeetingSvc(ctx: Ctx, input: z.infer<typeof createMee
     },
   })
   await audit(ctx.schoolId, ctx.actorId, 'create', 'meeting', row.id, undefined, serializeMeeting(row))
-  await notify(ctx.schoolId, withUser.id, 'meeting', 'New meeting request', input.purpose, 'meetings')
+  await notify(ctx.schoolId, withUser.id, 'meeting', 'New meeting request', input.purpose, 'meet')
   return row
 }
 
@@ -87,7 +87,7 @@ export async function approve(ctx: Ctx, id: string, input: z.infer<typeof decide
     where: { id }, data: { status: 'Scheduled', decidedById: ctx.actorId, decidedAt: new Date(), note: input.note ?? null, link: jitsiLink(ctx.schoolId, id) },
   })
   await audit(ctx.schoolId, ctx.actorId, 'approve', 'meeting', id, serializeMeeting(before), serializeMeeting(row))
-  await notify(ctx.schoolId, row.requesterId, 'meeting', 'Meeting scheduled', row.purpose, 'meetings')
+  await notify(ctx.schoolId, row.requesterId, 'meeting', 'Meeting scheduled', row.purpose, 'meet')
   return row
 }
 
@@ -98,7 +98,7 @@ export async function decline(ctx: Ctx, id: string, input: z.infer<typeof decide
     where: { id }, data: { status: 'Declined', decidedById: ctx.actorId, decidedAt: new Date(), note: input.note ?? null },
   })
   await audit(ctx.schoolId, ctx.actorId, 'decline', 'meeting', id, serializeMeeting(before), serializeMeeting(row))
-  await notify(ctx.schoolId, row.requesterId, 'meeting', 'Meeting declined', row.purpose, 'meetings')
+  await notify(ctx.schoolId, row.requesterId, 'meeting', 'Meeting declined', row.purpose, 'meet')
   return row
 }
 
@@ -109,7 +109,7 @@ export async function cancel(ctx: Ctx, id: string) {
   const row = await prisma.meeting.update({ where: { id }, data: { status: 'Cancelled' } })
   await audit(ctx.schoolId, ctx.actorId, 'cancel', 'meeting', id, serializeMeeting(before), serializeMeeting(row))
   const other = ctx.actorId === row.requesterId ? row.withUserId : row.requesterId
-  await notify(ctx.schoolId, other, 'meeting', 'Meeting cancelled', row.purpose, 'meetings')
+  await notify(ctx.schoolId, other, 'meeting', 'Meeting cancelled', row.purpose, 'meet')
   return row
 }
 

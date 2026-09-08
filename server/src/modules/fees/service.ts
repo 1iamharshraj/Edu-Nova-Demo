@@ -5,10 +5,11 @@ import { audit } from '../../lib/audit'
 import { HttpError, notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
 import { fmtDate, toDate } from '../../lib/validate'
-import { assertViewStudent, isStaff, visibleStudentIds } from '../../lib/scope'
+import { assertViewStudent, classesTaughtBy, isStaff, visibleStudentIds } from '../../lib/scope'
 import { paginate } from '../../lib/pagination'
 import { drawFields, drawFooter, drawHeader, drawTable, fmtLong, renderToBuffer } from '../../lib/pdf'
 import { sendEmail, sendSms } from '../../lib/notify'
+import { postFeePaymentAutoEntry } from '../accounting/service'
 import type {
   createFeeHead, patchFeeHead, createFeeStructure, patchFeeStructure, structuresQuery,
   createInvoice, patchInvoice, invoicesQuery, createPayment, paymentsQuery,
@@ -313,6 +314,9 @@ export async function recordPayment(ctx: Ctx, input: z.infer<typeof createPaymen
     return payment
   })
   await audit(ctx.schoolId, ctx.actorId, 'create', 'payment', row.id, undefined, serializePayment(row))
+  // Phase 17 — best-effort ledger auto-post (Debit Bank / Credit Fee Income); never blocks or rolls back
+  // the payment itself, see accounting/service.ts#postFeePaymentAutoEntry.
+  await postFeePaymentAutoEntry(ctx, row)
   return row
 }
 
@@ -401,17 +405,30 @@ export async function gatewayConfirmPayment(ctx: Ctx, input: z.infer<typeof gate
     return payment
   })
   await audit(ctx.schoolId, ctx.actorId, 'gateway-confirm', 'payment', row.id, undefined, serializePayment(row))
+  // Phase 17 — same best-effort ledger auto-post as recordPayment above.
+  await postFeePaymentAutoEntry(ctx, row)
   const updated = await prisma.feeInvoice.findUniqueOrThrow({ where: { id: invoice.id }, include: invoiceInclude })
   return { payment: row, invoice: updated }
 }
 
 // ─────────────────────────── defaulters ───────────────────────────
 
+// Staff/admin/superadmin see every defaulter in the school. A teacher sees only defaulters among students
+// in classes they actually teach (class-teacher of, or hold a ClassSubject in) — same scoping as every
+// other teacher-facing endpoint (see scope.ts#classesTaughtBy) — never the whole-school list.
 export async function defaulters(ctx: Ctx, q: z.infer<typeof defaultersQuery>) {
-  if (!isStaff(ctx)) throw new HttpError(403, 'Staff/admin only')
+  if (!isStaff(ctx) && ctx.role !== 'teacher') throw new HttpError(403, 'Staff/admin/teacher only')
   const now = new Date()
   let studentIds: string[] | undefined
-  if (q.classId) {
+  if (ctx.role === 'teacher') {
+    const taught = await classesTaughtBy(ctx.schoolId, ctx.actorId)
+    if (q.classId && !taught.includes(q.classId)) throw new HttpError(403, 'You do not teach this class')
+    const classIds = q.classId ? [q.classId] : taught
+    if (!classIds.length) return []
+    const enr = await prisma.enrollment.findMany({ where: { classId: { in: classIds }, schoolId: ctx.schoolId, status: 'active' }, select: { studentId: true } })
+    studentIds = enr.map(e => e.studentId)
+    if (!studentIds.length) return []
+  } else if (q.classId) {
     const enr = await prisma.enrollment.findMany({ where: { classId: q.classId, schoolId: ctx.schoolId, status: 'active' }, select: { studentId: true } })
     studentIds = enr.map(e => e.studentId)
   }

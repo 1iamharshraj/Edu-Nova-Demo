@@ -5,7 +5,7 @@ import { audit } from '../../lib/audit'
 import { HttpError, notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
 import { fmtDate, toDate } from '../../lib/validate'
-import { assertOnRoster, assertViewClass, assertWriteClass, canWriteClass, getClass, getClassSubject, getTerm, visibleStudentIds } from '../../lib/scope'
+import { assertOnRoster, assertViewClass, assertWriteClassSubject, canWriteClass, getClass, getClassSubject, getTerm, visibleStudentIds } from '../../lib/scope'
 import type { createAssessment, patchAssessment, putMarks, listQuery } from './schema'
 
 export const assessmentInclude = {
@@ -65,7 +65,7 @@ export async function create(ctx: Ctx, input: z.infer<typeof createAssessment>) 
   const cs = await getClassSubject(ctx, input.classSubjectId)
   const term = await getTerm(ctx, input.termId)
   if (cs.class.academicYearId !== term.academicYearId) throw new HttpError(400, 'Term does not belong to the class’s academic year')
-  await assertWriteClass(ctx, cs.classId)
+  await assertWriteClassSubject(ctx, cs.id)
   const row = await prisma.assessment.create({
     data: { schoolId: ctx.schoolId, classSubjectId: cs.id, termId: term.id, name: input.name, maxMarks: input.maxMarks, weight: input.weight ?? 1, date: input.date ? toDate(input.date) : null },
     include: assessmentInclude,
@@ -76,7 +76,7 @@ export async function create(ctx: Ctx, input: z.infer<typeof createAssessment>) 
 
 export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchAssessment>) {
   const before = await get(ctx, id)
-  await assertWriteClass(ctx, before.classSubject.classId)
+  await assertWriteClassSubject(ctx, before.classSubjectId)
   if (input.maxMarks !== undefined) {
     const over = before.marks.filter(m => m.score > input.maxMarks!)
     if (over.length) throw new HttpError(400, `maxMarks ${input.maxMarks} is below ${over.length} existing score(s)`, { studentId: over.map(m => m.studentId) })
@@ -92,7 +92,7 @@ export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchAs
 
 export async function remove(ctx: Ctx, id: string) {
   const before = await get(ctx, id)
-  await assertWriteClass(ctx, before.classSubject.classId)
+  await assertWriteClassSubject(ctx, before.classSubjectId)
   await prisma.assessment.delete({ where: { id } })
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'assessment', id, serializeAssessment(before, null))
 }
@@ -100,7 +100,7 @@ export async function remove(ctx: Ctx, id: string) {
 // PUT /:id/marks — upsert by (assessment, student); every score must be ≤ maxMarks.
 export async function putMarksFor(ctx: Ctx, id: string, input: z.infer<typeof putMarks>) {
   const before = await get(ctx, id)
-  await assertWriteClass(ctx, before.classSubject.classId)
+  await assertWriteClassSubject(ctx, before.classSubjectId)
   const ids = input.marks.map(m => m.studentId)
   if (new Set(ids).size !== ids.length) throw new HttpError(400, 'Duplicate studentId in marks')
   await assertOnRoster(before.classSubject.classId, ids)
@@ -123,7 +123,7 @@ export async function putMarksFor(ctx: Ctx, id: string, input: z.infer<typeof pu
 
 export async function setPublished(ctx: Ctx, id: string, published: boolean) {
   const before = await get(ctx, id)
-  await assertWriteClass(ctx, before.classSubject.classId)
+  await assertWriteClassSubject(ctx, before.classSubjectId)
   const row = await prisma.assessment.update({ where: { id }, data: { publishedAt: published ? new Date() : null }, include: assessmentInclude })
   await audit(ctx.schoolId, ctx.actorId, published ? 'publish' : 'unpublish', 'assessment', id, { publishedAt: before.publishedAt }, { publishedAt: row.publishedAt })
   return row

@@ -26,6 +26,11 @@ export const serializeRegistration = (r: ActivityRegistration) => ({
 
 const registeredCount = (activityId: string) => prisma.activityRegistration.count({ where: { activityId, status: 'Registered' } })
 
+// Activities have no single sidebar module — each `kind` is its own registration screen (see
+// src/lib/data.ts's ActivityKind and Portal.tsx's modulesFor). Map to the real id so the waitlist
+// notification's deep link actually resolves for the recipient.
+const ACTIVITY_LINK: Record<string, string> = { club: 'ffcs', house: 'iha', exc: 'exc', event: 'events', faculty: 'freg' }
+
 export async function listActivities(ctx: Ctx, q: z.infer<typeof activitiesQuery>) {
   const rows = await prisma.activity.findMany({ where: { schoolId: ctx.schoolId, kind: q.kind }, orderBy: { createdAt: 'desc' } })
   return Promise.all(rows.map(async a => {
@@ -108,7 +113,7 @@ export async function cancelRegistration(ctx: Ctx, id: string) {
     if (next) {
       await prisma.activityRegistration.update({ where: { id: next.id }, data: { status: 'Registered' } })
       await audit(ctx.schoolId, ctx.actorId, 'promote', 'activity', id, { userId: next.userId, status: 'Waitlisted' }, { userId: next.userId, status: 'Registered' })
-      await notify(activity.schoolId, next.userId, 'activity', 'You’re off the waitlist', activity.title, 'activities')
+      await notify(activity.schoolId, next.userId, 'activity', 'You’re off the waitlist', activity.title, ACTIVITY_LINK[activity.kind] ?? 'activities')
     }
   }
   return row

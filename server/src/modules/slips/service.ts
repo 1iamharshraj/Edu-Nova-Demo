@@ -5,7 +5,7 @@ import { audit } from '../../lib/audit'
 import { notify } from '../../lib/notify'
 import { HttpError, notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
-import { isAdmin, isStaff, teacherClassIds, wardClassIds, studentClassIds, isGuardianOf, activeClassOf, getClass } from '../../lib/scope'
+import { isAdmin, isStaff, teacherClassIds, wardClassIds, studentClassIds, visibleStudentIds, isGuardianOf, activeClassOf, getClass } from '../../lib/scope'
 import { toDate, fmtDate } from '../../lib/validate'
 import type { createSlip, patchSlip, respondSlip, slipsQuery } from './schema'
 
@@ -13,9 +13,13 @@ import type { createSlip, patchSlip, respondSlip, slipsQuery } from './schema'
 // not create a school-wide (classId omitted) slip. Respond: a parent per ward, requiring `verified` when
 // `requiresVerifiedParent`. Tally: teacher (of that class) / staff / admin.
 
-export const serializeSlip = (s: PermissionSlip) => ({
+// `myResponses`: the calling parent/student's own SlipResponse row(s) for this slip (one per ward, for a
+// parent with multiple wards this slip applies to) — see src/lib/data.ts's PermissionSlipRec. Absent for
+// teacher/staff/admin callers, who use GET /:id/responses instead.
+export const serializeSlip = (s: PermissionSlip, myResponses?: ReturnType<typeof serializeResponse>[]) => ({
   id: s.id, title: s.title, detail: s.detail, dueDate: fmtDate(s.dueDate), classId: s.classId ?? undefined,
   createdById: s.createdById, requiresVerifiedParent: s.requiresVerifiedParent, createdAt: s.createdAt.toISOString(),
+  myResponses,
 })
 
 export const serializeResponse = (r: SlipResponse) => ({
@@ -40,9 +44,19 @@ export async function listSlips(ctx: Ctx, q: z.infer<typeof slipsQuery>) {
   const where: Record<string, unknown> = { schoolId: ctx.schoolId }
   if (q.classId) where.classId = q.classId
   const rows = await prisma.permissionSlip.findMany({ where, orderBy: { createdAt: 'desc' } })
-  if (isStaff(ctx)) return rows.map(serializeSlip)
-  const classIds = new Set(await relevantClassIds(ctx))
-  return rows.filter(s => canViewSlip(classIds, ctx, s)).map(serializeSlip)
+  const classIds = isStaff(ctx) ? null : new Set(await relevantClassIds(ctx))
+  const visible = classIds ? rows.filter(s => canViewSlip(classIds, ctx, s)) : rows
+
+  if (ctx.role !== 'student' && ctx.role !== 'parent') return visible.map(s => serializeSlip(s))
+
+  // Attach the caller's own ward(s)' responses so a parent sees their prior decision instead of an
+  // ever-resettable button (deep-audit-2026-09-08.md #12/#4).
+  const studentIds = (await visibleStudentIds(ctx)) ?? []
+  if (!studentIds.length || !visible.length) return visible.map(s => serializeSlip(s))
+  const responses = await prisma.slipResponse.findMany({ where: { slipId: { in: visible.map(s => s.id) }, studentId: { in: studentIds } } })
+  const bySlip = new Map<string, typeof responses>()
+  for (const r of responses) bySlip.set(r.slipId, [...(bySlip.get(r.slipId) ?? []), r])
+  return visible.map(s => serializeSlip(s, (bySlip.get(s.id) ?? []).map(serializeResponse)))
 }
 
 async function getVisible(ctx: Ctx, id: string) {

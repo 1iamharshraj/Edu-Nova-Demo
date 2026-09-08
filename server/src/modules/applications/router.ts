@@ -6,7 +6,7 @@ import { STAFF_ROLES } from '../../lib/scope'
 import { validate } from '../../lib/validate'
 import * as svc from './service'
 import { serializeApplication } from './service'
-import { createApplication, patchApplication, listQuery, declineBody } from './schema'
+import { createApplication, patchApplication, listQuery, declineBody, approveBody } from './schema'
 
 // /api/applications — admissions pipeline + TC / Bonafide / Character requests.
 export const applicationsRouter = Router()
@@ -34,8 +34,9 @@ applicationsRouter.post('/:id/verify', staff, wrap(async (req, res) => {
 }))
 
 applicationsRouter.post('/:id/approve', staff, wrap(async (req, res) => {
-  const { row, created } = await svc.approve(ctxOf(req as AuthedRequest), req.params.id)
-  res.json({ item: serializeApplication(row), ...(created ? { created } : {}) })
+  const opts = validate(approveBody, req.body ?? {})
+  const { row, created, alumni } = await svc.approve(ctxOf(req as AuthedRequest), req.params.id, opts)
+  res.json({ item: serializeApplication(row), ...(created ? { created } : {}), ...(alumni ? { alumni } : {}) })
 }))
 
 applicationsRouter.post('/:id/decline', staff, wrap(async (req, res) => {

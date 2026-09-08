@@ -137,6 +137,7 @@ export async function contractPdf(ctx: Ctx, id: string) {
     drawHeader(doc, { schoolName: school.name, title: 'Employment Contract', subtitle: contract.designation })
     drawFields(doc, [
       { label: 'Employee', value: user.name },
+      { label: 'Employee ID', value: user.employeeId ?? '—' },
       { label: 'Designation', value: contract.designation },
       { label: 'Department', value: contract.department ?? '—' },
       { label: 'Start date', value: fmtDate(contract.startDate) },

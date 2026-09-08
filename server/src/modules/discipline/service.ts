@@ -103,7 +103,7 @@ export async function setCaseStatus(ctx: Ctx, id: string, input: z.infer<typeof 
     prisma.disciplinaryNote.create({ data: { caseId: id, authorId: ctx.actorId, body: input.note?.trim() ? `Status → ${input.status}: ${input.note}` : `Status → ${input.status}` } }),
   ])
   await audit(ctx.schoolId, ctx.actorId, 'status', 'disciplinary-case', id, { status: before.status }, { status: input.status })
-  await notify(ctx.schoolId, before.studentId, 'discipline', 'Case update', `${before.title}: ${input.status}`, 'discipline')
+  await notify(ctx.schoolId, before.studentId, 'discipline', 'Case update', `${before.title}: ${input.status}`, 'disc')
   return row
 }
 

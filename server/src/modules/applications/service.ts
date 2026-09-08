@@ -1,6 +1,5 @@
 import type { z } from 'zod'
 import bcrypt from 'bcryptjs'
-import crypto from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../prisma'
 import { audit } from '../../lib/audit'
@@ -10,10 +9,11 @@ import { fmtDate, toDate } from '../../lib/validate'
 import { assertViewStudent, isRestricted, isStaff, visibleStudentIds } from '../../lib/scope'
 import { syncUserTitle } from '../../lib/titleSync'
 import { sendEmail } from '../../lib/notify'
-import { makeEmail, uid } from '../../userDefaults'
+import { genPassword, makeEmail, uid } from '../../userDefaults'
 import { assertFileIds } from '../files/service'
 import * as certificates from '../certificates/service'
-import type { createApplication, patchApplication, listQuery } from './schema'
+import * as alumni from '../alumni/service'
+import type { createApplication, patchApplication, listQuery, approveBody } from './schema'
 
 export const applicationInclude = { certificates: { select: { id: true } } } satisfies Prisma.ApplicationInclude
 export type ApplicationFull = Prisma.ApplicationGetPayload<{ include: typeof applicationInclude }>
@@ -154,8 +154,6 @@ export async function decline(ctx: Ctx, id: string, notes?: string) {
   return row
 }
 
-const genPassword = () => crypto.randomBytes(6).toString('base64url').replace(/[^A-Za-z0-9]/g, 'x').slice(0, 8) + '2k'
-
 async function freeEmail(tx: Prisma.TransactionClient, wanted: string) {
   const [local, domain] = wanted.toLowerCase().split('@')
   for (let i = 0; i < 100; i++) {
@@ -241,11 +239,19 @@ async function approveAdmission(ctx: Ctx, app: ApplicationFull): Promise<{ row: 
   }
 }
 
-export async function approve(ctx: Ctx, id: string) {
+// `opts` (Phase 13): when approving a TC, staff may optionally set `convertToAlumni` to also create an
+// AlumniProfile in the same action, instead of a separate later trip to the Alumni module — see
+// phase-13-alumni.md and modules/alumni/service.ts#convertStudent for the conversion design. The
+// enrollment has already been ended (status 'transferred') by the TC branch just above, so the alumni
+// conversion is called with `endEnrollment: false` — it must not try to end it a second time (with a
+// different status). Ignored for every other application kind; a duplicate conversion (e.g. a retry) is
+// swallowed as a no-op rather than failing the whole approval, since the certificate has already issued.
+export async function approve(ctx: Ctx, id: string, opts?: z.infer<typeof approveBody>) {
   const before = await get(ctx, id)
   assertOpen(before)
   let row: ApplicationFull
   let created: Created | undefined
+  let alumniProfile: ReturnType<typeof alumni.serializeProfile> | undefined
   if (before.kind === 'Admission') {
     ;({ row, created } = await approveAdmission(ctx, before))
   } else {
@@ -258,7 +264,16 @@ export async function approve(ctx: Ctx, id: string) {
     row = await prisma.application.update({ where: { id }, data: { status: 'Approved', decidedById: ctx.actorId, decidedAt: new Date() }, include: applicationInclude })
     await certificates.issue(ctx, before.kind as 'TC' | 'Bonafide' | 'Character', studentId, id)
     row = await get(ctx, id)
+
+    if (before.kind === 'TC' && opts?.convertToAlumni) {
+      try {
+        const { profile } = await alumni.convertStudent(ctx, { studentId, graduationYear: opts.alumniGraduationYear, endEnrollment: false })
+        alumniProfile = alumni.serializeProfile(profile)
+      } catch (e) {
+        if (!(e instanceof HttpError && e.status === 409)) throw e // already converted: harmless no-op
+      }
+    }
   }
   await audit(ctx.schoolId, ctx.actorId, 'approve', 'application', id, serializeApplication(before), serializeApplication(row))
-  return { row, created }
+  return { row, created, alumni: alumniProfile }
 }

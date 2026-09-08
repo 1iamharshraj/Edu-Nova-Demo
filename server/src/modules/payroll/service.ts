@@ -7,6 +7,8 @@ import type { Ctx } from '../../lib/rbac'
 import { toDate, fmtDate } from '../../lib/validate'
 import { isAdmin } from '../../lib/scope'
 import { drawFields, drawFooter, drawHeader, drawTable, fmtLong, renderToBuffer } from '../../lib/pdf'
+import { logChange } from '../employmentHistory/service'
+import { postPayrollAutoEntry } from '../accounting/service'
 import type { upsertSalaryStructure, runBody, payslipsQuery } from './schema'
 
 type LineItem = { name: string; amount: number }
@@ -47,6 +49,13 @@ export async function upsertStructure(ctx: Ctx, userId: string, input: z.infer<t
     update: { basic: input.basic, allowances: input.allowances, deductions: input.deductions, effectiveFrom: toDate(input.effectiveFrom) },
   })
   await audit(ctx.schoolId, ctx.actorId, before ? 'update' : 'create', 'salaryStructure', row.id, before ? serializeSalaryStructure(before) : undefined, serializeSalaryStructure(row))
+  // A4 — permanent, queryable raise history alongside the current-value-only SalaryStructure row (the
+  // upsert-overwrite behaviour above is unchanged; only the log is new). Best-effort, never blocks the write.
+  if (!before) {
+    await logChange(ctx.schoolId, userId, 'Salary', null, String(input.basic), ctx.actorId, 'Initial salary structure')
+  } else if (before.basic !== input.basic) {
+    await logChange(ctx.schoolId, userId, 'Salary', String(before.basic), String(input.basic), ctx.actorId)
+  }
   return row
 }
 
@@ -106,6 +115,9 @@ export async function markPaid(ctx: Ctx, id: string) {
   if (!before) throw notFound('Payslip')
   const row = await prisma.payslip.update({ where: { id }, data: { status: 'Paid', paidAt: new Date(), paidById: ctx.actorId } })
   await audit(ctx.schoolId, ctx.actorId, 'mark-paid', 'payslip', id, serializePayslip(before), serializePayslip(row))
+  // Phase 17 — best-effort ledger auto-post (Debit Salary Expense / Credit Bank); never blocks or rolls
+  // back the payroll payment itself, see accounting/service.ts#postPayrollAutoEntry.
+  await postPayrollAutoEntry(ctx, row)
   return row
 }
 
@@ -122,6 +134,7 @@ export async function payslipPdf(ctx: Ctx, id: string) {
     drawHeader(doc, { schoolName: school.name, title: 'Payslip', subtitle: slip.month, serial: slip.slipNo })
     drawFields(doc, [
       { label: 'Employee', value: user.name },
+      { label: 'Employee ID', value: user.employeeId ?? '—' },
       { label: 'Designation', value: user.designation ?? user.title },
       { label: 'Month', value: slip.month },
       { label: 'Status', value: slip.status },

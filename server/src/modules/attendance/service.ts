@@ -5,7 +5,7 @@ import { audit } from '../../lib/audit'
 import { HttpError, notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
 import { fmtDate, toDate } from '../../lib/validate'
-import { assertOnRoster, assertViewClass, assertViewStudent, assertWriteClass, enrollmentFor, getClass, getTerm, isAdmin, isStaff, rosterOf, visibleStudentIds } from '../../lib/scope'
+import { assertOnRoster, assertViewClass, assertViewStudent, canWriteClassSubject, enrollmentFor, getClass, getTerm, isAdmin, isStaff, rosterOf, visibleStudentIds } from '../../lib/scope'
 import type { createSession, patchRecords, sessionsQuery, summaryQuery, staffBody, staffQuery, staffSummaryQuery } from './schema'
 
 // ───────────────────────────── shapes ─────────────────────────────
@@ -42,6 +42,37 @@ function assertUnlocked(ctx: Ctx, s: { lockedAt: Date | null }) {
   if (s.lockedAt && !isAdmin(ctx)) throw new HttpError(403, 'This session is locked — ask an admin to unlock it')
 }
 
+// Class-scoped write check for attendance, analogous to assertWriteClassSubject for assessments/homework.
+// A period session (periodIdx set) maps to one timetable slot → one ClassSubject, so it is checked exactly
+// like a subject-scoped write (that subject's teacher, or the class teacher). A whole-day session
+// (periodIdx null) isn't tied to any one subject, so only the class teacher (or staff/admin) may write it —
+// previously any teacher who taught *anything* in the class could overwrite the whole day's attendance.
+async function assertWriteAttendance(ctx: Ctx, classId: string, date: Date, periodIdx: number | null) {
+  if (isStaff(ctx)) return
+  if (ctx.role !== 'teacher') throw new HttpError(403, 'You do not teach this class')
+
+  const isClassTeacher = async () => {
+    const cls = await prisma.class.findFirst({ where: { id: classId, schoolId: ctx.schoolId }, select: { classTeacherId: true } })
+    return !!cls && cls.classTeacherId === ctx.actorId
+  }
+
+  if (periodIdx === null) {
+    if (!(await isClassTeacher())) throw new HttpError(403, 'Only the class teacher can mark whole-day attendance for this class')
+    return
+  }
+
+  const entry = await prisma.timetableEntry.findFirst({
+    where: { schoolId: ctx.schoolId, classId, periodIdx, dayOfWeek: weekdayOf(date), term: { startDate: { lte: date }, endDate: { gte: date } } },
+    select: { classSubjectId: true },
+  })
+  if (entry) {
+    if (await canWriteClassSubject(ctx, entry.classSubjectId)) return
+    throw new HttpError(403, 'You do not teach this subject in this class')
+  }
+  // No timetable entry for that slot (e.g. an ad-hoc period) — fall back to class-teacher access.
+  if (!(await isClassTeacher())) throw new HttpError(403, 'You do not teach this class')
+}
+
 // ───────────────────────────── sessions ─────────────────────────────
 
 // GET /sessions?classId&from&to — students/parents get only their own records back.
@@ -60,9 +91,9 @@ export async function listSessions(ctx: Ctx, q: z.infer<typeof sessionsQuery>) {
 // POST /sessions — creates the (classId, date, periodIdx) session or REPLACES its records.
 export async function upsertSession(ctx: Ctx, input: z.infer<typeof createSession>) {
   const cls = await getClass(ctx, input.classId)
-  await assertWriteClass(ctx, cls.id)
   const periodIdx = input.periodIdx ?? null
   const date = toDate(input.date)
+  await assertWriteAttendance(ctx, cls.id, date, periodIdx)
   const ids = input.records.map(r => r.studentId)
   if (new Set(ids).size !== ids.length) throw new HttpError(400, 'Duplicate studentId in records')
   await assertOnRoster(cls.id, ids)
@@ -88,7 +119,7 @@ export async function upsertSession(ctx: Ctx, input: z.infer<typeof createSessio
 // PATCH /sessions/:id/records — partial upsert.
 export async function patchSessionRecords(ctx: Ctx, id: string, input: z.infer<typeof patchRecords>) {
   const before = await getSession(ctx, id)
-  await assertWriteClass(ctx, before.classId)
+  await assertWriteAttendance(ctx, before.classId, before.date, before.periodIdx)
   assertUnlocked(ctx, before)
   await assertOnRoster(before.classId, input.records.map(r => r.studentId))
   await prisma.$transaction(async tx => {
@@ -108,7 +139,7 @@ export async function patchSessionRecords(ctx: Ctx, id: string, input: z.infer<t
 
 export async function setLocked(ctx: Ctx, id: string, locked: boolean) {
   const before = await getSession(ctx, id)
-  if (locked) await assertWriteClass(ctx, before.classId)
+  if (locked) await assertWriteAttendance(ctx, before.classId, before.date, before.periodIdx)
   else if (!isAdmin(ctx)) throw new HttpError(403, 'Only an admin can unlock a session')
   const row = await prisma.attendanceSession.update({ where: { id }, data: { lockedAt: locked ? new Date() : null }, include: sessionInclude })
   await audit(ctx.schoolId, ctx.actorId, locked ? 'lock' : 'unlock', 'attendanceSession', id, { lockedAt: before.lockedAt }, { lockedAt: row.lockedAt })

@@ -168,7 +168,7 @@ export async function sendMessage(ctx: Ctx, conversationId: string, input: z.inf
   const others = conv.participants.map(p => p.userId).filter(id => id !== ctx.actorId)
   sendToUsers(others, { type: 'message', payload })
   for (const uid of others) {
-    if (!isConnected(uid)) await notify(ctx.schoolId, uid, 'message', `New message from ${payload.sender.name}`, input.body.slice(0, 140), 'messages')
+    if (!isConnected(uid)) await notify(ctx.schoolId, uid, 'message', `New message from ${payload.sender.name}`, input.body.slice(0, 140), 'msgs')
   }
   return payload
 }

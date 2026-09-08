@@ -18,6 +18,9 @@ import {
 export const feesRouter = Router()
 feesRouter.use(requireAuth)
 const staff = requireRole(...(STAFF_ROLES as any))
+// Teachers get read access to their own classes' defaulters (service.ts#defaulters scopes it) — see
+// deep-audit-2026-09-08.md #8: nav + Overview tile already expect this, only the backend gate was missing.
+const staffOrTeacher = requireRole('teacher', ...(STAFF_ROLES as any))
 
 // ── heads ──
 feesRouter.get('/heads', wrap(async (req, res) => {
@@ -99,7 +102,7 @@ feesRouter.post('/gateway/confirm', wrap(async (req, res) => {
 }))
 
 // ── defaulters / reminders / summary ──
-feesRouter.get('/defaulters', staff, wrap(async (req, res) => {
+feesRouter.get('/defaulters', staffOrTeacher, wrap(async (req, res) => {
   res.json({ items: await svc.defaulters(ctxOf(req as AuthedRequest), validate(defaultersQuery, req.query)) })
 }))
 feesRouter.post('/reminders', staff, wrap(async (req, res) => {

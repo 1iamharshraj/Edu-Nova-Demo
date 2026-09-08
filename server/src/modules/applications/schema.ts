@@ -35,3 +35,10 @@ export const listQuery = z.object({
 })
 
 export const declineBody = z.object({ notes: z.string().max(2000).optional() })
+
+// Phase 13 integration: a TC approval may optionally also convert the student to an alumnus in the same
+// action (see phase-13-alumni.md — "offer conversion at TC-issuance time"). Ignored for non-TC kinds.
+export const approveBody = z.object({
+  convertToAlumni: z.boolean().optional(),
+  alumniGraduationYear: z.number().int().min(1950).max(2100).optional(),
+})

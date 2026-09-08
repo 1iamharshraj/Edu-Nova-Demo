@@ -33,6 +33,42 @@ adminRouter.post('/reset', requireRole('superadmin'), wrap(async (req, res) => {
   validate(resetBody, req.body)
   const { schoolId } = ctx
   await prisma.$transaction([
+    // Phase 17 tables (FK-safe order: journal-lines -> journal-entries -> accounts).
+    prisma.journalLine.deleteMany({ where: { entry: { schoolId } } }),
+    prisma.journalEntry.deleteMany({ where: { schoolId } }),
+    prisma.account.deleteMany({ where: { schoolId } }),
+    // Phase 16 tables (FK-safe order: purchase-order-lines -> purchase-orders -> stock-movements -> vendors -> items).
+    prisma.purchaseOrderLine.deleteMany({ where: { po: { schoolId } } }),
+    prisma.purchaseOrder.deleteMany({ where: { schoolId } }),
+    prisma.stockMovement.deleteMany({ where: { schoolId } }),
+    prisma.vendor.deleteMany({ where: { schoolId } }),
+    prisma.inventoryItem.deleteMany({ where: { schoolId } }),
+    // Phase 15 tables (FK-safe order: loans -> copies -> books -> settings).
+    prisma.loan.deleteMany({ where: { schoolId } }),
+    prisma.bookCopy.deleteMany({ where: { schoolId } }),
+    prisma.book.deleteMany({ where: { schoolId } }),
+    prisma.librarySettings.deleteMany({ where: { schoolId } }),
+    // Phase 14 tables (FK-safe order: allocations -> beds -> rooms -> hostels).
+    prisma.hostelAllocation.deleteMany({ where: { schoolId } }),
+    prisma.hostelBed.deleteMany({ where: { schoolId } }),
+    prisma.hostelRoom.deleteMany({ where: { schoolId } }),
+    prisma.hostel.deleteMany({ where: { schoolId } }),
+    // Phase 12 tables.
+    prisma.vehicleLocation.deleteMany({ where: { schoolId } }),
+    prisma.studentStopAssignment.deleteMany({ where: { schoolId } }),
+    prisma.vehicle.deleteMany({ where: { schoolId } }),
+    prisma.stop.deleteMany({ where: { schoolId } }),
+    prisma.route.deleteMany({ where: { schoolId } }),
+    // Phase 13 tables.
+    prisma.alumniDonation.deleteMany({ where: { schoolId } }),
+    prisma.alumniEventRsvp.deleteMany({ where: { event: { schoolId } } }),
+    prisma.alumniEvent.deleteMany({ where: { schoolId } }),
+    prisma.alumniProfile.deleteMany({ where: { schoolId } }),
+    // Phase 11 tables.
+    prisma.employeeDocument.deleteMany({ where: { schoolId } }),
+    prisma.staffConductRecord.deleteMany({ where: { schoolId } }),
+    prisma.employmentHistoryEntry.deleteMany({ where: { schoolId } }),
+    prisma.performanceReview.deleteMany({ where: { schoolId } }),
     // Phase 8 tables.
     prisma.activityRegistration.deleteMany({ where: { activity: { schoolId } } }),
     prisma.activity.deleteMany({ where: { schoolId } }),

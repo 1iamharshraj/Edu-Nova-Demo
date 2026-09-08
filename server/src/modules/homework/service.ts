@@ -5,7 +5,7 @@ import { audit } from '../../lib/audit'
 import { HttpError, notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
 import { fmtDate, toDate } from '../../lib/validate'
-import { assertViewClass, assertWriteClass, canWriteClass, getClass, getClassSubject, getTerm, visibleStudentIds } from '../../lib/scope'
+import { assertViewClass, assertWriteClassSubject, canWriteClass, getClass, getClassSubject, getTerm, visibleStudentIds } from '../../lib/scope'
 import { assertFileIds } from '../files/service'
 import type { createHomework, patchHomework, listQuery, submitBody, gradeBody } from './schema'
 
@@ -58,7 +58,7 @@ export async function list(ctx: Ctx, q: z.infer<typeof listQuery>) {
 
 export async function create(ctx: Ctx, input: z.infer<typeof createHomework>) {
   const cs = await getClassSubject(ctx, input.classSubjectId)
-  await assertWriteClass(ctx, cs.classId)
+  await assertWriteClassSubject(ctx, cs.id)
   await assertFileIds(ctx, input.attachments ?? [])
   const row = await prisma.homework.create({
     data: { schoolId: ctx.schoolId, classSubjectId: cs.id, title: input.title, description: input.description ?? '', dueDate: toDate(input.dueDate), createdById: ctx.actorId, attachments: input.attachments ?? [] },
@@ -70,7 +70,7 @@ export async function create(ctx: Ctx, input: z.infer<typeof createHomework>) {
 
 export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchHomework>) {
   const before = await get(ctx, id)
-  await assertWriteClass(ctx, before.classSubject.classId)
+  await assertWriteClassSubject(ctx, before.classSubjectId)
   if (input.attachments) await assertFileIds(ctx, input.attachments)
   const row = await prisma.homework.update({
     where: { id },
@@ -83,7 +83,7 @@ export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchHo
 
 export async function remove(ctx: Ctx, id: string) {
   const before = await get(ctx, id)
-  await assertWriteClass(ctx, before.classSubject.classId)
+  await assertWriteClassSubject(ctx, before.classSubjectId)
   await prisma.homework.delete({ where: { id } })
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'homework', id, serializeHomework(before, null))
 }
@@ -112,7 +112,7 @@ export async function submit(ctx: Ctx, id: string, input: z.infer<typeof submitB
 // PATCH /:id/submissions/:studentId — teacher grades; status defaults to Graded when a grade is given.
 export async function grade(ctx: Ctx, id: string, studentId: string, input: z.infer<typeof gradeBody>) {
   const hw = await get(ctx, id)
-  await assertWriteClass(ctx, hw.classSubject.classId)
+  await assertWriteClassSubject(ctx, hw.classSubjectId)
   const before = hw.submissions.find(s => s.studentId === studentId)
   if (!before) throw notFound('Submission')
   const status = input.status ?? (input.grade ? 'Graded' : input.feedback !== undefined ? 'Returned' : before.status)
