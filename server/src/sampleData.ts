@@ -1,15 +1,19 @@
 import bcrypt from 'bcryptjs'
 import { prisma } from './prisma'
 import { toDate } from './lib/validate'
-import { syncLegacyUserFields } from './lib/legacySync'
-// The demo school is built from the same seed the frontend was designed around.
-import { seedDB, SUBJECTS, TIMESLOTS, DAYS } from '../../src/lib/data'
+import { syncUserTitle } from './lib/titleSync'
+import { SEED_USERS, SEED_TERMS, SUBJECTS, TIMESLOTS, DAYS } from './sampleConstants'
 import type { PeriodDef } from './modules/periodTemplates/service'
 import { loadPhase3 } from './samplePhase3'
 import { loadPhase4, issueSeedCertificates } from './samplePhase4'
+import { loadPhase5 } from './samplePhase5'
+import { loadPhase6 } from './samplePhase6'
+import { loadPhase7 } from './samplePhase7'
+import { loadPhase8 } from './samplePhase8'
+import { loadPhase9 } from './samplePhase9'
 
 const YEAR = { label: '2025-26', start: '2025-06-01', end: '2026-05-31' }
-// Fixed term ids so the JSON blob (timetable / marks keyed by term id) still lines up.
+// Fixed term ids matching the seed term list (`sampleConstants.ts`).
 const TERM_DATES: Record<string, [string, string]> = {
   t1: ['2025-06-01', '2025-09-30'],
   t2: ['2025-10-01', '2026-01-31'],
@@ -52,11 +56,9 @@ const splitLabel = (label: string) => {
 }
 
 // Builds the full demo school (year, terms, boards, grades, curriculum, classes, subjects, rooms, users,
-// enrollments, guardians, class-subjects, JSON blob) inside `schoolId`. Caller guarantees the school is empty.
+// enrollments, guardians, class-subjects) inside `schoolId`. Caller guarantees the school is empty.
 export async function loadSampleData(schoolId: string) {
-  const db = seedDB()
-  // Phase 3 owns attendance / marks / ranks / homework / uploads / directory in real tables — never blob them.
-  const { users, attendance: _at, attendanceRecords: _ar, marks: _mk, ranks: _rk, directory: _dir, homework: _hw, workUploads: _wu, ...blob } = db
+  const users = SEED_USERS
 
   // bcrypt is slow — hash outside the transaction.
   const hashes = new Map<string, string>()
@@ -79,11 +81,7 @@ export async function loadSampleData(schoolId: string) {
         reportsTo: u.reportsTo,
         joinDate: u.joinDate,
         phone: u.phone,
-        board: u.board,
         dob: u.dob,
-        salary: u.salary,
-        contract: u.contract as object | undefined,
-        resignation: u.resignation as object | undefined,
       }
       await tx.user.upsert({
         where: { email: u.email.toLowerCase() },
@@ -99,7 +97,7 @@ export async function loadSampleData(schoolId: string) {
       data: { schoolId, label: YEAR.label, startDate: toDate(YEAR.start), endDate: toDate(YEAR.end), isCurrent: true },
     })
 
-    for (const [i, t] of db.terms.entries()) {
+    for (const [i, t] of SEED_TERMS.entries()) {
       const [start, end] = TERM_DATES[t.id]
       await tx.term.create({
         data: { id: t.id, schoolId, academicYearId: year.id, name: t.name, startDate: toDate(start), endDate: toDate(end), isCurrent: !!t.current, createdAt: at(i) },
@@ -187,7 +185,7 @@ export async function loadSampleData(schoolId: string) {
     const classPeriods = periods.filter(p => p.kind === 'class')
     const taken = new Set<string>() // `${termId}|${day}:${idx}|teacher:<id>` and `|room:<id>` — skip anything that would clash
     const entries: { schoolId: string; classId: string; termId: string; dayOfWeek: number; periodIdx: number; classSubjectId: string; roomId: string; teacherId: string | null }[] = []
-    for (const t of db.terms) {
+    for (const t of SEED_TERMS) {
       for (const [ci, label] of CLASS_LABELS.entries()) {
         let rotation = (TERM_SHIFT[t.id] ?? 0) + ci
         for (let day = 1; day <= DAYS.length; day++) {
@@ -208,24 +206,33 @@ export async function loadSampleData(schoolId: string) {
     }
     await tx.timetableEntry.createMany({ data: entries })
     await tx.timetablePublish.createMany({
-      data: db.terms.flatMap(t => CLASS_LABELS.map(label => ({ schoolId, classId: classIds.get(label)!, termId: t.id }))),
+      data: SEED_TERMS.flatMap(t => CLASS_LABELS.map(label => ({ schoolId, classId: classIds.get(label)!, termId: t.id }))),
     })
 
     // Phase 3: attendance, staff attendance, grade scale, assessments + marks, homework.
-    await loadPhase3(tx, { schoolId, terms: db.terms, termDates: TERM_DATES, subjects: SUBJECTS, classIds, classTeacher, classSubjects, boardIds, users, userId })
+    await loadPhase3(tx, { schoolId, terms: SEED_TERMS, termDates: TERM_DATES, subjects: SUBJECTS, classIds, classTeacher, classSubjects, boardIds, users, userId })
 
     // Phase 4: applications, board registrations, parent verification.
     await loadPhase4(tx, { schoolId, yearId: year.id, boardIds, classIds, userId })
 
-    await tx.schoolData.upsert({
-      where: { schoolId },
-      create: { schoolId, data: blob as object },
-      update: { data: blob as object },
-    })
+    // Phase 5: fee heads/structures/invoices/payments, salary structures, payslips.
+    await loadPhase5(tx, { schoolId, terms: SEED_TERMS, termDates: TERM_DATES, classIds, userId })
+
+    // Phase 6: leave types/requests, contracts, resignation, duties.
+    await loadPhase6(tx, { schoolId, userId })
+
+    // Phase 7: feed posts, conversations/messages, meetings, calendar events.
+    await loadPhase7(tx, { schoolId, userId })
+
+    // Phase 8: health, permission slips, achievements, disciplinary cases, call log, activities.
+    await loadPhase8(tx, { schoolId, classIds, userId })
+
+    // Phase 9: event highlights, one example AI tutor conversation.
+    await loadPhase9(tx, { schoolId, classIds, userId })
   }, { timeout: 60_000 })
 
   const all = await prisma.user.findMany({ where: { schoolId }, select: { id: true, email: true } })
-  await syncLegacyUserFields(all.map(u => u.id))
+  await syncUserTitle(all.map(u => u.id))
 
   const byEmail = new Map(all.map(u => [u.email, u.id]))
   await issueSeedCertificates(schoolId, seedId => byEmail.get(users.find(u => u.id === seedId)!.email.toLowerCase())!)

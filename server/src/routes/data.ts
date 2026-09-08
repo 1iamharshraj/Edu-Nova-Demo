@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { prisma } from '../prisma'
 import { requireAuth, type AuthedRequest } from '../auth'
-import { HttpError, wrap } from '../lib/errors'
+import { wrap } from '../lib/errors'
 
 export const dataRouter = Router()
 dataRouter.use(requireAuth)
@@ -42,37 +42,15 @@ async function legacySubjects(schoolId: string) {
   })
 }
 
-// Phase 3 moved these blob keys into real tables (/api/attendance, /api/assessments, /api/homework);
-// GET omits them and PUT never persists them. Phase 4 did the same for applications / boardDetails /
-// marksheets (/api/applications, /api/board-registrations, /api/certificates).
-const REPLACED_KEYS = ['attendance', 'attendanceRecords', 'marks', 'ranks', 'directory', 'homework', 'workUploads', 'applications', 'boardDetails', 'marksheets']
-function stripReplaced(blob: Record<string, unknown>) {
-  const out = { ...blob }
-  for (const k of REPLACED_KEYS) delete out[k]
-  return out
-}
-
+// Every other legacy blob key (attendance, marks, feed, applications, boardDetails, marksheets, receipts,
+// contracts, resignations, health, discipline, …) has long since moved into real tables served by their own
+// routes (/api/attendance, /api/assessments, /api/homework, /api/applications, /api/board-registrations,
+// /api/certificates, /api/health, /api/slips, /api/achievements, /api/discipline, /api/calls, /api/activities,
+// etc). The `SchoolData` JSON blob that used to back this route is gone (Phase 10 cleanup) — this endpoint now
+// only computes the two legacy-shaped, read-only views (`terms` with `range`/`months`, `subjects` with a
+// comma-joined `teacher` string) that a handful of older screens still read via `useStore().db`.
 dataRouter.get('/', wrap(async (req, res) => {
   const { schoolId } = (req as AuthedRequest).auth!
-  const row = await prisma.schoolData.findUnique({ where: { schoolId } })
-  const blob = stripReplaced((row?.data ?? {}) as Record<string, unknown>)
   const [terms, subjects] = await Promise.all([legacyTerms(schoolId), legacySubjects(schoolId)])
-  res.json({ data: { ...blob, terms, subjects } })
-}))
-
-dataRouter.put('/', wrap(async (req, res) => {
-  const { schoolId } = (req as AuthedRequest).auth!
-  const body = req.body
-  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'Body must be the data object')
-  // users / terms / subjects are owned by real tables now — never persisted into the blob.
-  const { users: _u, terms: _t, subjects: _s, ...kept } = body as Record<string, unknown>
-  const rest = stripReplaced(kept)
-
-  const row = await prisma.schoolData.upsert({
-    where: { schoolId },
-    create: { schoolId, data: rest as object },
-    update: { data: rest as object },
-  })
-  const [terms, subjects] = await Promise.all([legacyTerms(schoolId), legacySubjects(schoolId)])
-  res.json({ data: { ...stripReplaced(row.data as Record<string, unknown>), terms, subjects } })
+  res.json({ data: { terms, subjects } })
 }))
