@@ -73,6 +73,46 @@ model School {
 
   aiConversations AiConversation[]
   highlights      Highlight[]
+
+  // Phase 11 — employee management (A3-A6).
+  performanceReviews  PerformanceReview[]
+  employmentHistory   EmploymentHistoryEntry[]
+  staffConductRecords StaffConductRecord[]
+  employeeDocuments   EmployeeDocument[]
+
+  // Phase 12 — transport / bus management.
+  transportRoutes        Route[]
+  transportStops         Stop[]
+  vehicles               Vehicle[]
+  studentStopAssignments StudentStopAssignment[]
+  vehicleLocations       VehicleLocation[]
+
+  // Phase 13 — alumni management.
+  alumniProfiles  AlumniProfile[]
+  alumniEvents    AlumniEvent[]
+  alumniDonations AlumniDonation[]
+
+  // Phase 14 — hostel management.
+  hostels           Hostel[]
+  hostelRooms       HostelRoom[]
+  hostelBeds        HostelBed[]
+  hostelAllocations HostelAllocation[]
+
+  // Phase 15 — library management.
+  books            Book[]
+  bookCopies       BookCopy[]
+  loans            Loan[]
+  librarySettings  LibrarySettings?
+
+  // Phase 16 — inventory / procurement.
+  inventoryItems  InventoryItem[]
+  stockMovements  StockMovement[]
+  vendors         Vendor[]
+  purchaseOrders  PurchaseOrder[]
+
+  // Phase 17 — accounting / general ledger.
+  accounts      Account[]
+  journalEntries JournalEntry[]
 }
 
 model User {
@@ -93,6 +133,8 @@ model User {
   department  String?
   designation String?
   reportsTo   String?
+  manager     User?   @relation("Reports", fields: [reportsTo], references: [id], onDelete: SetNull)
+  reports     User[]  @relation("Reports")
   joinDate    String?
   phone       String?
   dob         String?
@@ -102,6 +144,9 @@ model User {
   emergencyContact String?
   address          String?
   lastLoginAt      DateTime?
+
+  // Phase 11 — employee ID (teacher/staff/admin/superadmin only; see A1).
+  employeeId String? @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -186,6 +231,48 @@ model User {
   pushSubscriptions PushSubscription[] @relation("PushSubscriptionUser")
 
   sessions Session[]
+
+  // Phase 11 — employee management (A3-A6).
+  reviewsAsEmployee       PerformanceReview[]      @relation("ReviewEmployee")
+  reviewsAsReviewer       PerformanceReview[]      @relation("ReviewReviewer")
+  employmentHistory       EmploymentHistoryEntry[] @relation("EmploymentHistoryUser")
+  employmentHistoryLogged EmploymentHistoryEntry[] @relation("EmploymentHistoryChangedBy")
+  staffConductAsEmployee  StaffConductRecord[]     @relation("ConductEmployee")
+  staffConductReported    StaffConductRecord[]     @relation("ConductReportedBy")
+  staffConductResolved    StaffConductRecord[]     @relation("ConductResolvedBy")
+  employeeDocuments       EmployeeDocument[]       @relation("EmployeeDocumentUser")
+  employeeDocumentsAdded  EmployeeDocument[]       @relation("EmployeeDocumentUploadedBy")
+
+  // Phase 12 — transport / bus management. `driverUserId` on Vehicle is an OPTIONAL link to an existing
+  // staff/teacher/admin account (not a new "driver" role) — see phase-12-transport.md.
+  vehiclesAsDriver         Vehicle[]               @relation("VehicleDriverUser")
+  stopAssignmentsAsStudent StudentStopAssignment[] @relation("StopAssignmentStudent")
+
+  // Phase 13 — alumni management. `studentUserId` on AlumniProfile is an OPTIONAL link back to the
+  // original student account — see phase-13-alumni.md and modules/alumni/service.ts#convertStudent.
+  alumniProfileAsStudent  AlumniProfile[]  @relation("AlumniProfileStudent")
+  alumniProfilesAdded     AlumniProfile[]  @relation("AlumniProfileConvertedBy")
+  alumniEventsCreated     AlumniEvent[]    @relation("AlumniEventCreatedBy")
+  alumniDonationsRecorded AlumniDonation[] @relation("AlumniDonationRecordedBy")
+
+  // Phase 14 — hostel management. `wardenUserId` on Hostel is an OPTIONAL link to an existing
+  // staff/teacher/admin account (not a new "warden" role) — see phase-14-hostel.md.
+  hostelsAsWarden            Hostel[]           @relation("HostelWarden")
+  hostelAllocationsAsStudent HostelAllocation[] @relation("HostelAllocationStudent")
+  hostelAllocationsMade      HostelAllocation[] @relation("HostelAllocationAllocatedBy")
+
+  // Phase 15 — library management. `borrowerId` on Loan is a student OR staff/teacher account (whoever
+  // borrowed the book) — see phase-15-library.md.
+  loansAsBorrower Loan[] @relation("LoanBorrower")
+  loansIssued     Loan[] @relation("LoanIssuedBy")
+  loansReturned   Loan[] @relation("LoanReturnedBy")
+
+  // Phase 16 — inventory / procurement.
+  stockMovementsRecorded StockMovement[] @relation("StockMovementRecordedBy")
+  purchaseOrdersCreated  PurchaseOrder[] @relation("PurchaseOrderCreatedBy")
+
+  // Phase 17 — accounting / general ledger.
+  journalEntriesCreated JournalEntry[] @relation("JournalEntryCreatedBy")
 
   @@index([schoolId])
 }
@@ -538,6 +625,8 @@ model File {
   createdAt  DateTime @default(now())
 
   highlightThumbnails Highlight[]
+  employeeDocuments   EmployeeDocument[]
+  bookCovers          Book[]
 
   @@index([schoolId])
 }
@@ -1477,3 +1566,769 @@ model Session {
 // (Phase 8, modules/calls) is the shipped replacement for the old AI-call simulation. If real telephony
 // is ever added, it would live here as a `modules/telephony` wrapper around a provider (Twilio/Exotel)
 // following this same module pattern.
+
+// ───────────────────────────── Phase 11: employee management ─────────────────────────────
+// See phase-11-employee-management.md. Builds on `hr`/`payroll`/`users` — contracts, resignations,
+// duties, leave, staff attendance and salary structures are untouched. Adds: employee IDs (A1, on
+// User.employeeId above), a real reportsTo relation (A2, on User.manager/reports above), performance
+// reviews (A3), employment history logging (A4), staff conduct records (A5), and labeled employee
+// documents + ID card PDF (A6).
+
+// A3 — performance review. Workflow: Draft (reviewer/HR editing) -> Shared (employee can see + comment)
+// -> Acknowledged (locked). `overallRating` is 1-5 (documented in modules/reviews/schema.ts).
+model PerformanceReview {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   User   @relation("ReviewEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  reviewerId String
+  reviewer   User   @relation("ReviewReviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  cycle       String
+  periodStart DateTime @db.Date
+  periodEnd   DateTime @db.Date
+
+  overallRating       Int
+  strengths           String
+  areasForImprovement String
+  goals               String
+  employeeComments    String?
+
+  status         String    @default("Draft")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  sharedAt       DateTime?
+  acknowledgedAt DateTime?
+
+  @@index([schoolId])
+  @@index([employeeId])
+  @@index([reviewerId])
+}
+
+// A4 — append-only employment-history log (role/designation/department/salary changes). Written by a
+// best-effort hook called from routes/users.ts (`PATCH /:id/role`, `PATCH|PUT /:id`) and
+// modules/payroll/service.ts (`upsertStructure`) — see modules/employmentHistory/service.ts#logChange.
+model EmploymentHistoryEntry {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("EmploymentHistoryUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  changeType    String
+  fromValue     String?
+  toValue       String
+  effectiveDate DateTime @db.Date
+
+  changedById String
+  changedBy   User    @relation("EmploymentHistoryChangedBy", fields: [changedById], references: [id], onDelete: Cascade)
+  note        String?
+
+  createdAt DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([userId])
+}
+
+// A5 — staff disciplinary/conduct records. Deliberately NOT the student `DisciplinaryCase` model
+// (different visibility/actors — see phase-11-employee-management.md A5). Strictly HR/admin/superadmin:
+// not visible to the employee's manager or to the employee themselves.
+model StaffConductRecord {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   User   @relation("ConductEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+
+  reportedById String
+  reportedBy   User   @relation("ConductReportedBy", fields: [reportedById], references: [id], onDelete: Cascade)
+
+  title       String
+  description String
+  category    String
+  status      String   @default("Reported")
+  actionTaken String?
+  fileIds     String[] @default([])
+
+  createdAt    DateTime  @default(now())
+  resolvedAt   DateTime?
+  resolvedById String?
+  resolvedBy   User?     @relation("ConductResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([schoolId])
+  @@index([employeeId])
+}
+
+// A6 — labeled employee documents (ID proof, degree certificate, ...), a thin join over the existing
+// `files` module. No new file-storage code: upload via POST /api/files first, then attach the returned
+// fileId here with a label.
+model EmployeeDocument {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("EmployeeDocumentUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  fileId String
+  file   File   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  label String
+
+  uploadedById String
+  uploadedBy   User     @relation("EmployeeDocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Cascade)
+  uploadedAt   DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([userId])
+}
+
+// ───────────────────────── Phase 12: transport / bus management ─────────────────────────
+// See phase-12-transport.md. Driver/conductor are plain contact fields on Vehicle, NOT `User` accounts —
+// a future Kotlin Multiplatform app owns driver auth + GPS reporting; this phase only builds the data
+// model, admin setup endpoints, and the read/ping endpoints that app will eventually call.
+
+model Route {
+  id          String   @id @default(cuid())
+  schoolId    String
+  school      School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  stops    Stop[]
+  vehicles Vehicle[]
+
+  @@index([schoolId])
+}
+
+model Stop {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  routeId  String
+  route    Route  @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  name             String
+  sequence         Int
+  latitude         Float?
+  longitude        Float?
+  arrivalOffsetMin Int?
+
+  assignments StudentStopAssignment[]
+
+  @@unique([routeId, sequence])
+  @@index([schoolId])
+  @@index([routeId])
+}
+
+model Vehicle {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  registrationNo String
+  capacity       Int
+  routeId        String?
+  route          Route?  @relation(fields: [routeId], references: [id], onDelete: SetNull)
+
+  driverName     String
+  driverPhone    String
+  conductorName  String?
+  conductorPhone String?
+
+  // Optional link to an existing staff/teacher/admin `User` — NOT required, NOT a new auth flow. Useful
+  // if a driver happens to also be a staff account today; the future native app's own driver-auth story
+  // is unrelated and out of scope here.
+  driverUserId String?
+  driverUser   User?   @relation("VehicleDriverUser", fields: [driverUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  locations VehicleLocation[]
+
+  @@unique([schoolId, registrationNo])
+  @@index([schoolId])
+  @@index([routeId])
+}
+
+model StudentStopAssignment {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  studentId String
+  student   User   @relation("StopAssignmentStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  stopId    String
+  stop      Stop   @relation(fields: [stopId], references: [id], onDelete: Cascade)
+
+  // Pickup | Drop | Both — validated in schema.ts, not a DB enum (matches the rest of the codebase's
+  // convention of plain-string "enums" validated by zod, e.g. StaffConductRecord.category).
+  boardingType String   @default("Both")
+  createdAt    DateTime @default(now())
+
+  // A student may have at most one assignment per boarding type (e.g. a distinct Pickup stop and Drop
+  // stop, or a single "Both" row covering both legs).
+  @@unique([studentId, boardingType])
+  @@index([schoolId])
+  @@index([stopId])
+}
+
+// The live-location log. History is kept (never overwritten) since it's cheap and useful later (e.g. an
+// "was the bus on time" report); "current location" reads just take the latest row per vehicle, made
+// efficient by the (vehicleId, recordedAt) index below.
+model VehicleLocation {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  latitude   Float
+  longitude  Float
+  recordedAt DateTime @default(now())
+  tripDate   DateTime @db.Date
+
+  @@index([vehicleId, recordedAt])
+  @@index([schoolId])
+}
+
+// ───────────────────────────── Phase 13: alumni management ─────────────────────────────
+// See phase-13-alumni.md. Tracks former students after they leave school (via TC or graduation), plus
+// alumni events/RSVPs and manually-recorded donations. Alumni are deliberately NOT `User`s — no alumni
+// portal/login in this system (out of scope) — so `studentUserId` is just an optional link back to the
+// original student account, and RSVPs/donations are always entered BY staff on an alumnus's behalf.
+//
+// Conversion design decision (POST /alumni/convert-student, modules/alumni/service.ts#convertStudent):
+// the student's `User` row is left untouched (role stays 'student', `active` stays true) — same as how
+// TC issuance (applications/service.ts `approve()`) already treats the account: it ends the active
+// `Enrollment` (status -> 'transferred') but never flips role/active. Alumni conversion mirrors that:
+// it ends any active enrollment too, but with status 'graduated' (the pre-existing but previously-unused
+// third `Enrollment.status` value from modules/enrollments/schema.ts) when the conversion is NOT
+// following a TC — i.e. a direct/standalone "this student is now an alumnus" action, not a transfer-out.
+// When conversion is triggered from the TC-approval flow itself (see applications/service.ts `approve()`
+// `convertToAlumni` option), the enrollment is already 'transferred' by that flow and is left as-is.
+// Deactivating the User account was considered (mirroring HR's Resignation -> `active: false`) but
+// rejected: TC issuance — the closest and most frequent precedent for "a student is leaving" — never
+// deactivates the account, only ends the enrollment, and a school may reasonably want a former student's
+// historical login (report cards, messages, certificates) to keep working read-only rather than lock out
+// on conversion. This can be revisited as an explicit opt-in later without a schema change.
+model AlumniProfile {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  // Optional link back to the original student User row (see note above) — null for alumni who were
+  // never in this system as a student (a purely historical/manual record).
+  studentUserId String?
+  studentUser   User?   @relation("AlumniProfileStudent", fields: [studentUserId], references: [id], onDelete: SetNull)
+
+  name                String
+  email               String?
+  phone               String?
+  graduationYear      Int
+  // Denormalized at conversion time (e.g. "X-B CBSE") since the Class itself may later change or be
+  // deleted — never a live FK.
+  lastClassLabel      String?
+  currentOccupation   String?
+  currentOrganization String?
+  currentCity         String?
+  linkedInUrl         String?
+  notes               String?
+
+  convertedAt   DateTime @default(now())
+  convertedById String?
+  convertedBy   User?    @relation("AlumniProfileConvertedBy", fields: [convertedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rsvps     AlumniEventRsvp[]
+  donations AlumniDonation[]
+
+  @@index([schoolId])
+  @@index([studentUserId])
+  @@index([graduationYear])
+}
+
+model AlumniEvent {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  date        DateTime @db.Date
+  location    String?
+
+  createdById String?
+  createdBy   User?   @relation("AlumniEventCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rsvps AlumniEventRsvp[]
+
+  @@index([schoolId])
+}
+
+// One RSVP per alumnus per event (unique below) — recording again just updates status/respondedAt.
+// No `recordedById`: who performed the write is already in AuditLog (action 'create'/'update' on entity
+// 'alumniEventRsvp'), and the spec's field list for this model is deliberately minimal.
+model AlumniEventRsvp {
+  id      String      @id @default(cuid())
+  eventId String
+  event   AlumniEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  alumniId String
+  alumni   AlumniProfile @relation(fields: [alumniId], references: [id], onDelete: Cascade)
+
+  status      String   @default("Interested") // Interested | Going | Declined
+  respondedAt DateTime @default(now())
+
+  @@unique([eventId, alumniId])
+  @@index([eventId])
+  @@index([alumniId])
+}
+
+// Manual record-keeping only (a cheque / bank transfer / cash donation logged after the fact) — NOT a
+// payment gateway integration; see phase-13-alumni.md.
+model AlumniDonation {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  alumniId String
+  alumni   AlumniProfile @relation(fields: [alumniId], references: [id], onDelete: Cascade)
+
+  amount    Float
+  purpose   String?
+  donatedAt DateTime @default(now())
+  note      String?
+
+  recordedById String?
+  recordedBy   User?   @relation("AlumniDonationRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([alumniId])
+}
+
+// ───────────────────────────── Phase 14: hostel management ─────────────────────────────
+// See phase-14-hostel.md. `HostelBed` is one row per physical bed (not just a capacity counter on the
+// room) so occupancy is exact; `HostelRoom.capacity` is kept in sync with its bed count by the service
+// layer (auto-creating `capacity` beds — labelled 1..N — when a room is created; adding/removing a bed
+// later adjusts `capacity` to match, see modules/hostel/service.ts).
+//
+// Visitor log and mess/meal-plan are explicitly out of scope for this pass per the spec (skippable
+// nice-to-haves) — not built here.
+model Hostel {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  name String
+  type String // Boys | Girls | Mixed
+
+  // Optional link to an existing staff/teacher/admin User (not a new "warden" role/account) — mirrors
+  // Vehicle.driverUserId (Phase 12) and Hostel.wardenUserId in the spec.
+  wardenUserId String?
+  warden       User?   @relation("HostelWarden", fields: [wardenUserId], references: [id], onDelete: SetNull)
+
+  address String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rooms HostelRoom[]
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+  @@index([wardenUserId])
+}
+
+model HostelRoom {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  hostelId String
+  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  roomNumber String
+  floor      String?
+  capacity   Int // kept equal to the count of HostelBed rows for this room — see service.ts
+  roomType   String? // e.g. "Dorm" | "Double" | "Single"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  beds HostelBed[]
+
+  @@unique([hostelId, roomNumber])
+  @@index([schoolId])
+  @@index([hostelId])
+}
+
+model HostelBed {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  roomId String
+  room   HostelRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  bedLabel String // e.g. "A" / "B" or "1" / "2" / "3"
+
+  createdAt DateTime @default(now())
+
+  allocations HostelAllocation[]
+
+  @@unique([roomId, bedLabel])
+  @@index([schoolId])
+  @@index([roomId])
+}
+
+// A student may have at most one `Active` allocation at a time, and a bed may have at most one `Active`
+// allocation at a time — enforced primarily in modules/hostel/service.ts (clear 4xx errors, not a 500),
+// and backstopped at the database level by two partial unique indexes added by hand in this model's
+// migration (`WHERE status = 'Active'`) so a race between two concurrent requests still can't double-book
+// a bed or double-allocate a student — Prisma's schema DSL can't express a partial unique index, so it is
+// not declared as `@@unique` here (see migration.sql).
+//
+// Transfer (vacate old bed + allocate new bed) is done as vacate-then-create in one `prisma.$transaction`
+// (service.ts#transferAllocation) — the old row is marked `Transferred` (not `Vacated`, so its history
+// reads distinctly from a plain checkout) and a fresh `Active` row is created on the new bed, rather than
+// mutating `bedId` on the existing row, to keep the occupancy history honest.
+model HostelAllocation {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  studentId String
+  student   User   @relation("HostelAllocationStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  bedId String
+  bed   HostelBed @relation(fields: [bedId], references: [id], onDelete: Cascade)
+
+  checkInDate  DateTime  @db.Date
+  checkOutDate DateTime? @db.Date // null while active
+  status       String    @default("Active") // Active | Vacated | Transferred
+
+  allocatedById String?
+  allocatedBy   User?   @relation("HostelAllocationAllocatedBy", fields: [allocatedById], references: [id], onDelete: SetNull)
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([schoolId])
+  @@index([studentId])
+  @@index([bedId])
+  @@index([status])
+}
+
+// ───────────────────────────── Phase 15: library management ─────────────────────────────
+// See phase-15-library.md. `Book` is the catalog entry (one row per title); `BookCopy` is one row per
+// physical copy, since a library holds several copies of the same title. `BookCopy.schoolId` and
+// `Loan.schoolId` are denormalized (not derivable only via a join through Book) purely for scoping/
+// uniqueness queries without an extra join, matching the rest of the codebase's convention (e.g.
+// StudentStopAssignment, HostelRoom keep a schoolId alongside their real parent FK).
+model Book {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  title     String
+  author    String
+  isbn      String?
+  publisher String?
+  category  String?
+
+  // Optional cover image — reuses the existing files module rather than a new upload path.
+  coverFileId String?
+  coverFile   File?   @relation(fields: [coverFileId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  copies BookCopy[]
+
+  @@index([schoolId])
+  @@index([schoolId, category])
+}
+
+model BookCopy {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  bookId String
+  book   Book   @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  barcode    String
+  condition  String? // New | Good | Worn | Damaged
+  status     String    @default("Available") // Available | Loaned | Lost | Retired
+  acquiredAt DateTime? @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  loans Loan[]
+
+  @@unique([schoolId, barcode])
+  @@index([schoolId])
+  @@index([bookId])
+  @@index([schoolId, status])
+}
+
+// One row per issue-and-return cycle. `dueDate` is computed at issue time from `LibrarySettings.
+// loanPeriodDays` and frozen on the row (a later settings change never retroactively moves an
+// already-issued loan's due date). `fineAmount`/`fineStatus` are populated at return time only if
+// overdue — see modules/library/service.ts#returnLoan.
+model Loan {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  copyId String
+  copy   BookCopy @relation(fields: [copyId], references: [id], onDelete: Cascade)
+
+  borrowerId String
+  borrower   User   @relation("LoanBorrower", fields: [borrowerId], references: [id], onDelete: Cascade)
+
+  issuedAt   DateTime  @default(now())
+  dueDate    DateTime  @db.Date
+  returnedAt DateTime?
+
+  fineAmount Float?
+  fineStatus String  @default("None") // None | Pending | Paid | Waived
+
+  issuedById String
+  issuedBy   User   @relation("LoanIssuedBy", fields: [issuedById], references: [id], onDelete: Cascade)
+
+  returnedById String?
+  returnedBy   User?   @relation("LoanReturnedBy", fields: [returnedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([copyId])
+  @@index([borrowerId])
+  @@index([schoolId, returnedAt])
+}
+
+// One row per school — editable by admin so the numbers aren't hardcoded. Created lazily (with defaults)
+// the first time it's read or written, mirroring how other singleton-per-school settings are handled
+// elsewhere in this codebase (no separate seed step required before the endpoint works).
+model LibrarySettings {
+  id       String @id @default(cuid())
+  schoolId String @unique
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  loanPeriodDays        Int   @default(14)
+  maxActiveLoansStudent Int   @default(3)
+  maxActiveLoansStaff   Int   @default(5)
+  finePerDayOverdue     Float @default(2)
+
+  updatedAt DateTime @updatedAt
+}
+
+// ───────────────────────── Phase 16 — inventory / procurement ─────────────────────────
+// See phase-16-inventory.md. Core invariant: `currentStock` is denormalized and must ONLY ever change
+// via a `StockMovement` write — modules/inventory/service.ts#recordMovement is the single place that
+// touches this column; the item update schema rejects `currentStock` outright (see schema.ts).
+
+model InventoryItem {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  name             String
+  category         String? // e.g. "Lab Equipment", "Sports", "Furniture", "Stationery", "IT"
+  unit             String // e.g. "pcs", "box", "kg"
+  isConsumable     Boolean @default(true) // consumables get used up and restocked; fixed assets (a projector) don't
+  reorderThreshold Int? // low-stock warning threshold — only meaningful for consumables
+  currentStock     Int     @default(0) // denormalized; ONLY written by recordMovement — never directly
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  movements StockMovement[]
+  poLines   PurchaseOrderLine[]
+
+  @@index([schoolId])
+  @@index([schoolId, category])
+}
+
+model StockMovement {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  itemId String
+  item   InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  type     String // In | Out | Adjustment
+  quantity Int // In/Out: always positive, direction implied by `type`. Adjustment: signed (a correction
+  // can go either way — a recount finding more stock than expected, damage/loss finding less), since
+  // there is no third value to hang "direction" off of the way there is for In vs Out.
+  reason   String? // e.g. "Purchase", "Issued to Science Lab", "Damaged", "Annual count correction"
+
+  relatedPoId String? // nullable link to the PurchaseOrder this movement came from receiving, if any
+  relatedPo   PurchaseOrder? @relation(fields: [relatedPoId], references: [id], onDelete: SetNull)
+
+  recordedById String
+  recordedBy   User     @relation("StockMovementRecordedBy", fields: [recordedById], references: [id], onDelete: Cascade)
+  recordedAt   DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([itemId])
+  @@index([relatedPoId])
+}
+
+model Vendor {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  name        String
+  contactName String?
+  phone       String?
+  email       String?
+  address     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+
+  @@index([schoolId])
+}
+
+// status: Draft -> Ordered -> (PartiallyReceived | Received); Cancelled reachable from Draft/Ordered.
+// PartiallyReceived/Received are only ever set by the receive flow (modules/inventory/service.ts#receivePo).
+model PurchaseOrder {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  status       String    @default("Draft") // Draft | Ordered | PartiallyReceived | Received | Cancelled
+  orderedAt    DateTime? @db.Date
+  expectedDate DateTime? @db.Date
+  notes        String?
+
+  createdById String
+  createdBy   User   @relation("PurchaseOrderCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines          PurchaseOrderLine[]
+  stockMovements StockMovement[]
+
+  @@index([schoolId])
+  @@index([vendorId])
+  @@index([schoolId, status])
+}
+
+model PurchaseOrderLine {
+  id   String        @id @default(cuid())
+  poId String
+  po   PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+
+  itemId String
+  item   InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  quantityOrdered  Int
+  quantityReceived Int    @default(0)
+  unitCost         Float? // record-keeping/reporting only, not a ledger entry (Phase 17's job)
+
+  @@index([poId])
+  @@index([itemId])
+}
+
+// ───────────────────────────── Phase 17: accounting / general ledger ─────────────────────────────
+// See phase-17-accounting.md. A conservative, correctness-first double-entry ledger: every JournalEntry
+// must balance (sum(debit) === sum(credit) across its lines), enforced server-side inside a transaction
+// (modules/accounting/service.ts#writeBalancedEntry) — never trust the caller, never write unbalanced.
+
+model Account {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  code String // school-defined, e.g. "1000" — seeded with a sensible starter chart, admin can add more
+  name String
+  type String // Asset | Liability | Equity | Income | Expense
+
+  parentId String? // simple hierarchy, e.g. Cash/Bank under a "Current Assets" parent
+  parent   Account?  @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children Account[] @relation("AccountHierarchy")
+
+  isSystem Boolean @default(false) // true for accounts the Fees/Payroll auto-posting integration relies
+  // on (Bank, Fee Income, Salary Expense) — discourages deletion; service.ts blocks deleting an isSystem
+  // account outright rather than merely warning, since the integration would silently break otherwise.
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  journalLines JournalLine[]
+
+  @@unique([schoolId, code])
+  @@index([schoolId])
+  @@index([schoolId, type])
+}
+
+// Posted immediately on creation in this phase — no draft/approval workflow, no edit/delete once created
+// (a correction is a future reversing-entry feature — see phase-17-accounting.md's known limitation).
+model JournalEntry {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  date      DateTime @db.Date
+  memo      String
+  reference String? // free text, e.g. "Invoice INV-2026-042" or "Payroll Sept 2026"
+
+  sourceType String // Manual | FeePayment | Payroll | Other
+  sourceId   String? // polymorphic-by-convention id of the originating Payment/Payslip — not a real
+  // Prisma relation (see phase-17-accounting.md's data model note)
+
+  createdById String
+  createdBy   User     @relation("JournalEntryCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  postedAt    DateTime @default(now())
+
+  lines JournalLine[]
+
+  @@index([schoolId])
+  @@index([schoolId, date])
+  @@index([schoolId, sourceType, sourceId])
+}
+
+model JournalLine {
+  id      String       @id @default(cuid())
+  entryId String
+  entry   JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  debit  Float @default(0) // exactly one of debit/credit is non-zero per line — enforced in schema.ts + service.ts
+  credit Float @default(0)
+
+  @@index([entryId])
+  @@index([accountId])
+}
