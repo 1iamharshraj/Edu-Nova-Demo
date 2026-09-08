@@ -1,0 +1,92 @@
+# Production stack for a single-node, small-school deployment — one Postgres, one API container, one
+# nginx serving the built SPA + reverse-proxying /api. No orchestration beyond Compose is assumed.
+#
+# Usage: copy .env.example -> .env, fill in real secrets, then:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Migrations run automatically: the api container's entrypoint (server/docker-entrypoint.sh) runs
+# `prisma migrate deploy` before starting the server, every time the container starts.
+#
+# This file is intentionally separate from the dev docker-compose.yml (Postgres-only, throwaway
+# credentials, port 5434) — that one is untouched.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-edunova}
+      POSTGRES_USER: ${POSTGRES_USER:-edunova}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - edunova_pgdata_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-edunova} -d $${POSTGRES_DB:-edunova}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-edunova}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-edunova}?schema=public
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      PORT: 4000
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Phase 9 integrations — all optional, each degrades gracefully when unset (see server/.env.example).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MSG91_API_KEY: ${MSG91_API_KEY:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@edunova.in}
+    volumes:
+      # Uploaded files (certificates, avatars, message attachments...) land here at runtime — see
+      # server/Dockerfile's header comment for why the path is nested this way.
+      - edunova_uploads_prod:/app/server/dist/server/uploads
+    expose:
+      - "4000"
+
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: /api
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${HTTP_PORT:-80}:80"
+
+  # Nightly logical backups. Runs pg_dump on SCHEDULE, keeps a rolling window, and prunes old ones —
+  # see https://github.com/prodrigestivill/docker-postgres-backup-local for the full env var reference.
+  backup:
+    image: prodrigestivill/postgres-backup-local:16-alpine
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-edunova}
+      POSTGRES_USER: ${POSTGRES_USER:-edunova}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: 7
+      BACKUP_KEEP_WEEKS: 4
+      BACKUP_KEEP_MONTHS: 6
+      HEALTHCHECK_PORT: 8080
+    volumes:
+      - ./backups:/backups
+
+volumes:
+  edunova_pgdata_prod:
+  edunova_uploads_prod:

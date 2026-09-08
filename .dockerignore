@@ -1,0 +1,17 @@
+# Shared by both root Dockerfile (frontend) and server/Dockerfile — both build with the repo root as
+# context (server's Dockerfile needs ../src/lib/data.ts alongside server/, see its header comment).
+node_modules
+server/node_modules
+dist
+server/dist
+server/generated
+server/uploads
+.git
+.agents
+*.log
+npm-debug.log*
+.env
+.env.*
+!.env.example
+!server/.env.example
+.DS_Store

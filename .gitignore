@@ -27,3 +27,8 @@ server/generated
 *.sln
 *.sw?
 server/uploads
+
+# Deploy tooling — real secrets and local backup dumps, never checked in
+.env
+server/.env.production
+backups
