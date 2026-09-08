@@ -1,97 +1,74 @@
-import { useMemo } from 'react'
-import { Download, FileText, HeartPulse, Phone, School, TrendingUp, Users } from 'lucide-react'
-import { useStore } from '@/lib/store'
-import { fmtINR, type AttendanceSummary, type ReportCard } from '@/lib/data'
-import { qs, useFetchMany } from '@/lib/hooks/useAcademics'
-import { Card, Empty, PageHead, Pill, Progress } from '../ui'
-import { useViewedStudents } from './viewer'
+import { Download, FileText, HeartPulse, Phone, TrendingUp, Users } from 'lucide-react'
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar, Legend,
-} from 'recharts'
+  fmtINR, type AchievementRec, type AttendanceSummary, type CallLogRec, type DisciplinaryCaseRec,
+  type HealthRecordRec, type ReportCard,
+} from '@/lib/data'
+import { errorMessage } from '@/lib/api'
+import { useOne } from '@/lib/hooks/useAcademics'
+import { useCertificates } from '@/lib/hooks/useIdentity'
+import { downloadPath } from '@/lib/api'
+import { Card, Empty, PageHead, Pill, Progress } from '../ui'
 
-const HEALTH_PRIVACY_NOTE = 'Health records are shared only with the student and guardians'
+interface DossierMeeting { id: string; purpose: string; scheduledAt: string; status: string }
+interface DossierInvoice { id: string; termId: string; status: string; dueDate: string; total: number; paid: number }
+interface DossierRanks { classId: string; classLabel: string; termId: string; assessments: number; items: { studentId: string; rank: number; pct: number }[] }
+interface StudentDossier {
+  profile: { id: string; name: string; email: string; role: string; avatarHue?: number; photoFileId?: string | null }
+  enrollment?: { classId: string; rollNo?: string; academicYearId: string }
+  termId?: string
+  attendance?: AttendanceSummary
+  reportCard?: ReportCard
+  ranks?: DossierRanks
+  invoices: DossierInvoice[]
+  meetings: DossierMeeting[]
+  calls: CallLogRec[]
+  discipline: DisciplinaryCaseRec[]
+  achievements: AchievementRec[]
+  health: HealthRecordRec[]
+}
 
 interface StudentReportModProps {
   studentId: string
 }
 
+const statusTone = (s: string) => {
+  if (['Paid', 'Approved', 'Completed', 'Submitted', 'Closed', 'Verified', 'Sealed', 'Published', 'Confirmed'].includes(s)) return 'green' as const
+  if (['Pending', 'Due', 'Requested', 'Scheduled', 'Assigned', 'TeacherSigned', 'Draft', 'Reported', 'Heard', 'Decision'].includes(s)) return 'amber' as const
+  if (['Declined', 'Late', 'Failed', 'Cancelled', 'Action Taken', 'Expulsion', 'Suspension'].includes(s)) return 'rose' as const
+  return 'slate' as const
+}
+
 export function StudentReportMod({ studentId }: StudentReportModProps) {
-  const { db } = useStore()
-  const viewedStudents = useViewedStudents()
-  const student = db.users.find(u => u.id === studentId && u.role === 'student')
-  const board = db.boardDetails[studentId]
-  // Health records carry no studentId yet (Phase 8) — only the student themself or their guardians may see them.
-  const canSeeHealth = viewedStudents.some(s => s.id === studentId)
+  const { data: dossier, error, loading } = useOne<StudentDossier>(`/reports/student/${encodeURIComponent(studentId)}`)
+  const { items: certificates } = useCertificates(studentId)
 
-  // Phase 3: attendance, marks and ranks come from the server per term (one summary + one report card per term).
-  const termIds = useMemo(() => db.terms.map(t => t.id), [db.terms])
-  const { data: summaries } = useFetchMany<AttendanceSummary>(useMemo(() => termIds.map(t => `/attendance/summary${qs({ studentId, termId: t })}`), [termIds, studentId]))
-  const { data: reportCards } = useFetchMany<ReportCard>(useMemo(() => termIds.map(t => `/assessments/report-card${qs({ studentId, termId: t })}`), [termIds, studentId]))
-
-  const allDays = useMemo(() => (summaries ?? []).flatMap(s => s?.days ?? []), [summaries])
-  const attendanceSummary = useMemo(() => {
-    const count = (st: string) => allDays.filter(d => d.status === st).length
-    const p = count('P'), a = count('A'), l = count('L') + count('E'), h = count('H')
-    const fromServer = (summaries ?? []).reduce((acc, s) => ({ present: acc.present + (s?.overall.present ?? 0), total: acc.total + (s?.overall.total ?? 0) }), { present: 0, total: 0 })
-    const total = fromServer.total || p + a + l
-    const present = fromServer.total ? fromServer.present : p
-    const pct = total ? Math.round((present / total) * 100) : 0
-    return { p, a, l, h, total, pct }
-  }, [allDays, summaries])
-
-  const attendanceByMonth = useMemo(() => {
-    const map: Record<string, { month: string; present: number; absent: number; leave: number }> = {}
-    allDays.forEach(r => {
-      const month = r.date.slice(0, 7)
-      if (!map[month]) map[month] = { month, present: 0, absent: 0, leave: 0 }
-      if (r.status === 'P') map[month].present += 1
-      else if (r.status === 'A') map[month].absent += 1
-      else if (r.status === 'L' || r.status === 'E') map[month].leave += 1
-    })
-    return Object.values(map).sort((a, b) => a.month.localeCompare(b.month))
-  }, [allDays])
-
-  const marksByTerm = useMemo(() => db.terms.map((term, i) => {
-    const rc = reportCards?.[i]
-    const subjects = (rc?.subjects ?? []).map(r => ({ subject: r.subject, grade: r.grade, pct: Math.round(r.pct), score: r.total, max: r.max }))
-    const totalScore = subjects.reduce((a, s) => a + s.score, 0)
-    const totalMax = subjects.reduce((a, s) => a + s.max, 0)
-    return {
-      termId: term.id,
-      termName: term.name,
-      subjects,
-      totalScore,
-      totalMax,
-      overallPct: rc ? Math.round(rc.overall.pct) : 0,
-      overallGrade: rc && subjects.length ? rc.overall.grade : '—',
-    }
-  }).filter(t => t.subjects.length > 0), [db.terms, reportCards])
-
-  const rankHistory = useMemo(() => db.terms.map((term, i) => {
-    const rc = reportCards?.[i]
-    return { term: term.name, rank: rc?.overall.rank ?? null, score: rc ? Math.round(rc.overall.pct) : null }
-  }), [db.terms, reportCards])
-
-  const achievements = db.achievements.filter(a => a.by === student?.name)
-  const receipts = db.receipts.filter(r => r.studentId === studentId && r.kind === 'fee')
-  const feeTotal = receipts.reduce((a, r) => a + r.amount, 0)
-  const feePaid = receipts.filter(r => r.status === 'Paid').reduce((a, r) => a + r.amount, 0)
-  const feeDue = receipts.filter(r => r.status === 'Due').reduce((a, r) => a + r.amount, 0)
-
-  const meetings = db.meetings.filter(m => m.studentId === studentId)
-  const calls = db.aiParentCalls.filter(c => c.studentId === studentId)
-  const disciplinary = db.disciplinaryCases.filter(c => c.studentId === studentId)
-  const certificates = db.applications.filter(a => a.studentId === studentId)
-  const healthRecords = canSeeHealth ? db.health : []
-
-  if (!student) {
+  if (loading) {
     return (
       <div>
         <PageHead title="Student Profile Report" sub="Comprehensive student dossier" />
-        <Card><Empty text="Student not found." /></Card>
+        <Card><p className="text-[13px] text-black/40 dark:text-white/40">Loading…</p></Card>
       </div>
     )
   }
+
+  if (error || !dossier) {
+    return (
+      <div>
+        <PageHead title="Student Profile Report" sub="Comprehensive student dossier" />
+        <Card><Empty text={error ? errorMessage(error) : 'Student not found.'} /></Card>
+      </div>
+    )
+  }
+
+  const student = dossier.profile
+  const attendance = dossier.attendance
+  const attPct = attendance && attendance.overall.total > 0 ? Math.round(attendance.overall.pct) : 0
+  const rc = dossier.reportCard
+  const myRank = dossier.ranks?.items.find(r => r.studentId === studentId)
+
+  const feeTotal = dossier.invoices.reduce((a, i) => a + i.total, 0)
+  const feePaid = dossier.invoices.reduce((a, i) => a + i.paid, 0)
+  const feeDue = Math.max(0, feeTotal - feePaid)
 
   const downloadTxt = () => {
     const lines = [
@@ -99,50 +76,38 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
       `Generated: ${new Date().toLocaleString('en-IN')}`,
       ``,
       `Student: ${student.name}`,
-      `Class: ${student.class ?? '—'}${student.section ? '-' + student.section : ''}`,
-      `Roll: ${student.roll ?? '—'}`,
       `Email: ${student.email}`,
-      `Parent email: ${student.parentEmail ?? '—'}`,
-      `Board: ${student.board ?? '—'}`,
-      board ? `Board registration: ${board.registrationNo}` : '',
       ``,
       `Attendance`,
-      `  Present: ${attendanceSummary.p}`,
-      `  Absent: ${attendanceSummary.a}`,
-      `  Leave: ${attendanceSummary.l}`,
-      `  Holidays: ${attendanceSummary.h}`,
-      `  Attendance %: ${attendanceSummary.pct}%`,
+      attendance ? `  Present: ${attendance.overall.present} / ${attendance.overall.total} (${attPct}%)` : `  No data`,
       ``,
       `Marks`,
-      ...marksByTerm.flatMap(t => [
-        `  ${t.termName}: ${t.overallGrade} (${t.overallPct}%)`,
-        ...t.subjects.map(s => `    ${s.subject}: ${s.grade} (${s.score}/${s.max})`),
-      ]),
+      ...(rc ? [`  Overall: ${rc.overall.grade} (${Math.round(rc.overall.pct)}%)`, ...rc.subjects.map(s => `    ${s.subject}: ${s.grade} (${s.total}/${s.max})`)] : ['  No marks published yet']),
       ``,
-      `Rank history`,
-      ...rankHistory.map(r => `  ${r.term}: ${r.rank ? '#' + r.rank : '—'}`),
+      `Rank`,
+      `  ${myRank ? `#${myRank.rank} of ${dossier.ranks?.assessments ?? '—'}` : '—'}`,
       ``,
       `Achievements`,
-      ...(achievements.length ? achievements.map(a => `  ${a.date}: ${a.title} — ${a.detail}`) : ['  None']),
+      ...(dossier.achievements.length ? dossier.achievements.map(a => `  ${a.date}: ${a.title} — ${a.detail}`) : ['  None']),
       ``,
       `Fees`,
       `  Total: ${fmtINR(feeTotal)}`,
       `  Paid: ${fmtINR(feePaid)}`,
       `  Due: ${fmtINR(feeDue)}`,
-      ...(receipts.length ? receipts.map(r => `  ${r.label} · ${r.status} · ${fmtINR(r.amount)}`) : ['  No receipts']),
+      ...(dossier.invoices.length ? dossier.invoices.map(i => `  ${i.id} · ${i.status} · ${fmtINR(i.total)}`) : ['  No invoices']),
       ``,
       `Meetings & calls`,
-      ...(meetings.length ? meetings.map(m => `  ${m.slot}: ${m.purpose} (${m.status})`) : ['  No meetings']),
-      ...(calls.length ? calls.map(c => `  AI call · ${c.reason} · ${c.status} · ${c.duration ? c.duration + 's' : ''}`) : ['  No calls']),
+      ...(dossier.meetings.length ? dossier.meetings.map(m => `  ${m.purpose} (${m.status})`) : ['  No meetings']),
+      ...(dossier.calls.length ? dossier.calls.map(c => `  Call · ${c.reason} · ${c.outcome} · ${c.durationMin ? c.durationMin + 'min' : ''}`) : ['  No calls']),
       ``,
       `Disciplinary cases`,
-      ...(disciplinary.length ? disciplinary.map(d => `  ${d.title} · ${d.status} · ${d.actionTaken || 'No action'}`) : ['  None']),
+      ...(dossier.discipline.length ? dossier.discipline.map(d => `  ${d.title} · ${d.status} · ${d.actionTaken || 'No action'}`) : ['  None']),
       ``,
       `Certificates / applications`,
-      ...(certificates.length ? certificates.map(c => `  ${c.kind} · ${c.name} · ${c.status}`) : ['  None']),
+      ...((certificates ?? []).length ? (certificates ?? []).map(c => `  ${c.kind} · ${c.serialNo} · issued ${c.issuedAt.slice(0, 10)}`) : ['  None']),
       ``,
       `Health records`,
-      ...(!canSeeHealth ? [`  ${HEALTH_PRIVACY_NOTE}`] : healthRecords.length ? healthRecords.map(h => `  ${h.date}: ${h.label} — ${h.detail}`) : ['  None']),
+      ...(dossier.health.length ? dossier.health.map(h => `  ${h.date}: ${h.title} — ${h.detail}`) : ['  None']),
     ]
     const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
@@ -151,13 +116,6 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
     a.download = `${student.name.replace(/\s+/g, '_')}_report.txt`
     a.click()
     URL.revokeObjectURL(url)
-  }
-
-  const statusTone = (s: string) => {
-    if (['Paid', 'Approved', 'Completed', 'Submitted', 'Closed', 'Verified', 'Sealed', 'Published'].includes(s)) return 'green' as const
-    if (['Pending', 'Due', 'Requested', 'Scheduled', 'Assigned', 'TeacherSigned', 'Draft'].includes(s)) return 'amber' as const
-    if (['Declined', 'Late', 'Failed', 'Cancelled', 'Action Taken', 'Expulsion', 'Suspension'].includes(s)) return 'rose' as const
-    return 'slate' as const
   }
 
   return (
@@ -169,120 +127,70 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
       </PageHead>
 
       {/* profile */}
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Card>
-          <div className="flex items-start gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-indigo-500 text-white font-display text-xl font-medium">
-              {student.name.split(' ').map(w => w[0]).slice(0, 2).join('')}
-            </div>
-            <div className="flex-1">
-              <p className="font-display text-xl font-medium">{student.name}</p>
-              <p className="text-[14px] text-black/50 dark:text-white/50">{student.email}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Pill tone="sky">{student.class}{student.section ? '-' + student.section : ''}</Pill>
-                <Pill tone="indigo">Roll {student.roll ?? '—'}</Pill>
-                <Pill tone="green">{student.board ?? '—'}</Pill>
-              </div>
-            </div>
+      <Card>
+        <div className="flex items-start gap-4">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-indigo-500 text-white font-display text-xl font-medium">
+            {student.name.split(' ').map(w => w[0]).slice(0, 2).join('')}
           </div>
-        </Card>
-        <Card>
-          <p className="mb-3 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><School size={15} /> Board details</p>
-          {board ? (
-            <div className="grid grid-cols-2 gap-3 text-[14px]">
-              <div><span className="text-black/50 dark:text-white/50">Registration</span><p className="font-semibold">{board.registrationNo}</p></div>
-              <div><span className="text-black/50 dark:text-white/50">Roll no.</span><p className="font-semibold">{board.rollNo}</p></div>
-              <div><span className="text-black/50 dark:text-white/50">School</span><p className="font-semibold">{board.schoolName}</p></div>
-              <div><span className="text-black/50 dark:text-white/50">DOB</span><p className="font-semibold">{board.dob}</p></div>
-              <div><span className="text-black/50 dark:text-white/50">Class</span><p className="font-semibold">{board.class}-{board.section}</p></div>
-              <div><span className="text-black/50 dark:text-white/50">Year</span><p className="font-semibold">{board.year}</p></div>
-              {board.affiliationNo && <div><span className="text-black/50 dark:text-white/50">Affiliation</span><p className="font-semibold">{board.affiliationNo}</p></div>}
-            </div>
-          ) : (
-            <Empty text="No board details on file." />
-          )}
-        </Card>
-      </div>
+          <div className="flex-1">
+            <p className="font-display text-xl font-medium">{student.name}</p>
+            <p className="text-[14px] text-black/50 dark:text-white/50">{student.email}</p>
+            {dossier.ranks?.classLabel && <div className="mt-3 flex flex-wrap gap-2"><Pill tone="sky">{dossier.ranks.classLabel}</Pill></div>}
+          </div>
+        </div>
+      </Card>
 
       {/* attendance */}
       <Card>
         <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><Users size={15} /> Attendance summary</p>
-        <div className="grid gap-4 sm:grid-cols-4">
-          <div><p className="text-[12px] text-black/50 dark:text-white/50">Present</p><p className="font-display text-2xl font-medium text-emerald-600">{attendanceSummary.p}</p></div>
-          <div><p className="text-[12px] text-black/50 dark:text-white/50">Absent</p><p className="font-display text-2xl font-medium text-rose-500">{attendanceSummary.a}</p></div>
-          <div><p className="text-[12px] text-black/50 dark:text-white/50">Leave</p><p className="font-display text-2xl font-medium text-amber-500">{attendanceSummary.l}</p></div>
-          <div><p className="text-[12px] text-black/50 dark:text-white/50">Attendance %</p><p className="font-display text-2xl font-medium">{attendanceSummary.pct}%</p></div>
-        </div>
-        <div className="mt-4"><Progress pct={attendanceSummary.pct} color="#10b981" /></div>
-        {attendanceByMonth.length > 0 && (
-          <div className="mt-6 h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={attendanceByMonth}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="present" stackId="a" fill="#10b981" />
-                <Bar dataKey="leave" stackId="a" fill="#f59e0b" />
-                <Bar dataKey="absent" stackId="a" fill="#ef4444" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+        {attendance ? (
+          <>
+            <div className="grid gap-4 sm:grid-cols-4">
+              <div><p className="text-[12px] text-black/50 dark:text-white/50">Present</p><p className="font-display text-2xl font-medium text-emerald-600">{attendance.overall.present}</p></div>
+              <div><p className="text-[12px] text-black/50 dark:text-white/50">Total sessions</p><p className="font-display text-2xl font-medium">{attendance.overall.total}</p></div>
+              <div><p className="text-[12px] text-black/50 dark:text-white/50">Attendance %</p><p className="font-display text-2xl font-medium">{attPct}%</p></div>
+            </div>
+            <div className="mt-4"><Progress pct={attPct} color="#10b981" /></div>
+          </>
+        ) : <Empty text="No attendance data for this term." />}
       </Card>
 
       {/* marks */}
       <Card>
         <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><TrendingUp size={15} /> Marks & grades</p>
-        <div className="space-y-5">
-          {marksByTerm.length === 0 && <Empty text="No marks published yet." />}
-          {marksByTerm.map(t => (
-            <div key={t.termId}>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="font-semibold">{t.termName}</p>
-                <Pill tone={statusTone(t.overallGrade)}>{t.overallGrade} · {t.overallPct}%</Pill>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {t.subjects.map(s => (
-                  <div key={s.subject} className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-                    <p className="text-[13px] font-semibold">{s.subject}</p>
-                    <p className="text-[12px] text-black/50 dark:text-white/50">{s.score}/{s.max} · Grade {s.grade}</p>
-                    <div className="mt-1.5"><Progress pct={s.pct} color="#6366f1" /></div>
-                  </div>
-                ))}
-              </div>
+        {rc ? (
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="font-semibold">This term</p>
+              <Pill tone={statusTone(rc.overall.grade)}>{rc.overall.grade} · {Math.round(rc.overall.pct)}%</Pill>
             </div>
-          ))}
-        </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {rc.subjects.map(s => (
+                <div key={s.subject} className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
+                  <p className="text-[13px] font-semibold">{s.subject}</p>
+                  <p className="text-[12px] text-black/50 dark:text-white/50">{s.total}/{s.max} · Grade {s.grade}</p>
+                  <div className="mt-1.5"><Progress pct={Math.round(s.pct)} color="#6366f1" /></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : <Empty text="No marks published yet." />}
       </Card>
 
-      {/* ranks */}
+      {/* rank */}
       <Card>
-        <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><TrendingUp size={15} /> Rank history</p>
-        {rankHistory.some(r => r.rank) ? (
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={rankHistory.map(r => ({ ...r, rank: r.rank ?? undefined }))}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="term" tick={{ fontSize: 12 }} />
-                <YAxis reversed tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Line type="monotone" dataKey="rank" stroke="#6366f1" strokeWidth={2} dot={{ r: 4 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        ) : (
-          <Empty text="No rank data for this student." />
-        )}
+        <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><TrendingUp size={15} /> Class rank</p>
+        {myRank ? (
+          <p className="font-display text-3xl font-medium">#{myRank.rank} <span className="text-[14px] font-normal text-black/50 dark:text-white/50">of {dossier.ranks?.assessments} assessed</span></p>
+        ) : <Empty text="No rank data for this term." />}
       </Card>
 
       {/* achievements */}
       <Card>
         <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><FileText size={15} /> Achievements & co-curricular</p>
-        {achievements.length > 0 ? (
+        {dossier.achievements.length > 0 ? (
           <div className="space-y-3">
-            {achievements.map(a => (
+            {dossier.achievements.map(a => (
               <div key={a.id} className="flex items-start justify-between rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
                 <div>
                   <p className="text-[14px] font-semibold">{a.title}</p>
@@ -292,9 +200,7 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
               </div>
             ))}
           </div>
-        ) : (
-          <Empty text="No achievements recorded yet." />
-        )}
+        ) : <Empty text="No achievements recorded yet." />}
       </Card>
 
       {/* fees */}
@@ -305,73 +211,63 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
           <div><p className="text-[12px] text-black/50 dark:text-white/50">Paid</p><p className="font-display text-xl font-medium text-emerald-600">{fmtINR(feePaid)}</p></div>
           <div><p className="text-[12px] text-black/50 dark:text-white/50">Due</p><p className="font-display text-xl font-medium text-rose-500">{fmtINR(feeDue)}</p></div>
         </div>
-        {receipts.length > 0 ? (
+        {dossier.invoices.length > 0 ? (
           <div className="space-y-2">
-            {receipts.map(r => (
-              <div key={r.id} className="flex items-center justify-between rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
-                <div>
-                  <p className="text-[14px] font-semibold">{r.label}</p>
-                  <p className="text-[12.5px] text-black/50 dark:text-white/50">{r.date}</p>
-                </div>
+            {dossier.invoices.map(i => (
+              <div key={i.id} className="flex items-center justify-between rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
+                <p className="text-[12.5px] text-black/50 dark:text-white/50">Due {i.dueDate}</p>
                 <div className="flex items-center gap-3">
-                  <span className="text-[14px] font-semibold">{fmtINR(r.amount)}</span>
-                  <Pill tone={statusTone(r.status)}>{r.status}</Pill>
+                  <span className="text-[14px] font-semibold">{fmtINR(i.total)}</span>
+                  <Pill tone={statusTone(i.status)}>{i.status}</Pill>
                 </div>
               </div>
             ))}
           </div>
-        ) : (
-          <Empty text="No fee receipts on record." />
-        )}
+        ) : <Empty text="No fee invoices on record." />}
       </Card>
 
       {/* meetings & calls */}
       <div className="grid gap-5 lg:grid-cols-2">
         <Card>
           <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><Users size={15} /> Meetings</p>
-          {meetings.length > 0 ? (
+          {dossier.meetings.length > 0 ? (
             <div className="space-y-3">
-              {meetings.map(m => (
+              {dossier.meetings.map(m => (
                 <div key={m.id} className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
                   <div className="flex items-center justify-between">
                     <p className="text-[14px] font-semibold">{m.purpose}</p>
                     <Pill tone={statusTone(m.status)}>{m.status}</Pill>
                   </div>
-                  <p className="text-[12.5px] text-black/50 dark:text-white/50">{m.slot} · {m.requesterName} ({m.requesterRole})</p>
+                  <p className="text-[12.5px] text-black/50 dark:text-white/50">{new Date(m.scheduledAt).toLocaleString('en-IN')}</p>
                 </div>
               ))}
             </div>
-          ) : (
-            <Empty text="No meetings scheduled." />
-          )}
+          ) : <Empty text="No meetings scheduled." />}
         </Card>
         <Card>
-          <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><Phone size={15} /> AI parent calls</p>
-          {calls.length > 0 ? (
+          <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><Phone size={15} /> Call log</p>
+          {dossier.calls.length > 0 ? (
             <div className="space-y-3">
-              {calls.map(c => (
+              {dossier.calls.map(c => (
                 <div key={c.id} className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
                   <div className="flex items-center justify-between">
                     <p className="text-[14px] font-semibold capitalize">{c.reason}</p>
-                    <Pill tone={statusTone(c.status)}>{c.status}</Pill>
+                    <Pill tone={statusTone(c.outcome)}>{c.outcome}</Pill>
                   </div>
-                  <p className="text-[12.5px] text-black/50 dark:text-white/50">{c.reasonText}</p>
-                  {c.outcome && <p className="mt-1 text-[12px] text-black/50 dark:text-white/50">Outcome: {c.outcome}</p>}
+                  <p className="text-[12.5px] text-black/50 dark:text-white/50">{c.summary}</p>
                 </div>
               ))}
             </div>
-          ) : (
-            <Empty text="No AI calls logged." />
-          )}
+          ) : <Empty text="No calls logged." />}
         </Card>
       </div>
 
       {/* disciplinary */}
       <Card>
         <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Disciplinary cases</p>
-        {disciplinary.length > 0 ? (
+        {dossier.discipline.length > 0 ? (
           <div className="space-y-3">
-            {disciplinary.map(d => (
+            {dossier.discipline.map(d => (
               <div key={d.id} className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-[14px] font-semibold">{d.title}</p>
@@ -382,50 +278,42 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
               </div>
             ))}
           </div>
-        ) : (
-          <Empty text="No disciplinary cases on record." />
-        )}
+        ) : <Empty text="No disciplinary cases on record." />}
       </Card>
 
       {/* certificates & health */}
       <div className="grid gap-5 lg:grid-cols-2">
         <Card>
-          <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><FileText size={15} /> Certificates / applications</p>
-          {certificates.length > 0 ? (
+          <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><FileText size={15} /> Certificates</p>
+          {(certificates ?? []).length > 0 ? (
             <div className="space-y-3">
-              {certificates.map(c => (
+              {(certificates ?? []).map(c => (
                 <div key={c.id} className="flex items-center justify-between rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
                   <div>
                     <p className="text-[14px] font-semibold">{c.kind}</p>
-                    <p className="text-[12.5px] text-black/50 dark:text-white/50">{c.name}</p>
+                    <p className="text-[12.5px] text-black/50 dark:text-white/50">{c.serialNo} · issued {c.issuedAt.slice(0, 10)}</p>
                   </div>
-                  <Pill tone={statusTone(c.status)}>{c.status}</Pill>
+                  <button onClick={() => downloadPath(`/certificates/${c.id}/pdf`, `${c.kind}-${c.serialNo}.pdf`)} className="rounded-full bg-black/[.05] dark:bg-white/[.08] px-3 py-1.5 text-[12px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">Download</button>
                 </div>
               ))}
             </div>
-          ) : (
-            <Empty text="No certificates issued." />
-          )}
+          ) : <Empty text="No certificates issued." />}
         </Card>
         <Card>
           <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><HeartPulse size={15} /> Health records</p>
-          {!canSeeHealth ? (
-            <Empty text={HEALTH_PRIVACY_NOTE} />
-          ) : healthRecords.length > 0 ? (
+          {dossier.health.length > 0 ? (
             <div className="space-y-3">
-              {healthRecords.map(h => (
+              {dossier.health.map(h => (
                 <div key={h.id} className="flex items-center justify-between rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
                   <div>
-                    <p className="text-[14px] font-semibold">{h.label}</p>
+                    <p className="text-[14px] font-semibold">{h.title}</p>
                     <p className="text-[12.5px] text-black/50 dark:text-white/50">{h.detail}</p>
                   </div>
-                  <Pill tone={h.signed ? 'green' : 'amber'}>{h.signed ? 'Signed' : 'Pending'}</Pill>
+                  <Pill tone={h.verifiedAt ? 'green' : 'amber'}>{h.verifiedAt ? 'Verified' : 'Unverified'}</Pill>
                 </div>
               ))}
             </div>
-          ) : (
-            <Empty text="No health records on file." />
-          )}
+          ) : <Empty text="No health records on file." />}
         </Card>
       </div>
     </div>
