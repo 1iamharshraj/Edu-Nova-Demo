@@ -18,15 +18,15 @@ beforeAll(async () => {
   // used to prove the health-record cross-student privacy rule from phase-8-welfare.md.
   const otherStudent = await request(app).post('/api/users').set(authHeader(fx.tokens.superadmin)).send({ role: 'student', name: 'Other Student' })
   otherStudentId = otherStudent.body.user.id
-  const otherStudentLogin = await request(app).post('/api/auth/login').send({ email: otherStudent.body.user.email, password: 'student123' })
+  const otherStudentLogin = await request(app).post('/api/auth/login').send({ email: otherStudent.body.user.email, password: otherStudent.body.password })
   otherStudentToken = otherStudentLogin.body.token
 
   const otherParent = await request(app).post('/api/users').set(authHeader(fx.tokens.superadmin)).send({ role: 'parent', name: 'Other Parent', studentIds: [otherStudentId] })
-  const otherParentLogin = await request(app).post('/api/auth/login').send({ email: otherParent.body.user.email, password: 'parent123' })
+  const otherParentLogin = await request(app).post('/api/auth/login').send({ email: otherParent.body.user.email, password: otherParent.body.password })
   otherParentToken = otherParentLogin.body.token
 
   const unrelatedTeacher = await request(app).post('/api/users').set(authHeader(fx.tokens.superadmin)).send({ role: 'teacher', name: 'Unrelated Teacher' })
-  const unrelatedTeacherLogin = await request(app).post('/api/auth/login').send({ email: unrelatedTeacher.body.user.email, password: 'teacher123' })
+  const unrelatedTeacherLogin = await request(app).post('/api/auth/login').send({ email: unrelatedTeacher.body.user.email, password: unrelatedTeacher.body.password })
   unrelatedTeacherToken = unrelatedTeacherLogin.body.token
 })
 

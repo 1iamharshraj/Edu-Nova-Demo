@@ -87,7 +87,7 @@ describe('fees: invoice -> pay -> defaulter check', () => {
 
   it("a parent unrelated to the student cannot see that student's invoices", async () => {
     const other = await request(app).post('/api/users').set(authHeader(fx.tokens.superadmin)).send({ role: 'parent', name: 'Other Parent' })
-    const login = await request(app).post('/api/auth/login').send({ email: other.body.user.email, password: 'parent123' })
+    const login = await request(app).post('/api/auth/login').send({ email: other.body.user.email, password: other.body.password })
     const res = await request(app).get('/api/fees/invoices').query({ studentId: fx.ids.studentId }).set(authHeader(login.body.token))
     // Not-your-ward: service returns 403 (or an empty list depending on implementation) — either is
     // an acceptable "cannot see" outcome, but leaking the other student's invoice would not be.

@@ -40,10 +40,13 @@ export interface Fixture {
   logins: Record<'superadmin' | 'admin' | 'staff' | 'teacher' | 'parent' | 'student', LoginResult>
 }
 
+// POST /users hands back a random one-time password (userDefaults.ts#genPassword) plus
+// mustChangePassword: true — never a predictable per-role password — so callers must capture and use
+// `password` from the response rather than assuming a fixed string.
 async function createUser(app: Express, token: string, body: Record<string, unknown>) {
   const res = await request(app).post('/api/users').set(authHeader(token)).send(body)
   if (res.status !== 201) throw new Error(`create user failed: ${res.status} ${JSON.stringify(res.body)}`)
-  return res.body.user as { id: string; email: string }
+  return { ...(res.body.user as { id: string; email: string }), password: res.body.password as string }
 }
 
 // Builds: current year + current term, one board, one grade, one class (capacity 2), one subject wired
@@ -93,11 +96,11 @@ export async function buildFixture(app: Express): Promise<Fixture> {
   await request(app).patch(`/api/academic/classes/${classId}`).set(authHeader(sa)).send({ classTeacherId: teacher.id })
 
   const [teacherLogin, staffLogin, adminLogin, parentLogin, studentLogin] = await Promise.all([
-    login(app, teacher.email, 'teacher123'),
-    login(app, staff.email, 'staff123'),
-    login(app, admin.email, 'admin123'),
-    login(app, parent.email, 'parent123'),
-    login(app, student.email, 'student123'),
+    login(app, teacher.email, teacher.password),
+    login(app, staff.email, staff.password),
+    login(app, admin.email, admin.password),
+    login(app, parent.email, parent.password),
+    login(app, student.email, student.password),
   ])
 
   return {
