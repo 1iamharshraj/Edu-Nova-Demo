@@ -35,3 +35,64 @@ Sign in as `principal@edunova.in` / `principal123`. Then either set the school u
 npx tsc -b --noEmit && npx eslint .          # frontend
 cd server && npx tsc --noEmit                 # backend
 ```
+
+## Deploy
+
+A small-school, single-node deployment — one Postgres, one API container, one nginx serving the built
+frontend and reverse-proxying `/api`. No Kubernetes or multi-region setup is implied or needed at this
+scale; `docker compose` on one machine is the whole story.
+
+**Prerequisites:** Docker + Docker Compose on the host. Nothing else — the app images are self-contained
+multi-stage builds (Node for compiling, then a slim runtime).
+
+**1. Configure secrets**
+
+```bash
+cp .env.example .env
+```
+
+Fill in `.env`:
+- `POSTGRES_PASSWORD` — a long random value; also composes `DATABASE_URL` for the `api` service.
+- `JWT_SECRET` — a long random value; rotating it invalidates every existing session.
+- `CORS_ORIGIN` — your public origin (same-origin requests through nginx don't need this, but keep it accurate).
+- Phase 9 integration keys (`ANTHROPIC_API_KEY`, `RESEND_API_KEY`, `MSG91_API_KEY`, `VAPID_*`) are **optional** — each feature degrades gracefully (logs/no-ops) when its var is unset. See `server/.env.example` for what each one turns on.
+
+**2. Build and start the stack**
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+This builds three images (`api`, `nginx`, plus pulls `postgres` and the backup image) and starts four
+containers: `postgres`, `api`, `nginx`, `backup`. The site is served on `http://<host>:${HTTP_PORT:-80}`.
+
+**Migrations run automatically** — the `api` container's entrypoint (`server/docker-entrypoint.sh`) runs
+`prisma migrate deploy` against `DATABASE_URL` before starting the server, on every container start.
+There's no separate migration step to remember; `docker compose ... up -d --build` is the whole
+deploy/redeploy command, including after pulling new code with new migrations.
+
+**3. Backups**
+
+The `backup` service (`prodrigestivill/postgres-backup-local`) runs a nightly `pg_dump` (`SCHEDULE:
+"@daily"`) and writes timestamped, gzip'd dumps to `./backups` on the host, pruning older ones per
+`BACKUP_KEEP_DAYS`/`_WEEKS`/`_MONTHS` in `docker-compose.prod.yml`.
+
+To restore a backup:
+
+```bash
+gunzip -c backups/daily/edunova-<timestamp>.sql.gz | \
+  docker compose -f docker-compose.prod.yml exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+```
+
+(Stop the `api` container first if you're restoring over a live database, so nothing writes mid-restore.)
+
+**4. Redeploying**
+
+```bash
+git pull
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Rebuilds only what changed; `prisma migrate deploy` on the `api` container's next start applies any new
+migrations. Uploaded files persist in the `edunova_uploads_prod` volume and the database in
+`edunova_pgdata_prod` across rebuilds — only `docker compose down -v` would drop them.
