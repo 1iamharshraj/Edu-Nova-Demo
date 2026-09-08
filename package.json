@@ -9,9 +9,11 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "server:dev": "npm --prefix server run dev",
+    "test": "npm --prefix server run test",
     "db:up": "docker compose up -d",
     "db:migrate": "npm --prefix server run prisma:migrate",
-    "db:seed": "npm --prefix server run seed"
+    "db:seed": "npm --prefix server run seed",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -64,6 +66,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^24.10.1",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.5",
