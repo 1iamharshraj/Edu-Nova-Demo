@@ -17,6 +17,8 @@ import { logChange } from '../modules/employmentHistory/service'
 import * as docsSvc from '../modules/employeeDocuments/service'
 import { serializeDocument } from '../modules/employeeDocuments/service'
 import { addDocument } from '../modules/employeeDocuments/schema'
+import { paginationQuery, paginate } from '../lib/pagination'
+import { classLabel } from '../modules/timetable/shared'
 
 export const usersRouter = Router()
 usersRouter.use(requireAuth)
@@ -109,6 +111,77 @@ async function assertValidManager(schoolId: string, role: string, reportsTo: str
 usersRouter.get('/', wrap(async (req, res) => {
   const users = await prisma.user.findMany({ where: { schoolId: (req as AuthedRequest).auth!.schoolId } })
   res.json({ users: users.map(u => toClientUser(u)) })
+}))
+
+// ═══════════════════════════ UI-architecture-fix Phase A: searched/paginated picker endpoint ═══════
+// GET /search — the reusable replacement for screens that used to `db.users.filter(role===...)` against
+// the entire school roster (see .agents/edunova/ui-architecture-fix.md). Purely additive: GET / above is
+// untouched, every existing `db.users` reader keeps working exactly as before. `requireAuth` only (many
+// roles across many forms need to search for *someone*), scoped to the caller's own school like every
+// other endpoint. Cursor pagination reuses lib/pagination.ts#paginate exactly like modules/messages and
+// modules/alumni do — see those for the same q/OR/contains/insensitive convention this mirrors.
+const searchQuery = paginationQuery.extend({
+  q: z.string().trim().min(1).max(200).optional(),
+  role: z.enum(ROLES).optional(),
+  classId: z.string().min(1).optional(),
+})
+
+// Single pre-formatted disambiguating line per row, so the frontend never needs to know the shape of a
+// role's context data — just render the string. Students: current class/section + roll number (via
+// Enrollment, "current" = most recent academic year then most recent enrollment row, same tie-break
+// modules/certificates/service.ts#studentProfile uses). Employee roles: employeeId + designation/department
+// (already denormalized onto User, see serialize.ts#toClientUser). Everyone else: just their role.
+function contextFor(
+  u: { role: string; employeeId: string | null; department: string | null; designation: string | null },
+  enrollment?: { rollNo: string | null; class: { grade: { label: string }; section: string } },
+): string {
+  if (u.role === 'student') {
+    if (!enrollment) return 'Unassigned'
+    const label = classLabel(enrollment.class)
+    return enrollment.rollNo ? `${label} · Roll ${enrollment.rollNo}` : label
+  }
+  if (EMPLOYEE_ROLES.includes(u.role as Role)) {
+    const parts = [u.employeeId, u.designation ?? u.department].filter((v): v is string => !!v)
+    return parts.length ? parts.join(' · ') : '—'
+  }
+  return u.role
+}
+
+usersRouter.get('/search', wrap(async (req, res) => {
+  const ctx = ctxOf(req as AuthedRequest)
+  const q = validate(searchQuery, req.query)
+
+  const where: Prisma.UserWhereInput = {
+    schoolId: ctx.schoolId,
+    ...(q.role ? { role: q.role } : {}),
+    ...(q.q ? { OR: [{ name: { contains: q.q, mode: 'insensitive' } }, { email: { contains: q.q, mode: 'insensitive' } }] } : {}),
+    ...(q.classId ? { enrollments: { some: { classId: q.classId, status: 'active' } } } : {}),
+  }
+
+  const { items, nextCursor } = await paginate(
+    args => prisma.user.findMany({ where, orderBy: [{ name: 'asc' }], ...args }),
+    { limit: q.limit, cursor: q.cursor, defaultLimit: 20, maxLimit: 50 },
+  )
+
+  const studentIds = items.filter(u => u.role === 'student').map(u => u.id)
+  const enrollments = studentIds.length ? await prisma.enrollment.findMany({
+    where: { studentId: { in: studentIds } },
+    include: { class: { include: { grade: true } } },
+    orderBy: [{ academicYear: { startDate: 'desc' } }, { createdAt: 'desc' }],
+  }) : []
+  const enrollmentByStudent = new Map<string, (typeof enrollments)[number]>()
+  for (const e of enrollments) if (!enrollmentByStudent.has(e.studentId)) enrollmentByStudent.set(e.studentId, e)
+
+  res.json({
+    items: items.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      context: contextFor(u, enrollmentByStudent.get(u.id)),
+    })),
+    nextCursor,
+  })
 }))
 
 usersRouter.post('/', wrap(async (req, res) => {
@@ -263,6 +336,24 @@ usersRouter.patch('/:id/role', requireRole('superadmin'), wrap(async (req, res) 
   res.json({ user: toClientUser(fresh) })
 }))
 
+const counselorBody = z.object({ isCounselor: z.boolean() })
+
+// PATCH /:id/counselor — admin/superadmin only. Deliberately its own endpoint, not folded into the
+// generic editable[] list on PATCH /:id: that generic path is reachable by `staff` managing a `teacher`
+// (see access.ts#canManage), which would let plain staff grant/revoke counselor access — this capability
+// gates the entire modules/counseling/ module (see phase-22-campus-safety.md → item 3), so it needs the
+// same admin-only gate as /:id/role, not the broader canManage() rule.
+usersRouter.patch('/:id/counselor', requireRole('admin', 'superadmin'), wrap(async (req, res) => {
+  const ctx = ctxOf(req as AuthedRequest)
+  const body = validate(counselorBody, req.body)
+  const target = await prisma.user.findFirst({ where: { id: req.params.id, schoolId: ctx.schoolId } })
+  if (!target) throw notFound('User')
+  if (target.isCounselor === body.isCounselor) return res.json({ user: toClientUser(target) })
+  const user = await prisma.user.update({ where: { id: target.id }, data: { isCounselor: body.isCounselor } })
+  await audit(ctx.schoolId, ctx.actorId, 'set-counselor', 'user', user.id, { isCounselor: target.isCounselor }, { isCounselor: user.isCounselor })
+  res.json({ user: toClientUser(user) })
+}))
+
 // Generic update — allowed if the requester is updating themselves, or canManage(requester, target).
 const updateUser = wrap(async (req, res) => {
   const ctx = ctxOf(req as AuthedRequest)
@@ -348,7 +439,35 @@ const updateUser = wrap(async (req, res) => {
 usersRouter.patch('/:id', updateUser)
 usersRouter.put('/:id', updateUser)
 
-usersRouter.delete('/:id', wrap(async (req, res) => {
+const activeBody = z.object({ active: z.boolean() })
+
+// PATCH /:id/active — Bug A fix: the People-management screen's "Revoke access" action soft-deactivates
+// an account instead of hard-deleting it, reusing the exact `active: false` convention the resignation
+// -approval flow already established (see modules/hr/service.ts#approveResignation /
+// deactivateIfPastLastWorkingDate) — login is refused for inactive accounts (routes/auth.ts). Same
+// canManage() gate as the old DELETE handler used, so this is a straight swap of the destructive action
+// for a reversible one; `active: true` reactivates (mirrored, since deactivating is no longer one-way).
+usersRouter.patch('/:id/active', wrap(async (req, res) => {
+  const ctx = ctxOf(req as AuthedRequest)
+  const body = validate(activeBody, req.body)
+  const { requester, allUsers } = await requesterAndUsers(req as AuthedRequest)
+  const target = await prisma.user.findFirst({ where: { id: req.params.id, schoolId: ctx.schoolId } })
+  if (!target) throw notFound('User')
+  if (!canManage(requester as any, target as any, allUsers)) throw new HttpError(403, 'Not permitted to manage this user')
+  if (target.active === body.active) return res.json({ user: toClientUser(target) })
+  const user = await prisma.user.update({ where: { id: target.id }, data: { active: body.active } })
+  await audit(ctx.schoolId, ctx.actorId, body.active ? 'reactivate' : 'deactivate', 'user', user.id, { active: target.active }, { active: user.active })
+  res.json({ user: toClientUser(user) })
+}))
+
+// DELETE /:id — genuine hard delete. Restricted to superadmin only (Bug A fix): the People screen no
+// longer calls this (it uses PATCH /:id/active above), so the only remaining callers are deliberate
+// cleanup of a mistakenly-created test account with no real history to protect. canManage() alone let a
+// plain teacher hard-delete any student/parent in the school; now that the everyday "remove someone"
+// action is the reversible deactivate above, that breadth is no longer an acceptable default for the
+// one-way, cascading operation left on this route, so it is narrowed to superadmin rather than scoped
+// down within canManage() (which other, non-destructive call sites still rely on unchanged).
+usersRouter.delete('/:id', requireRole('superadmin'), wrap(async (req, res) => {
   const ctx = ctxOf(req as AuthedRequest)
   const { requester, allUsers } = await requesterAndUsers(req as AuthedRequest)
   const target = await prisma.user.findFirst({ where: { id: req.params.id, schoolId: ctx.schoolId } })

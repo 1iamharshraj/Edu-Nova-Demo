@@ -33,6 +33,7 @@ export { sendToUsers }
 
 type EmailProvider = 'console' | 'resend'
 type SmsProvider = 'console' | 'msg91'
+type WhatsAppProvider = 'console' | 'meta'
 
 function emailProvider(): EmailProvider {
   return process.env.RESEND_API_KEY ? 'resend' : 'console'
@@ -42,8 +43,16 @@ function smsProvider(): SmsProvider {
   return process.env.MSG91_API_KEY ? 'msg91' : 'console'
 }
 
+// Meta (WhatsApp Business Cloud API) needs both a permanent access token and the sender's phone-number-id
+// (not the phone number itself — Meta's `/​<phone-number-id>​/messages` endpoint shape). Both env vars must
+// be set for the real provider to activate; either missing falls back to console.
+function whatsappProvider(): WhatsAppProvider {
+  return process.env.WHATSAPP_API_KEY && process.env.WHATSAPP_PHONE_NUMBER_ID ? 'meta' : 'console'
+}
+
 export interface EmailMessage { to: string; subject: string; body: string }
 export interface SmsMessage { to: string; body: string }
+export interface WhatsAppMessage { to: string; body: string }
 
 // Sends an email through whichever provider is configured (RESEND_API_KEY present → Resend; otherwise
 // logs to the console — the default for local dev with no real provider configured). Best-effort: never
@@ -84,6 +93,38 @@ export async function sendSms(msg: SmsMessage): Promise<void> {
     console.log(`[notify:sms:console] to=${msg.to} ${msg.body}`)
   } catch (err) {
     console.error('[notify] sendSms failed:', err)
+  }
+}
+
+// Sends a WhatsApp message through the Meta Cloud API (WHATSAPP_API_KEY + WHATSAPP_PHONE_NUMBER_ID both
+// present → a plain fetch to graph.facebook.com; otherwise logs to the console). Best-effort: never throws.
+//
+// Phase 23 item 3: this is a **provider abstraction only** — nobody on this project has a real WhatsApp
+// Business API account/credentials to test against, so "working" here means "correctly wired into every
+// call site email/SMS already fire from, with the same graceful degrade-to-console behaviour," not
+// "messages actually arrive on a phone." Swap in real WHATSAPP_API_KEY/WHATSAPP_PHONE_NUMBER_ID values
+// (from a Meta Business/WhatsApp Cloud API app) to light up real delivery — no code change needed.
+//
+// `to` is expected in E.164-ish form (whatever `User.phone` already holds elsewhere in this codebase);
+// Meta's API wants it digits-only (no leading '+'), so it's stripped of non-digits here.
+export async function sendWhatsApp(msg: WhatsAppMessage): Promise<void> {
+  const provider = whatsappProvider()
+  try {
+    if (provider === 'meta') {
+      const token = process.env.WHATSAPP_API_KEY!
+      const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID!
+      const to = msg.to.replace(/[^\d]/g, '')
+      const res = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: msg.body } }),
+      })
+      if (!res.ok) console.error('[notify] whatsapp (meta) send failed:', res.status, await res.text().catch(() => ''))
+      return
+    }
+    console.log(`[notify:whatsapp:console] to=${msg.to} ${msg.body}`)
+  } catch (err) {
+    console.error('[notify] sendWhatsApp failed:', err)
   }
 }
 

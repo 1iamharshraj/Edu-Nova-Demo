@@ -47,6 +47,17 @@ import { hostelRouter } from './modules/hostel/router'
 import { libraryRouter } from './modules/library/router'
 import { inventoryRouter } from './modules/inventory/router'
 import { accountingRouter } from './modules/accounting/router'
+import { syllabusRouter } from './modules/syllabus/router'
+import { scholarshipsRouter } from './modules/scholarships/router'
+import { analyticsRouter } from './modules/analytics/router'
+import { safetyRouter } from './modules/safety/router'
+import { counselingRouter } from './modules/counseling/router'
+import { parentsRouter } from './modules/parents/router'
+import { examsRouter } from './modules/exams/router'
+import { cultureRouter } from './modules/culture/router'
+import { groupRouter } from './modules/group/router'
+import { complianceRouter } from './modules/compliance/router'
+import { canteenRouter } from './modules/canteen/router'
 import { errorHandler } from './lib/errors'
 
 export function createApp() {
@@ -114,6 +125,20 @@ export function createApp() {
   app.use('/api/library', libraryRouter)
   app.use('/api/inventory', inventoryRouter)
   app.use('/api/accounting', accountingRouter)
+  app.use('/api/syllabus', syllabusRouter)
+  app.use('/api/scholarships', scholarshipsRouter)
+  app.use('/api/analytics', analyticsRouter)
+  // /api/safety carries both modules/safety/ (items 1-2) and modules/counseling/ (item 3) — see
+  // modules/counseling/router.ts header for why item 3's code lives in a separate module despite sharing
+  // this URL prefix (the spec's endpoint paths are all under /api/safety).
+  app.use('/api/safety', safetyRouter)
+  app.use('/api/safety', counselingRouter)
+  app.use('/api/parents', parentsRouter)
+  app.use('/api/exams', examsRouter)
+  app.use('/api/culture', cultureRouter)
+  app.use('/api/group', groupRouter)
+  app.use('/api/compliance', complianceRouter)
+  app.use('/api/canteen', canteenRouter)
 
   app.use(errorHandler)
   return app

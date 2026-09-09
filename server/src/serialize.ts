@@ -25,5 +25,7 @@ export function toClientUser(u: PrismaUser, plainPassword?: string) {
     emergencyContact: u.emergencyContact ?? undefined,
     address: u.address ?? undefined,
     lastLoginAt: u.lastLoginAt?.toISOString(),
+    isCounselor: u.isCounselor,
+    active: u.active,
   }
 }

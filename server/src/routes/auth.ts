@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
-import rateLimit from 'express-rate-limit'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import { z } from 'zod'
 import { prisma } from '../prisma'
 import { signToken, requireAuth, generateRefreshToken, hashRefreshToken, type AuthedRequest } from '../auth'
@@ -25,17 +25,35 @@ const hashToken = (t: string) => crypto.createHash('sha256').update(t).digest('h
 // (credential-stuffing target); `forgot`/`reset`/`refresh` are looser but still capped since they touch
 // tokens/emails. Each limiter responds 429 with a `retryAfter` (seconds) alongside express-rate-limit's
 // own standard `RateLimit-*` / `Retry-After` headers.
-const makeLimiter = (windowMs: number, max: number, message: string) => rateLimit({
+//
+// Two deliberate choices here, both fixed after a real incident: a shared dev IP (many concurrent test
+// agents, all logging in successfully) locked out an unrelated real browser login within minutes.
+//  1. `skipSuccessfulRequests: true` — only failed attempts count toward the limit. A correct password
+//     must never burn down the same budget a guesser's wrong passwords do.
+//  2. Keyed by IP **+ the attempted email**, not IP alone. A real school sits behind one shared office
+//     IP/NAT — keying by IP alone means one person's typos (or, for `login`, one attacker's guesses
+//     against a single account) lock out every other account on the same network. Per-(IP, email) keying
+//     still stops credential stuffing against one account, without collateral damage to everyone else
+//     sharing that IP. `forgot`/`refresh` have no stable per-account identity to add (refresh has no
+//     email in the body at all), so those stay IP-scoped — they're already the more permissive limiters.
+const makeLimiter = (windowMs: number, max: number, message: string, keyByEmail = false) => rateLimit({
   windowMs,
   max,
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: keyByEmail
+    ? (req) => {
+        const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : ''
+        return `${ipKeyGenerator(req.ip ?? '')}:${email}`
+      }
+    : undefined,
   message: { error: message },
   handler: (req, res, _next, options) => {
     res.status(options.statusCode).json({ error: message, retryAfter: Math.ceil(windowMs / 1000) })
   },
 })
-const loginLimiter = makeLimiter(15 * 60 * 1000, 10, 'Too many login attempts. Please try again later.')
+const loginLimiter = makeLimiter(15 * 60 * 1000, 10, 'Too many login attempts. Please try again later.', true)
 const forgotLimiter = makeLimiter(15 * 60 * 1000, 20, 'Too many requests. Please try again later.')
 const refreshLimiter = makeLimiter(15 * 60 * 1000, 60, 'Too many refresh attempts. Please try again later.')
 
