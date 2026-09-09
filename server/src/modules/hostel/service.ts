@@ -1,13 +1,20 @@
 import type { z } from 'zod'
-import type { Hostel, HostelRoom, HostelBed, HostelAllocation } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import type { Hostel, HostelRoom, HostelBed, HostelAllocation, HostelOutpass, HostelRollCall, MessMenu, MealFeedback } from '@prisma/client'
 import { prisma } from '../../prisma'
 import { audit } from '../../lib/audit'
+import { notify, sendEmail, sendSms } from '../../lib/notify'
 import { HttpError, notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
-import { isStaff, visibleStudentIds } from '../../lib/scope'
+import { isStaff, visibleStudentIds, isGuardianOf } from '../../lib/scope'
 import { toDate, fmtDate } from '../../lib/validate'
 import { EMPLOYEE_ROLES } from '../../userDefaults'
-import type { createHostel, patchHostel, createRoom, patchRoom, roomQuery, createBed, patchBed, bedQuery, createAllocation, vacateBody, transferBody, allocationQuery } from './schema'
+import type {
+  createHostel, patchHostel, createRoom, patchRoom, roomQuery, createBed, patchBed, bedQuery, createAllocation, vacateBody, transferBody, allocationQuery,
+  createOutpass, decideOutpass, outpassQuery,
+  createRollCall, patchRollCallEntries, rollCallQuery,
+  createMenu, patchMenu, menuQuery, createFeedback, feedbackQuery,
+} from './schema'
 
 // See phase-14-hostel.md. `HostelBed` is one row per physical bed so occupancy is exact; `HostelRoom
 // .capacity` is kept in sync with its bed count by this service (see resizeRoom/createRoomRow/
@@ -434,6 +441,469 @@ export async function listAllocations(ctx: Ctx, q: z.infer<typeof allocationQuer
       where: { schoolId: ctx.schoolId, studentId: { in: studentId }, status: q.status },
       orderBy: [{ createdAt: 'desc' }],
     })
+  }
+  throw new HttpError(403, 'Forbidden')
+}
+
+// ═══════════════════════════ Phase 24: hostel outpass / roll-call / mess menu ═══════════════════════════
+// See phase-24-boarding-hostel-extensions.md. All three items extend this module rather than forking a
+// new one, and reuse Phase 14's self-or-guardian scoping pattern plus lib/notify.ts's existing
+// email/SMS/in-app provider abstraction (no new delivery infrastructure).
+
+// A hostel's warden (Hostel.wardenUserId) may be a teacher account (see assertWarden above), which is
+// outside STAFF_ROLES — so write actions on outpasses/roll-calls/mess-menu are NOT gated by the blanket
+// requireRole('staff','admin','superadmin') the rest of this router uses; they're open to any
+// authenticated role at the router level and this helper enforces "staff/admin/superadmin, or the
+// specific hostel's warden" in the service instead.
+async function assertWardenOrStaff(ctx: Ctx, hostelId: string) {
+  if (isStaff(ctx)) return
+  if (ctx.role === 'teacher') {
+    const hostel = await prisma.hostel.findFirst({ where: { id: hostelId, schoolId: ctx.schoolId }, select: { wardenUserId: true } })
+    if (hostel?.wardenUserId === ctx.actorId) return
+  }
+  throw new HttpError(403, "Only this hostel's warden or staff/admin may do this")
+}
+
+// Hostel ids a teacher wardens — used to scope a warden's "my hostel" reads.
+async function wardenHostelIds(ctx: Ctx): Promise<string[]> {
+  if (ctx.role !== 'teacher') return []
+  const rows = await prisma.hostel.findMany({ where: { schoolId: ctx.schoolId, wardenUserId: ctx.actorId }, select: { id: true } })
+  return rows.map(h => h.id)
+}
+
+// Notifies every guardian of a student over in-app + email + SMS — mirrors modules/safety/service.ts's
+// requestPickupOtp guardian fan-out. Best-effort: notify()/sendEmail/sendSms never throw.
+async function notifyGuardians(ctx: Ctx, studentId: string, kind: string, title: string, body: string) {
+  const guardians = await prisma.guardian.findMany({ where: { studentId }, include: { parent: true } })
+  await Promise.all(guardians.flatMap(g => [
+    sendEmail({ to: g.parent.email, subject: title, body }),
+    g.parent.phone ? sendSms({ to: g.parent.phone, body }) : Promise.resolve(),
+    notify(ctx.schoolId, g.parentId, kind, title, body),
+  ]))
+}
+
+// ───────────────────────────── outpasses ─────────────────────────────
+
+// `Overdue` is never stored — a `Departed` outpass past its expectedReturnAt with no actualReturnAt reads
+// as Overdue at query time (see phase-24-boarding-hostel-extensions.md → item 1: "computed-at-read is
+// simpler and sufficient here, don't build a scheduler for this").
+function computeOutpassStatus(o: Pick<HostelOutpass, 'status' | 'expectedReturnAt' | 'actualReturnAt'>): string {
+  if (o.status === 'Departed' && !o.actualReturnAt && o.expectedReturnAt.getTime() < Date.now()) return 'Overdue'
+  return o.status
+}
+
+export const serializeOutpass = (o: HostelOutpass) => ({
+  id: o.id,
+  studentId: o.studentId,
+  hostelId: o.hostelId,
+  requestedById: o.requestedById,
+  requestedDepartureAt: o.requestedDepartureAt.toISOString(),
+  expectedReturnAt: o.expectedReturnAt.toISOString(),
+  reason: o.reason,
+  destination: o.destination ?? undefined,
+  status: computeOutpassStatus(o),
+  approvedByWardenId: o.approvedByWardenId ?? undefined,
+  approvedAt: o.approvedAt?.toISOString(),
+  actualDepartureAt: o.actualDepartureAt?.toISOString(),
+  actualReturnAt: o.actualReturnAt?.toISOString(),
+  createdAt: o.createdAt.toISOString(),
+})
+
+async function getOutpassRow(ctx: Ctx, id: string) {
+  const row = await prisma.hostelOutpass.findFirst({ where: { id, schoolId: ctx.schoolId } })
+  if (!row) throw notFound('Outpass')
+  return row
+}
+
+// `status` filter of "Overdue" can't be pushed to the DB (it's computed) — fetched as Departed/unreturned
+// and filtered in memory instead.
+async function queryOutpasses(where: Record<string, unknown>, status?: string) {
+  if (status === 'Overdue') {
+    const rows = await prisma.hostelOutpass.findMany({ where: { ...where, status: 'Departed', actualReturnAt: null }, orderBy: [{ createdAt: 'desc' }] })
+    return rows.filter(r => computeOutpassStatus(r) === 'Overdue').map(serializeOutpass)
+  }
+  const rows = await prisma.hostelOutpass.findMany({ where: { ...where, status }, orderBy: [{ createdAt: 'desc' }] })
+  return rows.map(serializeOutpass)
+}
+
+// POST /outpasses — student (self) or parent (ward), for the student's current active allocation.
+export async function createOutpassSvc(ctx: Ctx, input: z.infer<typeof createOutpass>) {
+  if (ctx.role === 'student') {
+    if (input.studentId !== ctx.actorId) throw new HttpError(403, 'You can only request an outpass for yourself')
+  } else if (ctx.role === 'parent') {
+    if (!(await isGuardianOf(ctx, input.studentId))) throw new HttpError(403, 'That student is not your ward')
+  } else {
+    throw new HttpError(403, 'Only a student or parent may request an outpass')
+  }
+  const requestedDepartureAt = new Date(input.requestedDepartureAt)
+  const expectedReturnAt = new Date(input.expectedReturnAt)
+  if (expectedReturnAt <= requestedDepartureAt) throw new HttpError(400, 'expectedReturnAt must be after requestedDepartureAt')
+
+  const allocation = await prisma.hostelAllocation.findFirst({
+    where: { schoolId: ctx.schoolId, studentId: input.studentId, status: 'Active' },
+    include: { bed: { include: { room: true } } },
+  })
+  if (!allocation) throw new HttpError(400, 'Student has no active hostel allocation')
+
+  const row = await prisma.hostelOutpass.create({
+    data: {
+      schoolId: ctx.schoolId,
+      studentId: input.studentId,
+      hostelId: allocation.bed.room.hostelId,
+      requestedById: ctx.actorId,
+      requestedDepartureAt,
+      expectedReturnAt,
+      reason: input.reason,
+      destination: input.destination ?? null,
+      status: 'Pending',
+    },
+  })
+  await audit(ctx.schoolId, ctx.actorId, 'create', 'hostelOutpass', row.id, undefined, serializeOutpass(row))
+  const hostel = await prisma.hostel.findUnique({ where: { id: row.hostelId }, select: { wardenUserId: true } })
+  if (hostel?.wardenUserId) await notify(ctx.schoolId, hostel.wardenUserId, 'hostel-outpass', 'New outpass request', input.reason, 'hostel')
+  return row
+}
+
+// GET /outpasses — staff/admin/superadmin see everything (optionally filtered); a teacher must be the
+// warden of at least one hostel and sees only requests for the hostel(s) they warden; student/parent see
+// only their own/wards' requests.
+export async function listOutpasses(ctx: Ctx, q: z.infer<typeof outpassQuery>) {
+  if (isStaff(ctx)) {
+    return queryOutpasses({ schoolId: ctx.schoolId, studentId: q.studentId, hostelId: q.hostelId }, q.status)
+  }
+  if (ctx.role === 'teacher') {
+    const wardenIds = await wardenHostelIds(ctx)
+    if (!wardenIds.length) throw new HttpError(403, 'You are not a warden of any hostel')
+    const hostelIds = q.hostelId ? wardenIds.filter(id => id === q.hostelId) : wardenIds
+    if (!hostelIds.length) throw new HttpError(403, 'That hostel is not yours to view')
+    return queryOutpasses({ schoolId: ctx.schoolId, studentId: q.studentId, hostelId: { in: hostelIds } }, q.status)
+  }
+  if (ctx.role === 'student' || ctx.role === 'parent') {
+    const ids = (await visibleStudentIds(ctx))!
+    if (q.studentId && !ids.includes(q.studentId)) throw new HttpError(403, ctx.role === 'parent' ? 'That student is not your ward' : 'You can only view your own outpasses')
+    const studentIds = q.studentId ? [q.studentId] : ids
+    return queryOutpasses({ schoolId: ctx.schoolId, studentId: { in: studentIds }, hostelId: q.hostelId }, q.status)
+  }
+  throw new HttpError(403, 'Forbidden')
+}
+
+// POST /outpasses/:id/approve — notifies the student's guardians (spec: "on approval, notify the parent").
+export async function approveOutpass(ctx: Ctx, id: string) {
+  const before = await getOutpassRow(ctx, id)
+  await assertWardenOrStaff(ctx, before.hostelId)
+  if (before.status !== 'Pending') throw new HttpError(409, `Outpass is already ${before.status}`)
+  const row = await prisma.hostelOutpass.update({ where: { id }, data: { status: 'Approved', approvedByWardenId: ctx.actorId, approvedAt: new Date() } })
+  await audit(ctx.schoolId, ctx.actorId, 'approve', 'hostelOutpass', id, serializeOutpass(before), serializeOutpass(row))
+  const body = `Outpass approved: departure ${row.requestedDepartureAt.toISOString()}, expected return ${row.expectedReturnAt.toISOString()}. Reason: ${row.reason}`
+  await notifyGuardians(ctx, row.studentId, 'hostel-outpass', 'Outpass approved', body)
+  return row
+}
+
+export async function declineOutpass(ctx: Ctx, id: string, input: z.infer<typeof decideOutpass>) {
+  const before = await getOutpassRow(ctx, id)
+  await assertWardenOrStaff(ctx, before.hostelId)
+  if (before.status !== 'Pending') throw new HttpError(409, `Outpass is already ${before.status}`)
+  const row = await prisma.hostelOutpass.update({ where: { id }, data: { status: 'Declined', approvedByWardenId: ctx.actorId, approvedAt: new Date() } })
+  await audit(ctx.schoolId, ctx.actorId, 'decline', 'hostelOutpass', id, serializeOutpass(before), serializeOutpass(row))
+  await notify(ctx.schoolId, row.requestedById, 'hostel-outpass', 'Outpass declined', input.note || `Your outpass request (${row.reason}) was declined.`)
+  return row
+}
+
+// POST /outpasses/:id/depart — gate/warden logs actual departure; only valid from Approved.
+export async function departOutpass(ctx: Ctx, id: string) {
+  const before = await getOutpassRow(ctx, id)
+  await assertWardenOrStaff(ctx, before.hostelId)
+  if (before.status !== 'Approved') throw new HttpError(409, `Outpass must be Approved to log departure (is ${before.status})`)
+  const row = await prisma.hostelOutpass.update({ where: { id }, data: { status: 'Departed', actualDepartureAt: new Date() } })
+  await audit(ctx.schoolId, ctx.actorId, 'depart', 'hostelOutpass', id, serializeOutpass(before), serializeOutpass(row))
+  return row
+}
+
+// POST /outpasses/:id/return — only valid from Departed (which covers the computed-Overdue case too,
+// since the stored status stays "Departed" the whole time).
+export async function returnOutpass(ctx: Ctx, id: string) {
+  const before = await getOutpassRow(ctx, id)
+  await assertWardenOrStaff(ctx, before.hostelId)
+  if (before.status !== 'Departed') throw new HttpError(409, `Outpass must be Departed to log return (is ${before.status})`)
+  const row = await prisma.hostelOutpass.update({ where: { id }, data: { status: 'Returned', actualReturnAt: new Date() } })
+  await audit(ctx.schoolId, ctx.actorId, 'return', 'hostelOutpass', id, serializeOutpass(before), serializeOutpass(row))
+  return row
+}
+
+// ───────────────────────────── roll-call ─────────────────────────────
+
+const rollCallInclude = {
+  entries: { include: { allocation: { select: { studentId: true, student: { select: { id: true, name: true } } } } }, orderBy: { id: 'asc' } },
+} satisfies Prisma.HostelRollCallInclude
+type RollCallFull = Prisma.HostelRollCallGetPayload<{ include: typeof rollCallInclude }>
+
+export const serializeRollCallEntry = (e: RollCallFull['entries'][number]) => ({
+  id: e.id,
+  allocationId: e.allocationId,
+  studentId: e.allocation.studentId,
+  studentName: e.allocation.student.name,
+  present: e.present,
+  notes: e.notes ?? undefined,
+})
+
+export const serializeRollCall = (r: RollCallFull, onlyStudentIds?: string[] | null) => ({
+  id: r.id,
+  hostelId: r.hostelId,
+  date: fmtDate(r.date),
+  recordedById: r.recordedById ?? undefined,
+  createdAt: r.createdAt.toISOString(),
+  entries: r.entries.filter(e => !onlyStudentIds || onlyStudentIds.includes(e.allocation.studentId)).map(serializeRollCallEntry),
+})
+
+async function getRollCallRow(ctx: Ctx, id: string) {
+  const row = await prisma.hostelRollCall.findFirst({ where: { id, schoolId: ctx.schoolId }, include: rollCallInclude })
+  if (!row) throw notFound('Roll call')
+  return row
+}
+
+// POST /roll-calls — creates a (hostelId, date) session pre-populated with every currently-Active
+// allocation in that hostel, defaulting to present:true — mirrors modules/attendance/service.ts's
+// upsertSession "create session, then patch records" pattern. A repeat POST for the same (hostel, date)
+// just returns the existing session unchanged (200), rather than clobbering marks already taken.
+export async function upsertRollCall(ctx: Ctx, input: z.infer<typeof createRollCall>) {
+  await assertWardenOrStaff(ctx, input.hostelId)
+  const hostel = await prisma.hostel.findFirst({ where: { id: input.hostelId, schoolId: ctx.schoolId } })
+  if (!hostel) throw notFound('Hostel')
+  const date = toDate(input.date)
+
+  const existing = await prisma.hostelRollCall.findUnique({ where: { hostelId_date: { hostelId: input.hostelId, date } }, include: rollCallInclude })
+  if (existing) return { row: existing, created: false }
+
+  const activeAllocations = await prisma.hostelAllocation.findMany({
+    where: { schoolId: ctx.schoolId, status: 'Active', bed: { room: { hostelId: input.hostelId } } },
+    select: { id: true },
+  })
+  const row = await prisma.$transaction(async tx => {
+    const session = await tx.hostelRollCall.create({ data: { schoolId: ctx.schoolId, hostelId: input.hostelId, date, recordedById: ctx.actorId } })
+    if (activeAllocations.length) {
+      await tx.hostelRollCallEntry.createMany({ data: activeAllocations.map(a => ({ rollCallId: session.id, allocationId: a.id, present: true })) })
+    }
+    return tx.hostelRollCall.findUniqueOrThrow({ where: { id: session.id }, include: rollCallInclude })
+  })
+  await audit(ctx.schoolId, ctx.actorId, 'create', 'hostelRollCall', row.id, undefined, serializeRollCall(row))
+  return { row, created: true }
+}
+
+// GET /roll-calls — staff/admin/superadmin see everything (optionally filtered); a teacher must warden
+// the hostel; student/parent see (only their own/ward's entry within) roll-calls that include them.
+export async function listRollCalls(ctx: Ctx, q: z.infer<typeof rollCallQuery>) {
+  const date = { gte: q.from ? toDate(q.from) : undefined, lte: q.to ? toDate(q.to) : undefined }
+  if (isStaff(ctx)) {
+    const rows = await prisma.hostelRollCall.findMany({ where: { schoolId: ctx.schoolId, hostelId: q.hostelId, date }, include: rollCallInclude, orderBy: [{ date: 'desc' }] })
+    return rows.map(r => serializeRollCall(r))
+  }
+  if (ctx.role === 'teacher') {
+    const wardenIds = await wardenHostelIds(ctx)
+    if (!wardenIds.length) throw new HttpError(403, 'You are not a warden of any hostel')
+    const hostelIds = q.hostelId ? wardenIds.filter(id => id === q.hostelId) : wardenIds
+    if (!hostelIds.length) throw new HttpError(403, 'That hostel is not yours to view')
+    const rows = await prisma.hostelRollCall.findMany({ where: { schoolId: ctx.schoolId, hostelId: { in: hostelIds }, date }, include: rollCallInclude, orderBy: [{ date: 'desc' }] })
+    return rows.map(r => serializeRollCall(r))
+  }
+  if (ctx.role === 'student' || ctx.role === 'parent') {
+    const ids = (await visibleStudentIds(ctx))!
+    const rows = await prisma.hostelRollCall.findMany({
+      where: { schoolId: ctx.schoolId, hostelId: q.hostelId, date, entries: { some: { allocation: { studentId: { in: ids } } } } },
+      include: rollCallInclude,
+      orderBy: [{ date: 'desc' }],
+    })
+    return rows.map(r => serializeRollCall(r, ids))
+  }
+  throw new HttpError(403, 'Forbidden')
+}
+
+// PATCH /roll-calls/:id/entries — bulk-update presence. Any entry submitted with present:false triggers
+// the missing-at-roll-call alert: notify the warden (in-app — they already know, they just took it) AND
+// each missing student's registered guardians (email/SMS/in-app) — the actual safety value of the feature.
+export async function patchRollCall(ctx: Ctx, id: string, input: z.infer<typeof patchRollCallEntries>) {
+  const before = await getRollCallRow(ctx, id)
+  await assertWardenOrStaff(ctx, before.hostelId)
+
+  const validIds = new Set(before.entries.map(e => e.allocationId))
+  const bad = input.entries.filter(e => !validIds.has(e.allocationId)).map(e => e.allocationId)
+  if (bad.length) throw new HttpError(400, "allocationId must be one of this roll call's pre-populated entries", { allocationId: bad })
+
+  await prisma.$transaction(input.entries.map(e => prisma.hostelRollCallEntry.update({
+    where: { rollCallId_allocationId: { rollCallId: id, allocationId: e.allocationId } },
+    data: { present: e.present, notes: e.notes === undefined ? undefined : e.notes },
+  })))
+  const row = await getRollCallRow(ctx, id)
+  await audit(ctx.schoolId, ctx.actorId, 'patch-entries', 'hostelRollCall', id, serializeRollCall(before), serializeRollCall(row))
+
+  const missingIds = new Set(input.entries.filter(e => e.present === false).map(e => e.allocationId))
+  if (missingIds.size) {
+    const missingEntries = row.entries.filter(e => missingIds.has(e.allocationId))
+    const hostel = await prisma.hostel.findUnique({ where: { id: before.hostelId }, select: { wardenUserId: true, name: true } })
+    const names = missingEntries.map(e => e.allocation.student.name).join(', ')
+    if (hostel?.wardenUserId) {
+      await notify(ctx.schoolId, hostel.wardenUserId, 'hostel-rollcall', 'Missing at roll-call', `${names} marked absent at the ${fmtDate(row.date)} roll-call (${hostel.name}).`, 'hostel')
+    }
+    await Promise.all(missingEntries.map(e =>
+      notifyGuardians(ctx, e.allocation.studentId, 'hostel-rollcall', 'Missing at hostel roll-call', `${e.allocation.student.name} was marked absent at the ${fmtDate(row.date)} hostel roll-call.`),
+    ))
+  }
+  return row
+}
+
+// ───────────────────────────── mess menu ─────────────────────────────
+
+const ALLERGY_DISCLAIMER = 'Allergy flags are matched by simple keyword search against recorded allergy records and may not catch every allergen — verify independently.'
+
+export const serializeMenu = (m: MessMenu, allergyFlags?: string[]) => ({
+  id: m.id,
+  hostelId: m.hostelId,
+  date: fmtDate(m.date),
+  mealType: m.mealType,
+  items: m.items,
+  createdById: m.createdById ?? undefined,
+  createdAt: m.createdAt.toISOString(),
+  allergyDisclaimer: ALLERGY_DISCLAIMER,
+  ...(allergyFlags && allergyFlags.length ? { allergyFlags } : {}),
+})
+
+async function getMenuRow(ctx: Ctx, id: string) {
+  const row = await prisma.messMenu.findFirst({ where: { id, schoolId: ctx.schoolId } })
+  if (!row) throw notFound('Menu')
+  return row
+}
+
+// Simple keyword cross-reference against the student's HealthRecord `Allergy` entries (Phase 8/22) — not
+// a full ingredient-tagging system (deliberately, per spec: "don't force a heavyweight ... system into
+// this phase"). Words under 4 chars are skipped to cut down on noise from common short words.
+async function allergyKeywordsFor(ctx: Ctx, studentId: string): Promise<string[]> {
+  const records = await prisma.healthRecord.findMany({ where: { schoolId: ctx.schoolId, studentId, kind: 'Allergy' }, select: { title: true, detail: true } })
+  const words = new Set<string>()
+  for (const r of records) {
+    for (const w of `${r.title} ${r.detail}`.toLowerCase().split(/[^a-z]+/)) if (w.length >= 4) words.add(w)
+  }
+  return [...words]
+}
+
+function matchAllergyKeywords(items: string[], keywords: string[]): string[] {
+  if (!keywords.length) return []
+  const hay = items.join(' ').toLowerCase()
+  return keywords.filter(k => hay.includes(k))
+}
+
+// GET /mess-menu — staff/admin/teacher may browse any hostel's menu (same "not sensitive" reasoning as
+// hostels/rooms/beds being open reads — see listHostels above); a student/parent needs an active
+// allocation in the queried hostel (or, with no hostelId filter, just gets back whatever their own
+// allocation's hostel has). When exactly one student is in view (the student themself, or a parent with
+// exactly one ward), menu items are also cross-referenced against that student's allergy keywords.
+export async function listMenus(ctx: Ctx, q: z.infer<typeof menuQuery>) {
+  const date = { gte: q.from ? toDate(q.from) : undefined, lte: q.to ? toDate(q.to) : undefined }
+  let allergyStudentId: string | undefined
+  if (isStaff(ctx) || ctx.role === 'teacher') {
+    // open read, no allocation check needed.
+  } else if (ctx.role === 'student' || ctx.role === 'parent') {
+    const ids = (await visibleStudentIds(ctx))!
+    if (q.hostelId) {
+      const allocation = await prisma.hostelAllocation.findFirst({ where: { schoolId: ctx.schoolId, studentId: { in: ids }, status: 'Active', bed: { room: { hostelId: q.hostelId } } } })
+      if (!allocation) throw new HttpError(403, 'You do not have a hostel allocation there')
+    }
+    if (ids.length === 1) allergyStudentId = ids[0]
+  } else {
+    throw new HttpError(403, 'Forbidden')
+  }
+  const rows = await prisma.messMenu.findMany({ where: { schoolId: ctx.schoolId, hostelId: q.hostelId, mealType: q.mealType, date }, orderBy: [{ date: 'asc' }, { mealType: 'asc' }] })
+  const keywords = allergyStudentId ? await allergyKeywordsFor(ctx, allergyStudentId) : []
+  return rows.map(m => serializeMenu(m, matchAllergyKeywords(m.items, keywords)))
+}
+
+// POST /mess-menu — warden/staff/admin; upserts on the (hostelId, date, mealType) unique key so the
+// frontend's "single-meal create, looped for a week" usage naturally supports editing a meal already set.
+export async function upsertMenu(ctx: Ctx, input: z.infer<typeof createMenu>) {
+  await assertWardenOrStaff(ctx, input.hostelId)
+  const hostel = await prisma.hostel.findFirst({ where: { id: input.hostelId, schoolId: ctx.schoolId } })
+  if (!hostel) throw notFound('Hostel')
+  const date = toDate(input.date)
+  const key = { hostelId_date_mealType: { hostelId: input.hostelId, date, mealType: input.mealType } }
+  const before = await prisma.messMenu.findUnique({ where: key })
+  const row = await prisma.messMenu.upsert({
+    where: key,
+    create: { schoolId: ctx.schoolId, hostelId: input.hostelId, date, mealType: input.mealType, items: input.items, createdById: ctx.actorId },
+    update: { items: input.items, createdById: ctx.actorId },
+  })
+  await audit(ctx.schoolId, ctx.actorId, before ? 'update' : 'create', 'messMenu', row.id, before ? serializeMenu(before) : undefined, serializeMenu(row))
+  return { row, created: !before }
+}
+
+export async function patchMenuSvc(ctx: Ctx, id: string, input: z.infer<typeof patchMenu>) {
+  const before = await getMenuRow(ctx, id)
+  await assertWardenOrStaff(ctx, before.hostelId)
+  const row = await prisma.messMenu.update({ where: { id }, data: input.items !== undefined ? { items: input.items } : {} })
+  await audit(ctx.schoolId, ctx.actorId, 'update', 'messMenu', id, serializeMenu(before), serializeMenu(row))
+  return row
+}
+
+export async function removeMenu(ctx: Ctx, id: string) {
+  const before = await getMenuRow(ctx, id)
+  await assertWardenOrStaff(ctx, before.hostelId)
+  await prisma.messMenu.delete({ where: { id } })
+  await audit(ctx.schoolId, ctx.actorId, 'delete', 'messMenu', id, serializeMenu(before))
+}
+
+// ───────────────────────────── meal feedback ─────────────────────────────
+
+export const serializeFeedback = (f: MealFeedback) => ({
+  id: f.id,
+  menuId: f.menuId,
+  studentId: f.studentId,
+  rating: f.rating,
+  comment: f.comment ?? undefined,
+  createdAt: f.createdAt.toISOString(),
+})
+
+// POST /meal-feedback — student (self) or parent (ward); upserts one rating per (menu, student).
+export async function createFeedbackSvc(ctx: Ctx, input: z.infer<typeof createFeedback>) {
+  if (ctx.role === 'student') {
+    if (input.studentId !== ctx.actorId) throw new HttpError(403, 'You can only submit feedback for yourself')
+  } else if (ctx.role === 'parent') {
+    if (!(await isGuardianOf(ctx, input.studentId))) throw new HttpError(403, 'That student is not your ward')
+  } else {
+    throw new HttpError(403, 'Only a student or parent may submit meal feedback')
+  }
+  const menu = await prisma.messMenu.findFirst({ where: { id: input.menuId, schoolId: ctx.schoolId } })
+  if (!menu) throw notFound('Menu')
+  const key = { menuId_studentId: { menuId: input.menuId, studentId: input.studentId } }
+  const before = await prisma.mealFeedback.findUnique({ where: key })
+  const row = await prisma.mealFeedback.upsert({
+    where: key,
+    create: { schoolId: ctx.schoolId, menuId: input.menuId, studentId: input.studentId, rating: input.rating, comment: input.comment ?? null },
+    update: { rating: input.rating, comment: input.comment === undefined ? undefined : input.comment },
+  })
+  await audit(ctx.schoolId, ctx.actorId, before ? 'update' : 'create', 'mealFeedback', row.id, before ? serializeFeedback(before) : undefined, serializeFeedback(row))
+  return { row, created: !before }
+}
+
+// GET /meal-feedback — warden/staff/admin read/aggregate (any, or scoped to their hostel for a teacher
+// warden); student/parent read their own/ward's feedback. `?menuId=` also returns an `avgRating`/`count`
+// aggregate for staff/admin/warden callers (cheap to compute alongside the list, avoids a second round trip).
+export async function listFeedback(ctx: Ctx, q: z.infer<typeof feedbackQuery>) {
+  if (isStaff(ctx) || ctx.role === 'teacher') {
+    if (ctx.role === 'teacher' && q.hostelId) await assertWardenOrStaff(ctx, q.hostelId)
+    const rows = await prisma.mealFeedback.findMany({
+      where: { schoolId: ctx.schoolId, menuId: q.menuId, studentId: q.studentId, ...(q.hostelId ? { menu: { hostelId: q.hostelId } } : {}) },
+      orderBy: [{ createdAt: 'desc' }],
+    })
+    let summary: { count: number; avgRating: number | null } | undefined
+    if (q.menuId) {
+      const agg = await prisma.mealFeedback.aggregate({ where: { menuId: q.menuId }, _avg: { rating: true }, _count: { _all: true } })
+      summary = { count: agg._count._all, avgRating: agg._avg.rating !== null ? Math.round(agg._avg.rating * 10) / 10 : null }
+    }
+    return { items: rows.map(serializeFeedback), summary }
+  }
+  if (ctx.role === 'student' || ctx.role === 'parent') {
+    const ids = (await visibleStudentIds(ctx))!
+    if (q.studentId && !ids.includes(q.studentId)) throw new HttpError(403, ctx.role === 'parent' ? 'That student is not your ward' : 'You can only view your own feedback')
+    const studentIds = q.studentId ? [q.studentId] : ids
+    const rows = await prisma.mealFeedback.findMany({ where: { schoolId: ctx.schoolId, studentId: { in: studentIds }, menuId: q.menuId }, orderBy: [{ createdAt: 'desc' }] })
+    return { items: rows.map(serializeFeedback) }
   }
   throw new HttpError(403, 'Forbidden')
 }

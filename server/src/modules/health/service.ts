@@ -1,12 +1,16 @@
 import type { z } from 'zod'
-import type { HealthRecord } from '@prisma/client'
+import type { HealthRecord, MedicationSchedule, MedicationLog } from '@prisma/client'
 import { prisma } from '../../prisma'
 import { audit } from '../../lib/audit'
 import { HttpError, notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
 import { isAdmin, isStaff, isClassTeacherOfStudent, isGuardianOf, visibleStudentIds } from '../../lib/scope'
 import { toDate, fmtDate } from '../../lib/validate'
-import type { createHealthRecord, patchHealthRecord, healthQuery } from './schema'
+import type {
+  createHealthRecord, patchHealthRecord, healthQuery,
+  createMedicationSchedule, patchMedicationSchedule, medicationScheduleQuery,
+  createMedicationLog, medicationLogQuery,
+} from './schema'
 
 // See phase-8-welfare.md → Rules ("Health"). Visible only to the student, their guardians, their class
 // teacher, and staff/admin. Add: parent/student for self/ward, or staff/admin for anyone. Verify: staff/admin.
@@ -87,6 +91,98 @@ export async function deleteHealthRecord(ctx: Ctx, id: string) {
   const before = await getOwned(ctx, id)
   await prisma.healthRecord.delete({ where: { id } })
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'health-record', id, serializeHealth(before))
+}
+
+// ── Phase 22 item 4: medication schedule + administration log ────────────────────────────────────────
+// Visibility reuses canViewHealth()/assertViewHealth() verbatim — the exact same
+// student/guardians/class-teacher/staff/admin scope as HealthRecord, per spec ("the RBAC/visibility
+// rules should match HealthRecord's existing pattern exactly, reusing whatever scope helper Phase 8
+// already built rather than reimplementing"). Writes (creating/editing a schedule, logging a dose) are
+// nurse/staff/admin only — a schedule is a medical instruction, not something a student or parent enters
+// themselves (unlike HealthRecord, which any of them can add).
+
+export const serializeMedicationSchedule = (m: MedicationSchedule) => ({
+  id: m.id, studentId: m.studentId, medicationName: m.medicationName, dosage: m.dosage, times: m.times,
+  startDate: fmtDate(m.startDate), endDate: m.endDate ? fmtDate(m.endDate) : undefined, notes: m.notes ?? undefined,
+  addedById: m.addedById, createdAt: m.createdAt.toISOString(),
+})
+
+export const serializeMedicationLog = (l: MedicationLog) => ({
+  id: l.id, scheduleId: l.scheduleId, administeredAt: l.administeredAt.toISOString(),
+  administeredById: l.administeredById, notes: l.notes ?? undefined,
+})
+
+export async function listMedicationSchedules(ctx: Ctx, q: z.infer<typeof medicationScheduleQuery>) {
+  if (q.studentId) {
+    await assertViewHealth(ctx, q.studentId)
+    return (await prisma.medicationSchedule.findMany({ where: { schoolId: ctx.schoolId, studentId: q.studentId }, orderBy: { startDate: 'desc' } })).map(serializeMedicationSchedule)
+  }
+  const only = await visibleStudentIds(ctx)
+  if (!only) throw new HttpError(400, 'studentId is required')
+  return (await prisma.medicationSchedule.findMany({ where: { schoolId: ctx.schoolId, studentId: { in: only } }, orderBy: { startDate: 'desc' } })).map(serializeMedicationSchedule)
+}
+
+export async function createMedicationScheduleSvc(ctx: Ctx, input: z.infer<typeof createMedicationSchedule>) {
+  if (!isStaff(ctx)) throw new HttpError(403, 'Only staff/admin may add a medication schedule')
+  await assertStudent(ctx, input.studentId)
+  const row = await prisma.medicationSchedule.create({
+    data: {
+      schoolId: ctx.schoolId, studentId: input.studentId, medicationName: input.medicationName, dosage: input.dosage,
+      times: input.times, startDate: toDate(input.startDate), endDate: input.endDate ? toDate(input.endDate) : null,
+      notes: input.notes ?? null, addedById: ctx.actorId,
+    },
+  })
+  await audit(ctx.schoolId, ctx.actorId, 'create', 'medicationSchedule', row.id, undefined, serializeMedicationSchedule(row))
+  return row
+}
+
+async function getSchedule(ctx: Ctx, id: string) {
+  const row = await prisma.medicationSchedule.findFirst({ where: { id, schoolId: ctx.schoolId } })
+  if (!row) throw notFound('Medication schedule')
+  return row
+}
+
+export async function updateMedicationSchedule(ctx: Ctx, id: string, input: z.infer<typeof patchMedicationSchedule>) {
+  if (!isStaff(ctx)) throw new HttpError(403, 'Only staff/admin may edit a medication schedule')
+  const before = await getSchedule(ctx, id)
+  const row = await prisma.medicationSchedule.update({
+    where: { id },
+    data: {
+      medicationName: input.medicationName, dosage: input.dosage, times: input.times,
+      startDate: input.startDate ? toDate(input.startDate) : undefined,
+      endDate: input.endDate === undefined ? undefined : input.endDate ? toDate(input.endDate) : null,
+      notes: input.notes,
+    },
+  })
+  await audit(ctx.schoolId, ctx.actorId, 'update', 'medicationSchedule', id, serializeMedicationSchedule(before), serializeMedicationSchedule(row))
+  return row
+}
+
+export async function deleteMedicationSchedule(ctx: Ctx, id: string) {
+  if (!isStaff(ctx)) throw new HttpError(403, 'Only staff/admin may delete a medication schedule')
+  const before = await getSchedule(ctx, id)
+  await prisma.medicationSchedule.delete({ where: { id } })
+  await audit(ctx.schoolId, ctx.actorId, 'delete', 'medicationSchedule', id, serializeMedicationSchedule(before))
+}
+
+export async function listMedicationLogs(ctx: Ctx, q: z.infer<typeof medicationLogQuery>) {
+  if (!q.scheduleId) throw new HttpError(400, 'scheduleId is required')
+  const schedule = await getSchedule(ctx, q.scheduleId)
+  await assertViewHealth(ctx, schedule.studentId)
+  return (await prisma.medicationLog.findMany({ where: { schoolId: ctx.schoolId, scheduleId: q.scheduleId }, orderBy: { administeredAt: 'desc' } })).map(serializeMedicationLog)
+}
+
+export async function createMedicationLogSvc(ctx: Ctx, input: z.infer<typeof createMedicationLog>) {
+  if (!isStaff(ctx)) throw new HttpError(403, 'Only staff/admin may log a medication dose')
+  const schedule = await getSchedule(ctx, input.scheduleId)
+  const row = await prisma.medicationLog.create({
+    data: {
+      schoolId: ctx.schoolId, scheduleId: schedule.id, administeredById: ctx.actorId,
+      administeredAt: input.administeredAt ? new Date(input.administeredAt) : undefined, notes: input.notes ?? null,
+    },
+  })
+  await audit(ctx.schoolId, ctx.actorId, 'create', 'medicationLog', row.id, undefined, serializeMedicationLog(row))
+  return row
 }
 
 export async function verifyHealthRecord(ctx: Ctx, id: string) {

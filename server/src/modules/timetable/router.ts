@@ -6,8 +6,9 @@ import { validate } from '../../lib/validate'
 import { periodTemplatesRouter } from '../periodTemplates/router'
 import { substitutionsRouter } from '../substitutions/router'
 import * as svc from './service'
+import * as autogen from './autogen'
 import { serializeEntry } from './shared'
-import { putEntries, copyBody, publishBody, gridQuery, termQuery, meQuery } from './schema'
+import { putEntries, copyBody, publishBody, gridQuery, termQuery, meQuery, autoGenerateBody, autoGenerateCommitBody } from './schema'
 
 // Everything under /api/timetable (see phase-2-timetable.md). Reads: any authenticated role, with the
 // per-role visibility rules applied in the service; writes: admin | superadmin.
@@ -50,4 +51,14 @@ timetableRouter.post('/copy', write, wrap(async (req, res) => {
 
 timetableRouter.post('/publish', write, wrap(async (req, res) => {
   res.json({ item: await svc.publish(ctxOf(req as AuthedRequest), validate(publishBody, req.body)) })
+}))
+
+// Phase 26 — auto-generate: draft only, admin-only (significant operation), never writes TimetableEntry
+// rows itself. The admin reviews the draft, then commits (or discards) it.
+timetableRouter.post('/auto-generate', write, wrap(async (req, res) => {
+  res.json(await autogen.autoGenerate(ctxOf(req as AuthedRequest), validate(autoGenerateBody, req.body)))
+}))
+
+timetableRouter.post('/auto-generate/commit', write, wrap(async (req, res) => {
+  res.json(await autogen.commitAutoGenerate(ctxOf(req as AuthedRequest), validate(autoGenerateCommitBody, req.body)))
 }))

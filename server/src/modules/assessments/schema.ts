@@ -56,3 +56,11 @@ export const patchGradeScale = z.object({
 
 export const reportCardQuery = z.object({ studentId: idStr, termId: idStr })
 export const ranksQuery = z.object({ classId: idStr, termId: idStr })
+
+// Phase 20 item 3 — the one teacher-editable overall remark per (student, term); see
+// schema.prisma#Enrollment.remarks and reports.ts#setReportCardRemark.
+export const reportCardRemarkBody = z.object({
+  studentId: idStr,
+  termId: idStr,
+  remark: z.string().trim().min(1).max(1000),
+})

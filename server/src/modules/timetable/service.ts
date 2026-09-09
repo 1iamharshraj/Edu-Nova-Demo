@@ -7,29 +7,31 @@ import { effectiveTemplate, serializePeriodTemplate } from '../periodTemplates/s
 import { classLabel, entryInclude, serializeEntry, serializeEntryFull, serializeSubstitutionFull, substitutionInclude } from './shared'
 import type { entryInput, putEntries, copyBody, publishBody, meQuery } from './schema'
 
-type EntryInput = z.infer<typeof entryInput>
-const slotKey = (e: { dayOfWeek: number; periodIdx: number }) => `${e.dayOfWeek}:${e.periodIdx}`
+export type EntryInput = z.infer<typeof entryInput>
+export const slotKey = (e: { dayOfWeek: number; periodIdx: number }) => `${e.dayOfWeek}:${e.periodIdx}`
 
 const REVIEW_ROLES = ['admin', 'superadmin', 'staff']
 
-async function getClass(ctx: Ctx, id: string) {
+// Exported (also used by autogen.ts — the Phase 26 auto-generate draft/commit endpoints reuse these
+// exact class/term lookups and the replaceGrid write path rather than duplicating them).
+export async function getClass(ctx: Ctx, id: string) {
   const row = await prisma.class.findFirst({ where: { id, schoolId: ctx.schoolId }, include: { grade: true } })
   if (!row) throw notFound('Class')
   return row
 }
-type ClassRow = Awaited<ReturnType<typeof getClass>>
+export type ClassRow = Awaited<ReturnType<typeof getClass>>
 
-async function getTerm(ctx: Ctx, id: string) {
+export async function getTerm(ctx: Ctx, id: string) {
   const row = await prisma.term.findFirst({ where: { id, schoolId: ctx.schoolId } })
   if (!row) throw notFound('Term')
   return row
 }
 
-function assertSameYear(cls: ClassRow, term: { id: string; academicYearId: string }) {
+export function assertSameYear(cls: ClassRow, term: { id: string; academicYearId: string }) {
   if (cls.academicYearId !== term.academicYearId) throw new HttpError(400, 'Term does not belong to the class’s academic year', { classId: cls.id, termId: term.id })
 }
 
-function listEntries(classId: string, termId: string) {
+export function listEntries(classId: string, termId: string) {
   return prisma.timetableEntry.findMany({ where: { classId, termId }, orderBy: [{ dayOfWeek: 'asc' }, { periodIdx: 'asc' }] })
 }
 

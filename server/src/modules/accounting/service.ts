@@ -1,5 +1,6 @@
 import type { z } from 'zod'
-import type { Prisma, Account, JournalEntry, JournalLine } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import type { Account, JournalEntry, JournalLine } from '@prisma/client'
 import { prisma } from '../../prisma'
 import { audit } from '../../lib/audit'
 import { HttpError, notFound } from '../../lib/errors'
@@ -7,7 +8,10 @@ import type { Ctx } from '../../lib/rbac'
 import { fmtDate, toDate } from '../../lib/validate'
 import { paginate } from '../../lib/pagination'
 import { logger } from '../../lib/logger'
-import type { createAccount, patchAccount, accountQuery, createJournalEntry, journalQuery, trialBalanceQuery, profitAndLossQuery, balanceSheetQuery } from './schema'
+import type {
+  createAccount, patchAccount, accountQuery, createJournalEntry, journalQuery, trialBalanceQuery, profitAndLossQuery, balanceSheetQuery,
+  cashFlowForecastQuery, programProfitabilityQuery, concessionImpactQuery,
+} from './schema'
 
 // See phase-17-accounting.md. This module carries real correctness stakes (a wrong ledger is worse than
 // no ledger) — the one invariant that must never be violated anywhere in this file is: every JournalEntry
@@ -30,15 +34,22 @@ const cents = (n: number) => Math.round(n * 100)
 export const BANK_CODE = '1002'
 export const FEE_INCOME_CODE = '4000'
 export const SALARY_EXPENSE_CODE = '5000'
+// Phase 30 — canteen prepaid wallet (see phase-30-canteen-wallet.md item 2). A top-up is money held on
+// the school's behalf, not yet revenue, so it lands in a Liability account; a purchase is the point that
+// money is actually recognized as revenue, so it moves from that liability into real Income.
+export const CANTEEN_LIABILITY_CODE = '2010'
+export const CANTEEN_REVENUE_CODE = '4020'
 
 export const DEFAULT_CHART: { code: string; name: string; type: 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense'; parentCode?: string; isSystem: boolean }[] = [
   { code: '1000', name: 'Current Assets', type: 'Asset', isSystem: false },
   { code: '1001', name: 'Cash', type: 'Asset', parentCode: '1000', isSystem: false },
   { code: BANK_CODE, name: 'Bank', type: 'Asset', parentCode: '1000', isSystem: true },
   { code: '2000', name: 'Accounts Payable', type: 'Liability', isSystem: false },
+  { code: CANTEEN_LIABILITY_CODE, name: 'Canteen Wallet Liability', type: 'Liability', isSystem: true },
   { code: '3000', name: 'Opening Balance', type: 'Equity', isSystem: false },
   { code: FEE_INCOME_CODE, name: 'Fee Income', type: 'Income', isSystem: true },
   { code: '4010', name: 'Donation Income', type: 'Income', isSystem: false },
+  { code: CANTEEN_REVENUE_CODE, name: 'Canteen Revenue', type: 'Income', isSystem: true },
   { code: SALARY_EXPENSE_CODE, name: 'Salary Expense', type: 'Expense', isSystem: true },
   { code: '5010', name: 'Utilities Expense', type: 'Expense', isSystem: false },
   { code: '5020', name: 'Maintenance Expense', type: 'Expense', isSystem: false },
@@ -50,24 +61,57 @@ export const DEFAULT_CHART: { code: string; name: string; type: 'Asset' | 'Liabi
 // the simplest correct place). No-ops once any Account row exists for the school.
 export async function ensureChartSeeded(schoolId: string) {
   const count = await prisma.account.count({ where: { schoolId } })
-  if (count > 0) return
-  await prisma.$transaction(async tx => {
-    const stillNone = await tx.account.count({ where: { schoolId } })
-    if (stillNone > 0) return
-    const byCode = new Map<string, string>()
-    for (const a of DEFAULT_CHART) {
-      const row = await tx.account.create({
-        data: { schoolId, code: a.code, name: a.name, type: a.type, isSystem: a.isSystem, parentId: a.parentCode ? byCode.get(a.parentCode) : null },
-      })
-      byCode.set(a.code, row.id)
+  if (count === 0) {
+    await prisma.$transaction(async tx => {
+      const stillNone = await tx.account.count({ where: { schoolId } })
+      if (stillNone > 0) return
+      const byCode = new Map<string, string>()
+      for (const a of DEFAULT_CHART) {
+        const row = await tx.account.create({
+          data: { schoolId, code: a.code, name: a.name, type: a.type, isSystem: a.isSystem, parentId: a.parentCode ? byCode.get(a.parentCode) : null },
+        })
+        byCode.set(a.code, row.id)
+      }
+    })
+  }
+  // Phase 30 — the two canteen accounts were added to DEFAULT_CHART after some schools' charts had
+  // already been seeded (the `count === 0` branch above is a no-op for them). Ensure both exist for every
+  // school regardless of when its chart was first seeded — cheap (two indexed lookups) once they exist.
+  await Promise.all([
+    ensureAccount(schoolId, CANTEEN_LIABILITY_CODE, 'Canteen Wallet Liability', 'Liability'),
+    ensureAccount(schoolId, CANTEEN_REVENUE_CODE, 'Canteen Revenue', 'Income'),
+  ])
+}
+
+async function ensureAccount(schoolId: string, code: string, name: string, type: 'Asset' | 'Liability' | 'Equity' | 'Income' | 'Expense') {
+  const existing = await prisma.account.findUnique({ where: { schoolId_code: { schoolId, code } } })
+  if (existing) return existing
+  try {
+    return await prisma.account.create({ data: { schoolId, code, name, type, isSystem: true } })
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      return prisma.account.findUniqueOrThrow({ where: { schoolId_code: { schoolId, code } } })
     }
-  })
+    throw err
+  }
 }
 
 async function systemAccount(schoolId: string, code: string) {
   const row = await prisma.account.findFirst({ where: { schoolId, code } })
   if (!row) throw new Error(`System account with code ${code} is missing for school ${schoolId}`)
   return row
+}
+
+// GL balance of a system account by code (credit-normal accounts like this Liability/Income pair are
+// reported credit-minus-debit — see balanceSheet/profitAndLoss above for the same convention). Exported
+// for modules/canteen/service.ts's admin reconciliation check (item 6: sum of all wallet balances should
+// equal the Canteen Wallet Liability account's GL balance at any point).
+export async function systemAccountBalance(schoolId: string, code: string) {
+  await ensureChartSeeded(schoolId)
+  const acct = await systemAccount(schoolId, code)
+  const sums = await aggregateLines(schoolId, {})
+  const s = sums.get(acct.id)
+  return round2((s?.credit ?? 0) - (s?.debit ?? 0))
 }
 
 // ───────────────────────────── serializers ─────────────────────────────
@@ -261,6 +305,41 @@ export async function postPayrollAutoEntry(ctx: Ctx, payslip: { id: string; net:
   }
 }
 
+// Called from modules/canteen/service.ts#topUp AFTER the wallet balance has already been credited — same
+// fail-open contract as the two hooks above (a ledger-posting failure can never block or roll back the
+// actual wallet credit). Debit Bank, Credit Canteen Wallet Liability — see phase-30-canteen-wallet.md
+// item 2: a top-up is money held on the school's behalf, not yet revenue.
+export async function postCanteenTopUpAutoEntry(ctx: Ctx, txn: { id: string; amount: number; occurredAt: Date }) {
+  try {
+    await ensureChartSeeded(ctx.schoolId)
+    const [bank, liability] = await Promise.all([systemAccount(ctx.schoolId, BANK_CODE), systemAccount(ctx.schoolId, CANTEEN_LIABILITY_CODE)])
+    const entry = await writeBalancedEntry(ctx, {
+      date: txn.occurredAt, memo: 'Canteen wallet top-up', reference: txn.id, sourceType: 'CanteenTopUp', sourceId: txn.id,
+      lines: [{ accountId: bank.id, debit: txn.amount, credit: 0 }, { accountId: liability.id, debit: 0, credit: txn.amount }],
+    })
+    await audit(ctx.schoolId, ctx.actorId, 'auto-post', 'journalEntry', entry.id, undefined, serializeEntry(entry))
+  } catch (err) {
+    logger.error({ err, schoolId: ctx.schoolId, walletTxnId: txn.id }, 'canteen top-up ledger auto-post failed (non-fatal)')
+  }
+}
+
+// Called from modules/canteen/service.ts#purchase AFTER the wallet balance has already been debited —
+// same fail-open contract. Debit Canteen Wallet Liability, Credit Canteen Revenue — this is the point the
+// money actually becomes the school's recognized revenue (accrual treatment for a prepaid-balance system).
+export async function postCanteenPurchaseAutoEntry(ctx: Ctx, txn: { id: string; amount: number; occurredAt: Date }) {
+  try {
+    await ensureChartSeeded(ctx.schoolId)
+    const [liability, revenue] = await Promise.all([systemAccount(ctx.schoolId, CANTEEN_LIABILITY_CODE), systemAccount(ctx.schoolId, CANTEEN_REVENUE_CODE)])
+    const entry = await writeBalancedEntry(ctx, {
+      date: txn.occurredAt, memo: 'Canteen purchase', reference: txn.id, sourceType: 'CanteenPurchase', sourceId: txn.id,
+      lines: [{ accountId: liability.id, debit: txn.amount, credit: 0 }, { accountId: revenue.id, debit: 0, credit: txn.amount }],
+    })
+    await audit(ctx.schoolId, ctx.actorId, 'auto-post', 'journalEntry', entry.id, undefined, serializeEntry(entry))
+  } catch (err) {
+    logger.error({ err, schoolId: ctx.schoolId, walletTxnId: txn.id }, 'canteen purchase ledger auto-post failed (non-fatal)')
+  }
+}
+
 // ───────────────────────────── reports ─────────────────────────────
 
 // Aggregates every JournalLine for the school within an optional date window, keyed by account. Dates on
@@ -379,5 +458,182 @@ export async function balanceSheet(ctx: Ctx, q: z.infer<typeof balanceSheetQuery
     asOf: q.asOf, assets, liabilities, equity,
     totalAssets, totalLiabilities, totalEquity,
     totalLiabilitiesAndEquity: round2(totalLiabilities + totalEquity),
+  }
+}
+
+// ───────────────────────────── Phase 21 — financial intelligence (report endpoints) ─────────────────────────────
+// See phase-21-financial-intelligence.md items 1-3. Pure reports built on top of the Phase 17 GL and the
+// existing Fees/Payroll data — no new models for these three.
+
+// Same role set payroll/service.ts#PAYROLL_ROLES uses for "who draws a salary" — duplicated (not
+// imported) to avoid a cross-module dependency for one small constant.
+const PAYROLL_ROLES = ['teacher', 'staff', 'admin', 'superadmin']
+
+// GET /accounting/reports/cash-flow-forecast?months=3 — "current Bank balance + projected fee
+// collections − projected payroll" per month, per phase-21-financial-intelligence.md item 1. Inflow is
+// known unpaid invoice due-dates falling in that month (net of concession and payments already made);
+// outflow assumes this month's total payroll obligation (active employees' SalaryStructure
+// basic+allowances) stays roughly constant — no seasonality modeling, deliberately kept simple for v1.
+export async function cashFlowForecast(ctx: Ctx, q: z.infer<typeof cashFlowForecastQuery>) {
+  await ensureChartSeeded(ctx.schoolId)
+  const bank = await systemAccount(ctx.schoolId, BANK_CODE)
+  const now = new Date()
+  const bankSums = await aggregateLines(ctx.schoolId, { lte: now })
+  const bankRow = bankSums.get(bank.id)
+  const startingBalance = round2((bankRow?.debit ?? 0) - (bankRow?.credit ?? 0))
+
+  const structures = await prisma.salaryStructure.findMany({
+    where: { schoolId: ctx.schoolId, user: { active: true, role: { in: PAYROLL_ROLES } } },
+  })
+  const monthlyPayrollObligation = round2(structures.reduce((a, s) => {
+    const allowances = (s.allowances as { amount: number }[]).reduce((x, i) => x + i.amount, 0)
+    return a + s.basic + allowances
+  }, 0))
+
+  const openInvoices = await prisma.feeInvoice.findMany({
+    where: { schoolId: ctx.schoolId, status: { in: ['Due', 'PartiallyPaid'] } },
+    include: { payments: true },
+  })
+
+  const months: { month: string; projectedInflow: number; projectedOutflow: number; projectedBalance: number }[] = []
+  let runningBalance = startingBalance
+  const base = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+  for (let i = 0; i < q.months; i++) {
+    const monthStart = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + i, 1))
+    const monthEnd = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + i + 1, 0))
+    const projectedInflow = round2(openInvoices
+      .filter(inv => inv.dueDate >= monthStart && inv.dueDate <= monthEnd)
+      .reduce((a, inv) => a + Math.max(0, inv.total - inv.concession - inv.payments.reduce((x, p) => x + p.amount, 0)), 0))
+    const projectedOutflow = monthlyPayrollObligation
+    runningBalance = round2(runningBalance + projectedInflow - projectedOutflow)
+    months.push({
+      month: `${monthStart.getUTCFullYear()}-${String(monthStart.getUTCMonth() + 1).padStart(2, '0')}`,
+      projectedInflow, projectedOutflow, projectedBalance: runningBalance,
+    })
+  }
+
+  return {
+    startingBalance, monthlyPayrollObligation, months,
+    methodology: 'Starting balance is the Bank account\'s current GL balance. Each month\'s projected inflow sums unpaid/partially-paid fee invoices whose due date falls in that month, net of concession and payments already received. Projected outflow assumes the current total monthly payroll obligation (active staff/teacher/admin SalaryStructure basic+allowances) stays constant across the window — no seasonality modeling.',
+  }
+}
+
+const PROGRAM_PROFITABILITY_METHODOLOGY =
+  'Income is real fee collections (payments actually received against invoices this term) for students enrolled in each board+grade\'s classes. Expense is each teacher\'s actual paid salary for the term, expense allocated proportionally to teaching periods — a teacher who splits their week across programs has their salary split the same way (their weekly periods in this program\'s classes ÷ their total weekly periods across all classes). Any directly-attributable expense journal entry tagged to a specific program would also be included, but this codebase has no way to tag a journal entry to a program yet, so that component is currently always zero. General/shared school overhead is NOT allocated to any program. This is a defensible estimate for comparing programs against each other, not precise cost accounting — do not treat it as an audited number.'
+
+// GET /accounting/reports/program-profitability?termId= — "program" = a board+grade combination (the
+// only program concept this codebase has before Phase 24/28 hostel/campus exist). See
+// PROGRAM_PROFITABILITY_METHODOLOGY above and phase-21-financial-intelligence.md item 2 for why this is
+// an estimate, not exact accounting.
+export async function programProfitability(ctx: Ctx, q: z.infer<typeof programProfitabilityQuery>) {
+  const term = await prisma.term.findFirst({ where: { id: q.termId, schoolId: ctx.schoolId } })
+  if (!term) throw notFound('Term')
+
+  const classes = await prisma.class.findMany({
+    where: { schoolId: ctx.schoolId, academicYearId: term.academicYearId },
+    include: { board: true, grade: true },
+  })
+  if (!classes.length) return { termId: q.termId, programs: [], methodology: PROGRAM_PROFITABILITY_METHODOLOGY }
+
+  type Program = { boardId: string; boardName: string; gradeId: string; gradeLabel: string; classIds: string[] }
+  const programs = new Map<string, Program>()
+  for (const c of classes) {
+    const key = `${c.boardId}::${c.gradeId}`
+    const p = programs.get(key) ?? { boardId: c.boardId, boardName: c.board.name, gradeId: c.gradeId, gradeLabel: c.grade.label, classIds: [] }
+    p.classIds.push(c.id)
+    programs.set(key, p)
+  }
+
+  // Income: real payments this term, attributed to the class the paying student is actively enrolled in.
+  const classIds = classes.map(c => c.id)
+  const enrollments = await prisma.enrollment.findMany({ where: { schoolId: ctx.schoolId, classId: { in: classIds }, status: 'active' }, select: { studentId: true, classId: true } })
+  const classByStudent = new Map(enrollments.map(e => [e.studentId, e.classId]))
+  const invoices = await prisma.feeInvoice.findMany({
+    where: { schoolId: ctx.schoolId, termId: q.termId, studentId: { in: [...classByStudent.keys()] } },
+    include: { payments: true },
+  })
+  const incomeByClass = new Map<string, number>()
+  for (const inv of invoices) {
+    const classId = classByStudent.get(inv.studentId)
+    if (!classId) continue
+    const paid = inv.payments.reduce((a, p) => a + p.amount, 0)
+    incomeByClass.set(classId, round2((incomeByClass.get(classId) ?? 0) + paid))
+  }
+
+  // Expense: each teacher's Paid payslips within the term's date range, allocated by weekly periods.
+  const classSubjects = await prisma.classSubject.findMany({
+    where: { schoolId: ctx.schoolId, class: { academicYearId: term.academicYearId } },
+    select: { classId: true, teacherId: true, periodsPerWeek: true },
+  })
+  const payslips = await prisma.payslip.findMany({
+    where: { schoolId: ctx.schoolId, status: 'Paid', paidAt: { gte: term.startDate, lte: term.endDate } },
+  })
+  const expenseByClass = new Map<string, number>()
+  for (const slip of payslips) {
+    const taught = classSubjects.filter(cs => cs.teacherId === slip.userId)
+    const totalPeriods = taught.reduce((a, cs) => a + cs.periodsPerWeek, 0)
+    if (totalPeriods <= 0) continue
+    for (const cs of taught) {
+      const share = round2(slip.net * (cs.periodsPerWeek / totalPeriods))
+      expenseByClass.set(cs.classId, round2((expenseByClass.get(cs.classId) ?? 0) + share))
+    }
+  }
+
+  const result = [...programs.values()].map(p => {
+    const income = round2(p.classIds.reduce((a, id) => a + (incomeByClass.get(id) ?? 0), 0))
+    const expense = round2(p.classIds.reduce((a, id) => a + (expenseByClass.get(id) ?? 0), 0))
+    const inProgram = classSubjects.filter(cs => p.classIds.includes(cs.classId))
+    const teacherCount = new Set(inProgram.filter(cs => cs.teacherId).map(cs => cs.teacherId)).size
+    const weeklyPeriods = inProgram.reduce((a, cs) => a + cs.periodsPerWeek, 0)
+    return {
+      boardId: p.boardId, boardName: p.boardName, gradeId: p.gradeId, gradeLabel: p.gradeLabel,
+      income, expense, profit: round2(income - expense), teacherCount, weeklyPeriods,
+    }
+  }).sort((a, b) => b.profit - a.profit)
+
+  return { termId: q.termId, programs: result, methodology: PROGRAM_PROFITABILITY_METHODOLOGY }
+}
+
+// GET /accounting/reports/concession-impact?termId= — total value of fee waivers/discounts actually
+// applied (FeeInvoice.concession, which already existed pre-Phase-21), broken down into the portion
+// attributable to an Approved Scholarship award (Phase 21 item 4, via ScholarshipAward.appliedToInvoiceIds)
+// vs. any other manually-applied concession (e.g. a staff member editing FeeInvoice.concession directly).
+export async function concessionImpact(ctx: Ctx, q: z.infer<typeof concessionImpactQuery>) {
+  const discountedInvoices = await prisma.feeInvoice.findMany({
+    where: { schoolId: ctx.schoolId, termId: q.termId, concession: { gt: 0 } },
+  })
+  const allInvoices = await prisma.feeInvoice.findMany({
+    where: { schoolId: ctx.schoolId, termId: q.termId }, select: { total: true },
+  })
+  const totalInvoiced = round2(allInvoices.reduce((a, i) => a + i.total, 0))
+  const totalConcession = round2(discountedInvoices.reduce((a, i) => a + i.concession, 0))
+
+  const awards = await prisma.scholarshipAward.findMany({
+    where: { schoolId: ctx.schoolId, status: 'Approved' },
+    include: { scholarship: true },
+  })
+  const scholarshipTypeByInvoice = new Map<string, string>()
+  for (const a of awards) for (const invoiceId of a.appliedToInvoiceIds) scholarshipTypeByInvoice.set(invoiceId, a.scholarship.type)
+
+  let scholarshipConcession = 0, manualConcession = 0
+  const byType = new Map<string, number>()
+  const studentsAffected = new Set<string>()
+  for (const inv of discountedInvoices) {
+    studentsAffected.add(inv.studentId)
+    const type = scholarshipTypeByInvoice.get(inv.id)
+    if (type) {
+      scholarshipConcession = round2(scholarshipConcession + inv.concession)
+      byType.set(type, round2((byType.get(type) ?? 0) + inv.concession))
+    } else {
+      manualConcession = round2(manualConcession + inv.concession)
+    }
+  }
+
+  return {
+    termId: q.termId, totalInvoiced, totalConcession,
+    pctOfInvoiced: totalInvoiced > 0 ? round2((totalConcession / totalInvoiced) * 100) : 0,
+    scholarshipConcession, manualConcession,
+    byScholarshipType: [...byType.entries()].map(([type, amount]) => ({ type, amount })),
+    studentsAffected: studentsAffected.size,
   }
 }

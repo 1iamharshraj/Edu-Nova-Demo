@@ -25,6 +25,38 @@ export const patchFeeStructure = createFeeStructure.omit({ classId: true, termId
 
 export const structuresQuery = z.object({ classId: idStr.optional(), termId: idStr.optional() })
 
+export const generateInvoicesBody = z.object({ installmentPlanId: idStr.optional() })
+
+// ── Phase 21 item 5: fee installment plans ──
+// Exactly one of percentage/amount per installment; dueDateOffsetDays is added to the parent
+// FeeStructure's dueDate to get that installment's own due date (0 = same day as the structure's due date).
+const installmentSpec = z.object({
+  label: z.string().trim().min(1).max(40),
+  percentage: z.number().positive().max(100).optional(),
+  amount: z.number().positive().optional(),
+  dueDateOffsetDays: z.number().int().min(0).max(3650).default(0),
+}).refine(s => (s.percentage !== undefined) !== (s.amount !== undefined), 'Exactly one of percentage or amount must be given per installment')
+
+export const createInstallmentPlan = z.object({
+  feeStructureId: idStr,
+  name: z.string().trim().min(1).max(80),
+  installments: z.array(installmentSpec).min(2).max(12),
+}).refine(p => {
+  const labels = p.installments.map(i => i.label)
+  return new Set(labels).size === labels.length
+}, 'Installment labels must be unique within a plan').refine(p => {
+  const usingPercentage = p.installments.every(i => i.percentage !== undefined)
+  const usingAmount = p.installments.every(i => i.amount !== undefined)
+  if (!usingPercentage && !usingAmount) return false // no mixing percentage/amount across installments in one plan
+  if (usingPercentage) {
+    const sum = p.installments.reduce((a, i) => a + (i.percentage ?? 0), 0)
+    return Math.abs(sum - 100) < 0.01
+  }
+  return true
+}, 'All installments must use the same mode (all percentage, summing to 100, or all fixed amount)')
+
+export const installmentPlanQuery = z.object({ feeStructureId: idStr.optional() })
+
 const invoiceLine = z.object({ feeHeadId: idStr, name: z.string().trim().min(1).max(80), amount: z.number().nonnegative() })
 
 export const createInvoice = z.object({

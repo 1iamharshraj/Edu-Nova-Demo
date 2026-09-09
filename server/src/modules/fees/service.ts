@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import type { Prisma, FeeHead, FeeStructure, FeeInvoice, Payment, FeeReminder } from '@prisma/client'
+import type { Prisma, FeeHead, FeeStructure, FeeInvoice, Payment, FeeReminder, FeeInstallmentPlan } from '@prisma/client'
 import { prisma } from '../../prisma'
 import { audit } from '../../lib/audit'
 import { HttpError, notFound } from '../../lib/errors'
@@ -8,12 +8,14 @@ import { fmtDate, toDate } from '../../lib/validate'
 import { assertViewStudent, classesTaughtBy, isStaff, visibleStudentIds } from '../../lib/scope'
 import { paginate } from '../../lib/pagination'
 import { drawFields, drawFooter, drawHeader, drawTable, fmtLong, renderToBuffer } from '../../lib/pdf'
-import { sendEmail, sendSms } from '../../lib/notify'
+import { sendEmail, sendSms, sendWhatsApp } from '../../lib/notify'
 import { postFeePaymentAutoEntry } from '../accounting/service'
+import { allocateScholarshipDiscount, type DiscountType } from '../../lib/scholarshipDiscount'
 import type {
   createFeeHead, patchFeeHead, createFeeStructure, patchFeeStructure, structuresQuery,
   createInvoice, patchInvoice, invoicesQuery, createPayment, paymentsQuery,
   gatewayOrder, gatewayConfirm, defaultersQuery, createReminder, summaryQuery,
+  generateInvoicesBody, createInstallmentPlan, installmentPlanQuery,
 } from './schema'
 
 type Tx = Prisma.TransactionClient
@@ -31,16 +33,25 @@ export const serializeFeeStructure = (s: FeeStructure) => ({
 
 type InvoiceLine = { feeHeadId: string; name: string; amount: number }
 
+// { label, percentage?, amount?, dueDateOffsetDays } — see schema.ts#createInstallmentPlan.
+type InstallmentSpec = { label: string; percentage?: number; amount?: number; dueDateOffsetDays: number }
+
 export const serializeInvoice = (i: FeeInvoice & { payments?: Payment[]; reminders?: FeeReminder[] }) => {
   const paid = (i.payments ?? []).reduce((a, p) => a + p.amount, 0)
   return {
     id: i.id, studentId: i.studentId, feeStructureId: i.feeStructureId ?? undefined, termId: i.termId,
+    installmentPlanId: i.installmentPlanId ?? undefined, installmentLabel: i.installmentLabel || undefined,
     lines: i.lines as InvoiceLine[], total: i.total, concession: i.concession, dueDate: fmtDate(i.dueDate),
     status: i.status, invoiceNo: i.invoiceNo, createdAt: i.createdAt.toISOString(),
     paid, balance: Math.max(0, i.total - i.concession - paid),
     ...(i.reminders ? { reminders: i.reminders.length } : {}),
   }
 }
+
+export const serializeInstallmentPlan = (p: FeeInstallmentPlan) => ({
+  id: p.id, feeStructureId: p.feeStructureId, name: p.name,
+  installments: p.installments as InstallmentSpec[], createdAt: p.createdAt.toISOString(),
+})
 
 export const serializePayment = (p: Payment) => ({
   id: p.id, invoiceId: p.invoiceId, amount: p.amount, method: p.method, reference: p.reference ?? undefined,
@@ -137,41 +148,134 @@ export async function removeStructure(ctx: Ctx, id: string) {
 // the create so a batch generate doesn't collide with itself.
 const invoiceNoFor = (seq: number) => `INV/${new Date().getUTCFullYear()}/${String(seq).padStart(4, '0')}`
 
-// POST /structures/:id/generate — one invoice per active enrollment in the class; idempotent per structure
-// (unique(studentId, feeStructureId) — students who already have one for this structure are skipped).
-export async function generateInvoices(ctx: Ctx, structureId: string) {
+const addDays = (d: Date, days: number) => new Date(d.getTime() + days * 86_400_000)
+
+// POST /structures/:id/generate — one invoice per active enrollment in the class; idempotent per
+// structure (unique(studentId, feeStructureId, installmentLabel) — students who already have an invoice
+// for this structure+installment are skipped).
+//
+// Phase 21 item 5 — parameterized to optionally split the structure's one term's fee into N staggered
+// invoices per a FeeInstallmentPlan (installments carry a percentage-or-amount share and a due-date
+// offset from the structure's own dueDate) instead of one lump invoice. Idempotency, invoice numbering,
+// and every downstream flow (payments, reminders, receipts) are unchanged and reused as-is — an
+// installment invoice is a completely ordinary FeeInvoice row, just one of several for the same student
+// tagged with installmentPlanId/installmentLabel.
+//
+// Phase 21 item 4 — after creating each invoice, auto-applies any already-Approved scholarship the
+// student holds for the invoice's academic year (see lib/scholarshipDiscount.ts), so a scholarship
+// approved before invoices are generated already comes out discounted with no separate step.
+export async function generateInvoices(ctx: Ctx, structureId: string, opts: z.infer<typeof generateInvoicesBody> = {}) {
   const structure = await getStructure(ctx, structureId)
   const heads = await prisma.feeHead.findMany({ where: { schoolId: ctx.schoolId, id: { in: (structure.lines as { feeHeadId: string; amount: number }[]).map(l => l.feeHeadId) } } })
   const headName = new Map(heads.map(h => [h.id, h.name]))
   const lines: InvoiceLine[] = (structure.lines as { feeHeadId: string; amount: number }[]).map(l => ({ feeHeadId: l.feeHeadId, name: headName.get(l.feeHeadId) ?? 'Fee', amount: l.amount }))
   const total = lines.reduce((a, l) => a + l.amount, 0)
 
-  const roster = await prisma.enrollment.findMany({ where: { classId: structure.classId, status: 'active' }, select: { studentId: true } })
-  const existing = await prisma.feeInvoice.findMany({ where: { feeStructureId: structureId }, select: { studentId: true } })
-  const already = new Set(existing.map(e => e.studentId))
-  const toCreate = roster.map(r => r.studentId).filter(id => !already.has(id))
+  let plan: FeeInstallmentPlan | null = null
+  let installments: InstallmentSpec[] = [{ label: '', dueDateOffsetDays: 0 }] // single lump "installment"
+  if (opts.installmentPlanId) {
+    plan = await prisma.feeInstallmentPlan.findFirst({ where: { id: opts.installmentPlanId, schoolId: ctx.schoolId, feeStructureId: structureId } })
+    if (!plan) throw notFound('Fee installment plan')
+    installments = plan.installments as InstallmentSpec[]
+  }
 
-  if (!toCreate.length) return { created: 0, skipped: roster.length }
+  const roster = await prisma.enrollment.findMany({ where: { classId: structure.classId, status: 'active' }, select: { studentId: true } })
+  const existing = await prisma.feeInvoice.findMany({ where: { feeStructureId: structureId }, select: { studentId: true, installmentLabel: true } })
+  const alreadyKeys = new Set(existing.map(e => `${e.studentId}::${e.installmentLabel}`))
+
+  type ToCreate = { studentId: string; label: string; fraction: number; offsetDays: number }
+  const toCreate: ToCreate[] = []
+  for (const { studentId } of roster) {
+    for (const inst of installments) {
+      if (alreadyKeys.has(`${studentId}::${inst.label}`)) continue
+      const fraction = plan ? (inst.percentage !== undefined ? inst.percentage / 100 : (total > 0 ? (inst.amount ?? 0) / total : 0)) : 1
+      toCreate.push({ studentId, label: inst.label, fraction, offsetDays: inst.dueDateOffsetDays ?? 0 })
+    }
+  }
+  const totalPossible = roster.length * installments.length
+  if (!toCreate.length) return { created: 0, skipped: totalPossible }
+
+  // Any already-Approved scholarship for these students, for this structure's term's academic year —
+  // fetched once outside the transaction, applied per-invoice inside it.
+  const term = await prisma.term.findUniqueOrThrow({ where: { id: structure.termId } })
+  const studentIds = [...new Set(toCreate.map(t => t.studentId))]
+  const awards = await prisma.scholarshipAward.findMany({
+    where: { schoolId: ctx.schoolId, status: 'Approved', academicYearId: term.academicYearId, studentId: { in: studentIds } },
+    include: { scholarship: true },
+  })
+  const awardsByStudent = new Map<string, typeof awards>()
+  for (const a of awards) awardsByStudent.set(a.studentId, [...(awardsByStudent.get(a.studentId) ?? []), a])
 
   const result = await prisma.$transaction(async tx => {
     const base = `INV/${new Date().getUTCFullYear()}/`
     let count = await tx.feeInvoice.count({ where: { schoolId: ctx.schoolId, invoiceNo: { startsWith: base } } })
     const rows: FeeInvoice[] = []
-    for (const studentId of toCreate) {
+    for (const item of toCreate) {
+      const scaledLines: InvoiceLine[] = lines.map(l => ({ ...l, amount: round2(l.amount * item.fraction) }))
+      const invTotal = round2(scaledLines.reduce((a, l) => a + l.amount, 0))
       count += 1
-      const row = await tx.feeInvoice.create({
+      let row = await tx.feeInvoice.create({
         data: {
-          schoolId: ctx.schoolId, studentId, feeStructureId: structure.id, termId: structure.termId,
-          lines, total, concession: 0, dueDate: structure.dueDate, status: 'Due', invoiceNo: invoiceNoFor(count),
+          schoolId: ctx.schoolId, studentId: item.studentId, feeStructureId: structure.id,
+          installmentPlanId: plan?.id ?? null, installmentLabel: item.label, termId: structure.termId,
+          lines: scaledLines, total: invTotal, concession: 0, dueDate: addDays(structure.dueDate, item.offsetDays),
+          status: 'Due', invoiceNo: invoiceNoFor(count),
         },
       })
+
+      let concessionSoFar = 0
+      for (const award of awardsByStudent.get(item.studentId) ?? []) {
+        const alloc = allocateScholarshipDiscount(
+          award.scholarship.discountType as DiscountType, award.scholarship.discountValue,
+          [{ id: row.id, total: row.total, concession: concessionSoFar }], award.totalDiscountApplied,
+        )
+        const discount = alloc.get(row.id)
+        if (!discount) continue
+        concessionSoFar = round2(concessionSoFar + discount)
+        await tx.scholarshipAward.update({
+          where: { id: award.id },
+          data: { totalDiscountApplied: round2(award.totalDiscountApplied + discount), appliedToInvoiceIds: { push: row.id } },
+        })
+      }
+      if (concessionSoFar > 0) {
+        await tx.feeInvoice.update({ where: { id: row.id }, data: { concession: concessionSoFar } })
+        row = await recomputeStatus(tx, row.id)
+      }
       rows.push(row)
     }
     return rows
   }, { timeout: 30_000 })
 
-  await audit(ctx.schoolId, ctx.actorId, 'generate-invoices', 'feeStructure', structureId, undefined, { created: result.length, skipped: roster.length - result.length })
-  return { created: result.length, skipped: roster.length - result.length }
+  await audit(ctx.schoolId, ctx.actorId, 'generate-invoices', 'feeStructure', structureId, undefined, {
+    created: result.length, skipped: totalPossible - result.length, installmentPlanId: plan?.id,
+  })
+  return { created: result.length, skipped: totalPossible - result.length }
+}
+
+// ─────────────────────────── installment plans (Phase 21 item 5) ───────────────────────────
+
+export async function listInstallmentPlans(ctx: Ctx, q: z.infer<typeof installmentPlanQuery>) {
+  return prisma.feeInstallmentPlan.findMany({ where: { schoolId: ctx.schoolId, feeStructureId: q.feeStructureId }, orderBy: [{ createdAt: 'asc' }] })
+}
+
+export async function createInstallmentPlanRow(ctx: Ctx, input: z.infer<typeof createInstallmentPlan>) {
+  const structure = await getStructure(ctx, input.feeStructureId)
+  const existing = await prisma.feeInstallmentPlan.findUnique({ where: { feeStructureId_name: { feeStructureId: structure.id, name: input.name } } })
+  if (existing) throw new HttpError(409, 'An installment plan with this name already exists for this fee structure')
+  const row = await prisma.feeInstallmentPlan.create({
+    data: { schoolId: ctx.schoolId, feeStructureId: structure.id, name: input.name, installments: input.installments },
+  })
+  await audit(ctx.schoolId, ctx.actorId, 'create', 'feeInstallmentPlan', row.id, undefined, serializeInstallmentPlan(row))
+  return row
+}
+
+export async function removeInstallmentPlan(ctx: Ctx, id: string) {
+  const row = await prisma.feeInstallmentPlan.findFirst({ where: { id, schoolId: ctx.schoolId } })
+  if (!row) throw notFound('Fee installment plan')
+  const used = await prisma.feeInvoice.count({ where: { installmentPlanId: id } })
+  if (used > 0) throw new HttpError(400, 'Cannot delete an installment plan that already has invoices generated against it')
+  await prisma.feeInstallmentPlan.delete({ where: { id } })
+  await audit(ctx.schoolId, ctx.actorId, 'delete', 'feeInstallmentPlan', id, serializeInstallmentPlan(row))
 }
 
 // ─────────────────────────── invoices ───────────────────────────
@@ -228,23 +332,39 @@ export async function createInvoiceAdHoc(ctx: Ctx, input: z.infer<typeof createI
 export async function updateInvoice(ctx: Ctx, id: string, input: z.infer<typeof patchInvoice>) {
   const before = await getInvoice(ctx, id)
   if (!isStaff(ctx)) throw new HttpError(403, 'Only staff/admin may edit an invoice')
-  const row = await prisma.feeInvoice.update({
-    where: { id },
-    data: { concession: input.concession, dueDate: input.dueDate ? toDate(input.dueDate) : undefined, status: input.status },
-    include: invoiceInclude,
+  const row = await prisma.$transaction(async tx => {
+    await tx.feeInvoice.update({
+      where: { id },
+      data: { concession: input.concession, dueDate: input.dueDate ? toDate(input.dueDate) : undefined, status: input.status },
+    })
+    // Bug C fix: a manual concession edit changes `due` (total - concession), so status must be
+    // recomputed from payments the same way the scholarship-approval path already does (see
+    // recomputeStatus() above) — otherwise a fully-waived invoice can end up with balance 0 but status
+    // stuck at "Due", incorrectly showing up in the fee-defaulters report. An explicit `status` in the
+    // input (e.g. manually marking "Waived") is respected as-is by recomputeStatus (it only recomputes
+    // when the current status isn't "Waived"), so this doesn't fight a deliberate status override.
+    await recomputeStatus(tx, id)
+    return tx.feeInvoice.findUniqueOrThrow({ where: { id }, include: invoiceInclude })
   })
   await audit(ctx.schoolId, ctx.actorId, 'update', 'feeInvoice', id, serializeInvoice(before), serializeInvoice(row))
   return row
 }
 
-// Recomputes status from payments unless the invoice was explicitly Waived.
-async function recomputeStatus(tx: Tx, invoiceId: string) {
+// Recomputes status from payments unless the invoice was explicitly Waived. Exported for
+// scholarships/service.ts (Phase 21 item 4) — the one other place that mutates FeeInvoice.concession and
+// must recompute status the same way a payment would, per the "single choke point" pattern used
+// elsewhere (see accounting/service.ts#writeBalancedEntry) rather than duplicating this logic.
+export async function recomputeStatus(tx: Tx, invoiceId: string) {
   const inv = await tx.feeInvoice.findUniqueOrThrow({ where: { id: invoiceId } })
   if (inv.status === 'Waived') return inv
   const agg = await tx.payment.aggregate({ where: { invoiceId }, _sum: { amount: true } })
   const paid = agg._sum.amount ?? 0
   const due = inv.total - inv.concession
-  const status = paid >= due && due > 0 ? 'Paid' : paid > 0 ? 'PartiallyPaid' : 'Due'
+  // Bug C fix: `due <= 0` (concession covers the whole total — e.g. a manual full waiver, or a 100%
+  // scholarship) means nothing is owed regardless of payments, so it must count as 'Paid' too — not just
+  // `paid >= due && due > 0`, which excluded this exact case and left the invoice stuck at 'Due' with a
+  // true balance of 0 (silently wrong on the fee-defaulters report, which filters on status).
+  const status = due <= 0 || paid >= due ? 'Paid' : paid > 0 ? 'PartiallyPaid' : 'Due'
   if (status === inv.status) return inv
   return tx.feeInvoice.update({ where: { id: invoiceId }, data: { status } })
 }
@@ -296,11 +416,33 @@ export async function invoiceReceiptPdf(ctx: Ctx, id: string) {
 
 // ─────────────────────────── payments ───────────────────────────
 
+// Guards recordPayment/gatewayConfirmPayment against double-payment and overpayment: rejects if the
+// invoice is already fully Paid (mirrors the existing Waived check's pattern exactly), and rejects if the
+// new payment would exceed the invoice's actual remaining balance (current, concession-adjusted total
+// minus the sum of existing payments — recomputed from a fresh in-transaction read so a scholarship
+// applied earlier is correctly reflected and a concurrent payment can't race past this check).
+async function assertPayable(tx: Tx, invoiceId: string, amount: number) {
+  const invoice = await tx.feeInvoice.findUniqueOrThrow({ where: { id: invoiceId }, include: { payments: true } })
+  if (invoice.status === 'Waived') throw new HttpError(409, 'Invoice has been waived')
+  if (invoice.status === 'Paid') throw new HttpError(400, 'Invoice has already been paid in full')
+  const paid = invoice.payments.reduce((a, p) => a + p.amount, 0)
+  const remaining = round2(invoice.total - invoice.concession - paid)
+  if (amount > remaining) {
+    throw new HttpError(400, `Payment amount exceeds the remaining balance: balance is Rs.${remaining.toFixed(2)}, attempted Rs.${amount.toFixed(2)}`, {
+      remaining, attempted: amount,
+    })
+  }
+}
+
 export async function recordPayment(ctx: Ctx, input: z.infer<typeof createPayment>) {
   const invoice = await prisma.feeInvoice.findFirst({ where: { id: input.invoiceId, schoolId: ctx.schoolId } })
   if (!invoice) throw notFound('Invoice')
   if (invoice.status === 'Waived') throw new HttpError(409, 'Invoice has been waived')
   const row = await prisma.$transaction(async tx => {
+    // Re-fetch inside the transaction, right before deciding, to close the TOCTOU gap a concurrent
+    // payment could open between the check above and this write — mirrors canteen/service.ts#purchase's
+    // re-check-inside-the-transaction pattern.
+    await assertPayable(tx, invoice.id, input.amount)
     const base = `RCPT/${new Date().getUTCFullYear()}/`
     const count = await tx.payment.count({ where: { schoolId: ctx.schoolId, receiptNo: { startsWith: base } } })
     const payment = await tx.payment.create({
@@ -392,6 +534,8 @@ export async function gatewayConfirmPayment(ctx: Ctx, input: z.infer<typeof gate
   } // sandbox mode: no keys configured, accept the confirmation as-is.
 
   const row = await prisma.$transaction(async tx => {
+    // Re-fetch inside the transaction, right before deciding — same TOCTOU-closing pattern as recordPayment.
+    await assertPayable(tx, invoice.id, input.amount)
     const base = `RCPT/${new Date().getUTCFullYear()}/`
     const count = await tx.payment.count({ where: { schoolId: ctx.schoolId, receiptNo: { startsWith: base } } })
     const payment = await tx.payment.create({
@@ -493,6 +637,9 @@ export async function createReminderRow(ctx: Ctx, input: z.infer<typeof createRe
     await Promise.all(recipients.map(r => input.channel === 'Email'
       ? (r.email && sendEmail({ to: r.email, subject: 'EduNova fee reminder', body }))
       : (r.phone && sendSms({ to: r.phone, body }))))
+    // Phase 23 item 3: WhatsApp alongside whichever channel fired above, same best-effort pattern —
+    // only when a phone is on file (independent of the InApp/Email/SMS `channel` this reminder chose).
+    await Promise.all(recipients.map(r => r.phone && sendWhatsApp({ to: r.phone, body })))
   }
   return row
 }

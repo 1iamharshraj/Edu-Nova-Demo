@@ -1,9 +1,17 @@
+import type { z } from 'zod'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../../prisma'
-import { notFound } from '../../lib/errors'
+import { audit } from '../../lib/audit'
+import { HttpError, notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
 import { fmtDate } from '../../lib/validate'
-import { assertViewClass, assertViewStudent, enrollmentFor, getClass, getTerm, rosterOf } from '../../lib/scope'
+import { assertViewClass, assertViewStudent, enrollmentFor, getClass, getTerm, isClassTeacherOfStudent, isStaff, rosterOf } from '../../lib/scope'
 import { gradeFor, scaleForBoard } from './gradeScales'
+import type { reportCardRemarkBody } from './schema'
+
+// Phase 20 item 3 — shape stored per termId in Enrollment.remarks (see schema.prisma#Enrollment.remarks).
+interface RemarkEntry { text: string; updatedById: string; updatedAt: string }
+const remarksOf = (json: unknown): Record<string, RemarkEntry> => (json && typeof json === 'object' ? json as Record<string, RemarkEntry> : {})
 
 // Report card + class ranks, both computed from PUBLISHED assessments only. Totals apply the assessment
 // weight (default 1) to score and maxMarks alike; a missing mark counts as 0 but still adds to max.
@@ -53,7 +61,7 @@ export async function reportCard(ctx: Ctx, studentId: string, termId: string) {
   if (!student) throw notFound('Student')
   const enrollment = await enrollmentFor(studentId, term.academicYearId)
   if (!enrollment) {
-    return { studentId, name: student.name, termId: term.id, classId: undefined, classLabel: undefined, scale: undefined, subjects: [], overall: { total: 0, max: 0, pct: 0, grade: undefined, rank: undefined, classSize: 0 } }
+    return { studentId, name: student.name, termId: term.id, classId: undefined, classLabel: undefined, scale: undefined, subjects: [], overall: { total: 0, max: 0, pct: 0, grade: undefined, rank: undefined, classSize: 0 }, remark: undefined }
   }
   const cls = enrollment.class
   const [roster, assessments, scale] = await Promise.all([rosterOf(cls.id), publishedFor(cls.id, term.id), scaleForBoard(ctx.schoolId, cls.boardId)])
@@ -87,5 +95,33 @@ export async function reportCard(ctx: Ctx, studentId: string, termId: string) {
       rank: assessments.length ? mine?.rank : undefined,
       classSize: roster.length,
     },
+    // Phase 20 item 3 — teacher-authored (optionally AI-drafted-then-edited) overall remark for this term,
+    // if one has been saved via setReportCardRemark below. Never auto-filled from an AI draft — the
+    // teacher must explicitly paste/edit and save it.
+    remark: remarksOf(enrollment.remarks)[term.id]?.text,
   }
+}
+
+// PUT /report-card/remark — same "class teacher of this student, or staff/admin" scope as Phase 20's
+// POST /ai/draft-remark (modules/ai/service.ts#assertCanDraftRemark) — the AI draft is only ever a
+// starting point; whoever may ask the AI for a draft is exactly who may save the real remark.
+async function assertCanWriteRemark(ctx: Ctx, studentId: string) {
+  if (isStaff(ctx)) return
+  if (await isClassTeacherOfStudent(ctx, studentId)) return
+  throw new HttpError(403, 'Only the class teacher, staff, or admin may set this student\'s report-card remark')
+}
+
+export async function setReportCardRemark(ctx: Ctx, input: z.infer<typeof reportCardRemarkBody>) {
+  await assertCanWriteRemark(ctx, input.studentId)
+  const term = await getTerm(ctx, input.termId)
+  const enrollment = await enrollmentFor(input.studentId, term.academicYearId)
+  if (!enrollment) throw new HttpError(400, 'Student is not enrolled for this term\'s academic year')
+
+  const before = remarksOf(enrollment.remarks)
+  const entry: RemarkEntry = { text: input.remark, updatedById: ctx.actorId, updatedAt: new Date().toISOString() }
+  const after = { ...before, [term.id]: entry }
+
+  await prisma.enrollment.update({ where: { id: enrollment.id }, data: { remarks: after as unknown as Prisma.InputJsonValue } })
+  await audit(ctx.schoolId, ctx.actorId, 'set-remark', 'enrollment', enrollment.id, { remark: before[term.id] }, { remark: entry })
+  return { studentId: input.studentId, termId: term.id, remark: entry.text }
 }

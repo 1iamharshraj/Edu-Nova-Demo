@@ -113,6 +113,10 @@ export async function markPaid(ctx: Ctx, id: string) {
   if (!isAdmin(ctx)) throw new HttpError(403, 'Admin/superadmin only')
   const before = await prisma.payslip.findFirst({ where: { id, schoolId: ctx.schoolId } })
   if (!before) throw notFound('Payslip')
+  // Idempotent no-op if already marked paid — mirrors run()'s "skip what already exists" idempotency
+  // convention for payroll generation, rather than erroring: calling mark-paid twice must never post a
+  // second GL entry for the same salary.
+  if (before.status === 'Paid') return before
   const row = await prisma.payslip.update({ where: { id }, data: { status: 'Paid', paidAt: new Date(), paidById: ctx.actorId } })
   await audit(ctx.schoolId, ctx.actorId, 'mark-paid', 'payslip', id, serializePayslip(before), serializePayslip(row))
   // Phase 17 — best-effort ledger auto-post (Debit Salary Expense / Credit Bank); never blocks or rolls

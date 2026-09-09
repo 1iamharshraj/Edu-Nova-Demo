@@ -8,7 +8,7 @@ import * as scales from './gradeScales'
 import * as reports from './reports'
 import { serializeAssessment } from './service'
 import { serializeGradeScale } from './gradeScales'
-import { createAssessment, patchAssessment, putMarks, listQuery, createGradeScale, patchGradeScale, reportCardQuery, ranksQuery } from './schema'
+import { createAssessment, patchAssessment, putMarks, listQuery, createGradeScale, patchGradeScale, reportCardQuery, ranksQuery, reportCardRemarkBody } from './schema'
 
 // /api/assessments — class scope for writes is checked in the service (class teacher / subject teacher /
 // staff / admin). Grade scales are admin-managed. Static paths are declared before `/:id`.
@@ -38,6 +38,13 @@ assessmentsRouter.get('/report-card', wrap(async (req, res) => {
 assessmentsRouter.get('/ranks', wrap(async (req, res) => {
   const q = validate(ranksQuery, req.query)
   res.json(await reports.ranks(ctxOf(req as AuthedRequest), q.classId, q.termId))
+}))
+
+// Phase 20 item 3 — save the (optionally AI-drafted-then-edited, see POST /api/ai/draft-remark) overall
+// report-card remark for a student's term. Static path, declared before `/:id` like the other report-card
+// routes above.
+assessmentsRouter.put('/report-card/remark', wrap(async (req, res) => {
+  res.json(await reports.setReportCardRemark(ctxOf(req as AuthedRequest), validate(reportCardRemarkBody, req.body)))
 }))
 
 assessmentsRouter.get('/', wrap(async (req, res) => {

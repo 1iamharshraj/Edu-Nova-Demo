@@ -73,3 +73,77 @@ export const allocationQuery = z.object({
   bedId: idStr.optional(),
   status: z.enum(ALLOCATION_STATUSES).optional(),
 })
+
+// ───────────────────────────── Phase 24: outpasses ─────────────────────────────
+// See phase-24-boarding-hostel-extensions.md → item 1. `Overdue` is a computed read-time status (never
+// accepted as input) — see service.ts.
+export const OUTPASS_STATUSES = ['Pending', 'Approved', 'Declined', 'Departed', 'Returned', 'Overdue'] as const
+
+export const createOutpass = z.object({
+  studentId: idStr,
+  requestedDepartureAt: z.string().datetime(),
+  expectedReturnAt: z.string().datetime(),
+  reason: z.string().trim().min(1).max(1000),
+  destination: z.string().trim().max(300).nullable().optional(),
+})
+
+export const decideOutpass = z.object({ note: z.string().trim().max(1000).optional() })
+
+export const outpassQuery = z.object({
+  studentId: idStr.optional(),
+  hostelId: idStr.optional(),
+  status: z.enum(OUTPASS_STATUSES).optional(),
+})
+
+// ───────────────────────────── Phase 24: roll-call ─────────────────────────────
+
+export const createRollCall = z.object({
+  hostelId: idStr,
+  date: dateStr,
+})
+
+export const rollCallEntryInput = z.object({
+  allocationId: idStr,
+  present: z.boolean(),
+  notes: z.string().trim().max(500).nullable().optional(),
+})
+
+export const patchRollCallEntries = z.object({ entries: z.array(rollCallEntryInput).min(1) })
+
+export const rollCallQuery = z.object({
+  hostelId: idStr.optional(),
+  from: dateStr.optional(),
+  to: dateStr.optional(),
+})
+
+// ───────────────────────────── Phase 24: mess menu + meal feedback ─────────────────────────────
+
+export const MEAL_TYPES = ['Breakfast', 'Lunch', 'Snacks', 'Dinner'] as const
+
+export const createMenu = z.object({
+  hostelId: idStr,
+  date: dateStr,
+  mealType: z.enum(MEAL_TYPES),
+  items: z.array(z.string().trim().min(1).max(200)).max(50),
+})
+export const patchMenu = createMenu.omit({ hostelId: true, date: true, mealType: true }).partial()
+
+export const menuQuery = z.object({
+  hostelId: idStr.optional(),
+  from: dateStr.optional(),
+  to: dateStr.optional(),
+  mealType: z.enum(MEAL_TYPES).optional(),
+})
+
+export const createFeedback = z.object({
+  menuId: idStr,
+  studentId: idStr,
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().trim().max(1000).nullable().optional(),
+})
+
+export const feedbackQuery = z.object({
+  menuId: idStr.optional(),
+  studentId: idStr.optional(),
+  hostelId: idStr.optional(),
+})

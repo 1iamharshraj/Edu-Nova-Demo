@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import type { Activity, ActivityRegistration } from '@prisma/client'
+import { Prisma, type Activity, type ActivityRegistration } from '@prisma/client'
 import { prisma } from '../../prisma'
 import { audit } from '../../lib/audit'
 import { notify } from '../../lib/notify'
@@ -84,6 +84,16 @@ export async function deleteActivity(ctx: Ctx, id: string) {
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'activity', id, serializeActivity(before))
 }
 
+// Bug D fix: capacity enforcement is TOCTOU-vulnerable if the count-check and the write are two separate
+// statements — two concurrent requests can both read count < capacity before either commits, and both
+// land 'Registered', busting capacity. Fixed by running the count-check-and-write inside a single
+// Serializable transaction: Postgres' serializable snapshot isolation predicate-locks the counted rows,
+// so a concurrent transaction that inserts/updates a row matching that predicate creates a read-write
+// conflict and one of the two transactions is aborted with a serialization failure (Prisma surfaces this
+// as a PrismaClientKnownRequestError with code 'P2034'). We catch that and retry: the retry re-reads the
+// count, which now includes the just-committed winner, so it correctly falls back to 'Waitlisted'.
+const MAX_SERIALIZATION_RETRIES = 5
+
 export async function register(ctx: Ctx, id: string) {
   const activity = await get(ctx, id)
   if (!activity.forRoles.includes(ctx.role)) throw new HttpError(403, 'This activity is not open to your role')
@@ -92,12 +102,24 @@ export async function register(ctx: Ctx, id: string) {
   const existing = await prisma.activityRegistration.findUnique({ where: { activityId_userId: { activityId: id, userId: ctx.actorId } } })
   if (existing && existing.status !== 'Cancelled') return existing
 
-  const status = activity.capacity && (await registeredCount(id)) >= activity.capacity ? 'Waitlisted' : 'Registered'
-  const row = existing
-    ? await prisma.activityRegistration.update({ where: { id: existing.id }, data: { status, registeredAt: new Date() } })
-    : await prisma.activityRegistration.create({ data: { activityId: id, userId: ctx.actorId, status } })
-  await audit(ctx.schoolId, ctx.actorId, 'register', 'activity', id, undefined, { status })
-  return row
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const row = await prisma.$transaction(async tx => {
+        const count = await tx.activityRegistration.count({ where: { activityId: id, status: 'Registered' } })
+        const status = activity.capacity && count >= activity.capacity ? 'Waitlisted' : 'Registered'
+        const reg = existing
+          ? await tx.activityRegistration.update({ where: { id: existing.id }, data: { status, registeredAt: new Date() } })
+          : await tx.activityRegistration.create({ data: { activityId: id, userId: ctx.actorId, status } })
+        return reg
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+      await audit(ctx.schoolId, ctx.actorId, 'register', 'activity', id, undefined, { status: row.status })
+      return row
+    } catch (err) {
+      const isSerializationFailure = err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2034'
+      if (isSerializationFailure && attempt < MAX_SERIALIZATION_RETRIES) continue
+      throw err
+    }
+  }
 }
 
 export async function cancelRegistration(ctx: Ctx, id: string) {

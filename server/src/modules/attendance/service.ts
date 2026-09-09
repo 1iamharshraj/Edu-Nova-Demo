@@ -162,6 +162,24 @@ export async function summary(ctx: Ctx, q: z.infer<typeof summaryQuery>) {
   return q.studentId ? studentSummary(ctx, q.studentId, term) : classSummary(ctx, q.classId!, term)
 }
 
+// Whole-school (not per-class/per-student) present/total % for a term — additive, used by the Phase 28
+// group-overview cross-campus comparison (server/src/modules/group/service.ts), one call per member
+// school scoped by that school's own `ctx.schoolId`, exactly like every other query in this file. Not
+// wired to any /api/attendance/* route — staff/admin-only by construction of its one caller.
+export async function schoolSummary(ctx: Ctx, termId: string) {
+  if (!isStaff(ctx)) throw new HttpError(403, 'Staff/admin only')
+  const term = await getTerm(ctx, termId)
+  const records = await prisma.attendanceRecord.findMany({
+    where: { session: { schoolId: ctx.schoolId, date: { gte: term.startDate, lte: term.endDate } } },
+    select: { status: true },
+  })
+  let present = 0, total = 0
+  for (const r of records) {
+    if (COUNTED.has(r.status)) { total++; if (PRESENT.has(r.status)) present++ }
+  }
+  return { termId: term.id, present, total, pct: pctOf(present, total) }
+}
+
 type Term = Awaited<ReturnType<typeof getTerm>>
 
 async function studentSummary(ctx: Ctx, studentId: string, term: Term) {

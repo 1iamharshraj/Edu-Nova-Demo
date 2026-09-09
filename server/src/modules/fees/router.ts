@@ -7,11 +7,13 @@ import { validate } from '../../lib/validate'
 import * as svc from './service'
 import {
   serializeFeeHead, serializeFeeStructure, serializeInvoice, serializePayment, serializeReminder,
+  serializeInstallmentPlan,
 } from './service'
 import {
   createFeeHead, patchFeeHead, createFeeStructure, patchFeeStructure, structuresQuery,
   createInvoice, patchInvoice, invoicesQuery, createPayment, paymentsQuery,
   gatewayOrder, gatewayConfirm, defaultersQuery, createReminder, summaryQuery,
+  generateInvoicesBody, createInstallmentPlan, installmentPlanQuery,
 } from './schema'
 
 // /api/fees — see phase-5-finance.md. Staff/admin/superadmin write; parents/students read their own.
@@ -52,7 +54,19 @@ feesRouter.delete('/structures/:id', staff, wrap(async (req, res) => {
   res.json({ ok: true })
 }))
 feesRouter.post('/structures/:id/generate', staff, wrap(async (req, res) => {
-  res.status(201).json(await svc.generateInvoices(ctxOf(req as AuthedRequest), req.params.id))
+  res.status(201).json(await svc.generateInvoices(ctxOf(req as AuthedRequest), req.params.id, validate(generateInvoicesBody, req.body ?? {})))
+}))
+
+// ── installment plans (Phase 21 item 5) ──
+feesRouter.get('/installment-plans', wrap(async (req, res) => {
+  res.json({ items: (await svc.listInstallmentPlans(ctxOf(req as AuthedRequest), validate(installmentPlanQuery, req.query))).map(serializeInstallmentPlan) })
+}))
+feesRouter.post('/installment-plans', staff, wrap(async (req, res) => {
+  res.status(201).json({ item: serializeInstallmentPlan(await svc.createInstallmentPlanRow(ctxOf(req as AuthedRequest), validate(createInstallmentPlan, req.body))) })
+}))
+feesRouter.delete('/installment-plans/:id', staff, wrap(async (req, res) => {
+  await svc.removeInstallmentPlan(ctxOf(req as AuthedRequest), req.params.id)
+  res.json({ ok: true })
 }))
 
 // ── invoices ──

@@ -4,7 +4,10 @@ import { wrap } from '../../lib/errors'
 import { requireRole, ctxOf } from '../../lib/rbac'
 import { validate } from '../../lib/validate'
 import * as svc from './service'
-import { createAccount, patchAccount, accountQuery, createJournalEntry, journalQuery, trialBalanceQuery, profitAndLossQuery, balanceSheetQuery } from './schema'
+import {
+  createAccount, patchAccount, accountQuery, createJournalEntry, journalQuery, trialBalanceQuery, profitAndLossQuery, balanceSheetQuery,
+  cashFlowForecastQuery, programProfitabilityQuery, concessionImpactQuery,
+} from './schema'
 
 // /api/accounting — see phase-17-accounting.md. Every route here is admin/superadmin only: this is
 // sensitive financial data, and manual journal entries / the chart of accounts are exactly the kind of
@@ -60,4 +63,18 @@ accountingRouter.get('/reports/profit-and-loss', write, wrap(async (req, res) =>
 
 accountingRouter.get('/reports/balance-sheet', write, wrap(async (req, res) => {
   res.json(await svc.balanceSheet(ctxOf(req as AuthedRequest), validate(balanceSheetQuery, req.query)))
+}))
+
+// ───────────────────── Phase 21 — financial intelligence reports ─────────────────────
+
+accountingRouter.get('/reports/cash-flow-forecast', write, wrap(async (req, res) => {
+  res.json(await svc.cashFlowForecast(ctxOf(req as AuthedRequest), validate(cashFlowForecastQuery, req.query)))
+}))
+
+accountingRouter.get('/reports/program-profitability', write, wrap(async (req, res) => {
+  res.json(await svc.programProfitability(ctxOf(req as AuthedRequest), validate(programProfitabilityQuery, req.query)))
+}))
+
+accountingRouter.get('/reports/concession-impact', write, wrap(async (req, res) => {
+  res.json(await svc.concessionImpact(ctxOf(req as AuthedRequest), validate(concessionImpactQuery, req.query)))
 }))

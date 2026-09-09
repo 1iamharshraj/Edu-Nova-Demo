@@ -9,6 +9,9 @@ import {
   createRoom, patchRoom, roomQuery,
   createBed, patchBed, bedQuery,
   createAllocation, vacateBody, transferBody, allocationQuery,
+  createOutpass, decideOutpass, outpassQuery,
+  createRollCall, patchRollCallEntries, rollCallQuery,
+  createMenu, patchMenu, menuQuery, createFeedback, feedbackQuery,
 } from './schema'
 
 // /api/hostel — see phase-14-hostel.md.
@@ -106,4 +109,80 @@ hostelRouter.post('/allocations/:id/vacate', write, wrap(async (req, res) => {
 hostelRouter.post('/allocations/:id/transfer', write, wrap(async (req, res) => {
   const item = await svc.transfer(ctxOf(req as AuthedRequest), req.params.id, validate(transferBody, req.body))
   res.status(201).json({ item: svc.serializeAllocation(item) })
+}))
+
+// ═══════════════════════════ Phase 24: outpasses / roll-call / mess menu ═══════════════════════════
+// See phase-24-boarding-hostel-extensions.md. No blanket `write` gate on these — a hostel's warden may be
+// a teacher account (outside staff/admin/superadmin), so per-hostel/per-request permission is enforced
+// inside the service (assertWardenOrStaff / role checks) instead of at the router.
+
+// ───────────────────────────── outpasses ─────────────────────────────
+
+hostelRouter.get('/outpasses', wrap(async (req, res) => {
+  const items = await svc.listOutpasses(ctxOf(req as AuthedRequest), validate(outpassQuery, req.query))
+  res.json({ items })
+}))
+hostelRouter.post('/outpasses', wrap(async (req, res) => {
+  const item = await svc.createOutpassSvc(ctxOf(req as AuthedRequest), validate(createOutpass, req.body))
+  res.status(201).json({ item: svc.serializeOutpass(item) })
+}))
+hostelRouter.post('/outpasses/:id/approve', wrap(async (req, res) => {
+  const item = await svc.approveOutpass(ctxOf(req as AuthedRequest), req.params.id)
+  res.json({ item: svc.serializeOutpass(item) })
+}))
+hostelRouter.post('/outpasses/:id/decline', wrap(async (req, res) => {
+  const item = await svc.declineOutpass(ctxOf(req as AuthedRequest), req.params.id, validate(decideOutpass, req.body ?? {}))
+  res.json({ item: svc.serializeOutpass(item) })
+}))
+hostelRouter.post('/outpasses/:id/depart', wrap(async (req, res) => {
+  const item = await svc.departOutpass(ctxOf(req as AuthedRequest), req.params.id)
+  res.json({ item: svc.serializeOutpass(item) })
+}))
+hostelRouter.post('/outpasses/:id/return', wrap(async (req, res) => {
+  const item = await svc.returnOutpass(ctxOf(req as AuthedRequest), req.params.id)
+  res.json({ item: svc.serializeOutpass(item) })
+}))
+
+// ───────────────────────────── roll-call ─────────────────────────────
+
+hostelRouter.get('/roll-calls', wrap(async (req, res) => {
+  const items = await svc.listRollCalls(ctxOf(req as AuthedRequest), validate(rollCallQuery, req.query))
+  res.json({ items })
+}))
+hostelRouter.post('/roll-calls', wrap(async (req, res) => {
+  const { row, created } = await svc.upsertRollCall(ctxOf(req as AuthedRequest), validate(createRollCall, req.body))
+  res.status(created ? 201 : 200).json({ item: svc.serializeRollCall(row) })
+}))
+hostelRouter.patch('/roll-calls/:id/entries', wrap(async (req, res) => {
+  const row = await svc.patchRollCall(ctxOf(req as AuthedRequest), req.params.id, validate(patchRollCallEntries, req.body))
+  res.json({ item: svc.serializeRollCall(row) })
+}))
+
+// ───────────────────────────── mess menu ─────────────────────────────
+
+hostelRouter.get('/mess-menu', wrap(async (req, res) => {
+  const items = await svc.listMenus(ctxOf(req as AuthedRequest), validate(menuQuery, req.query))
+  res.json({ items })
+}))
+hostelRouter.post('/mess-menu', wrap(async (req, res) => {
+  const { row, created } = await svc.upsertMenu(ctxOf(req as AuthedRequest), validate(createMenu, req.body))
+  res.status(created ? 201 : 200).json({ item: svc.serializeMenu(row) })
+}))
+hostelRouter.patch('/mess-menu/:id', wrap(async (req, res) => {
+  const item = await svc.patchMenuSvc(ctxOf(req as AuthedRequest), req.params.id, validate(patchMenu, req.body))
+  res.json({ item: svc.serializeMenu(item) })
+}))
+hostelRouter.delete('/mess-menu/:id', wrap(async (req, res) => {
+  await svc.removeMenu(ctxOf(req as AuthedRequest), req.params.id)
+  res.json({ ok: true })
+}))
+
+// ───────────────────────────── meal feedback ─────────────────────────────
+
+hostelRouter.get('/meal-feedback', wrap(async (req, res) => {
+  res.json(await svc.listFeedback(ctxOf(req as AuthedRequest), validate(feedbackQuery, req.query)))
+}))
+hostelRouter.post('/meal-feedback', wrap(async (req, res) => {
+  const { row, created } = await svc.createFeedbackSvc(ctxOf(req as AuthedRequest), validate(createFeedback, req.body))
+  res.status(created ? 201 : 200).json({ item: svc.serializeFeedback(row) })
 }))

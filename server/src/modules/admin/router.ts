@@ -33,6 +33,46 @@ adminRouter.post('/reset', requireRole('superadmin'), wrap(async (req, res) => {
   validate(resetBody, req.body)
   const { schoolId } = ctx
   await prisma.$transaction([
+    // Phase 30 tables (FK-safe order: wallet-transactions -> wallets; both filtered directly by schoolId
+    // rather than joined through the other, so this can run anywhere in the list).
+    prisma.walletTransaction.deleteMany({ where: { schoolId } }),
+    prisma.studentWallet.deleteMany({ where: { schoolId } }),
+    // Phase 25 tables (FK-safe order: exam-seats -> seating-plans; invigilation-duties has no dependents of
+    // its own. Both reference Assessment/Room, so this block must run before the Phase 3 Assessment
+    // deleteMany and the Phase-1b Room deleteMany further below).
+    prisma.examSeat.deleteMany({ where: { plan: { schoolId } } }),
+    prisma.examSeatingPlan.deleteMany({ where: { schoolId } }),
+    prisma.invigilationDuty.deleteMany({ where: { schoolId } }),
+    // Phase 27 tables (no FK dependents — safe to delete first). Item 2 (portfolio) is a read-only
+    // aggregation of Achievement/Certificate/ActivityRegistration — no new tables to clean up there.
+    prisma.housePoints.deleteMany({ where: { schoolId } }),
+    // Phase 23 tables (no FK dependents — safe to delete first).
+    prisma.parentDigestSend.deleteMany({ where: { schoolId } }),
+    // Phase 20 tables (no FK dependents — safe to delete first). AiConversation/AiMessage predate this
+    // phase (Phase 9) and are cleaned up further below with the other Phase 9 tables; Enrollment.remarks
+    // (Phase 20 item 3) needs no explicit cleanup — it's a JSON field cleared when Enrollment itself is
+    // deleted below, not a separate row/table.
+    prisma.generatedWorksheet.deleteMany({ where: { schoolId } }),
+    // Phase 22 tables (no FK dependents — safe to delete first). FK-safe order: medication-logs before
+    // medication-schedules; everything else here has no dependents of its own.
+    prisma.medicationLog.deleteMany({ where: { schoolId } }),
+    prisma.medicationSchedule.deleteMany({ where: { schoolId } }),
+    prisma.anonymousReport.deleteMany({ where: { schoolId } }),
+    prisma.counselingRecord.deleteMany({ where: { schoolId } }),
+    prisma.counselingSettings.deleteMany({ where: { schoolId } }),
+    prisma.pickupEvent.deleteMany({ where: { schoolId } }),
+    prisma.authorizedPickupPerson.deleteMany({ where: { schoolId } }),
+    prisma.visitor.deleteMany({ where: { schoolId } }),
+    // Phase 19 tables (no FK dependents — safe to delete first).
+    prisma.studentRiskSnapshot.deleteMany({ where: { schoolId } }),
+    prisma.analyticsSettings.deleteMany({ where: { schoolId } }),
+    // Phase 18 tables (FK-safe order: chapter-resources -> assessment-chapter links (in-place clear on
+    // Assessment.chapterIds, not a delete) -> term-targets -> chapter-progress -> chapters).
+    prisma.chapterResource.deleteMany({ where: { schoolId } }),
+    prisma.assessment.updateMany({ where: { schoolId }, data: { chapterIds: [] } }),
+    prisma.termSyllabusTarget.deleteMany({ where: { schoolId } }),
+    prisma.chapterProgress.deleteMany({ where: { schoolId } }),
+    prisma.syllabusChapter.deleteMany({ where: { schoolId } }),
     // Phase 17 tables (FK-safe order: journal-lines -> journal-entries -> accounts).
     prisma.journalLine.deleteMany({ where: { entry: { schoolId } } }),
     prisma.journalEntry.deleteMany({ where: { schoolId } }),
@@ -48,6 +88,13 @@ adminRouter.post('/reset', requireRole('superadmin'), wrap(async (req, res) => {
     prisma.bookCopy.deleteMany({ where: { schoolId } }),
     prisma.book.deleteMany({ where: { schoolId } }),
     prisma.librarySettings.deleteMany({ where: { schoolId } }),
+    // Phase 24 tables (FK-safe order: meal feedback -> mess menu; roll-call entries cascade with their
+    // roll-call row; outpasses are leaves off Hostel/User). Independent of the Phase 14 hostel-tree
+    // deletion below since each is filtered directly by schoolId rather than joined through it.
+    prisma.mealFeedback.deleteMany({ where: { schoolId } }),
+    prisma.messMenu.deleteMany({ where: { schoolId } }),
+    prisma.hostelRollCall.deleteMany({ where: { schoolId } }),
+    prisma.hostelOutpass.deleteMany({ where: { schoolId } }),
     // Phase 14 tables (FK-safe order: allocations -> beds -> rooms -> hostels).
     prisma.hostelAllocation.deleteMany({ where: { schoolId } }),
     prisma.hostelBed.deleteMany({ where: { schoolId } }),
@@ -96,9 +143,14 @@ adminRouter.post('/reset', requireRole('superadmin'), wrap(async (req, res) => {
     prisma.resignation.deleteMany({ where: { schoolId } }),
     prisma.duty.deleteMany({ where: { schoolId } }),
     // Phase 5 tables (records cascade from their parents where applicable).
+    // Phase 21 (FK-safe: ScholarshipAward before Scholarship; both before FeeInvoice/FeeStructure since
+    // FeeInvoice.installmentPlanId -> FeeInstallmentPlan.feeStructureId -> FeeStructure).
+    prisma.scholarshipAward.deleteMany({ where: { schoolId } }),
+    prisma.scholarship.deleteMany({ where: { schoolId } }),
     prisma.feeReminder.deleteMany({ where: { schoolId } }),
     prisma.payment.deleteMany({ where: { schoolId } }),
     prisma.feeInvoice.deleteMany({ where: { schoolId } }),
+    prisma.feeInstallmentPlan.deleteMany({ where: { schoolId } }),
     prisma.feeStructure.deleteMany({ where: { schoolId } }),
     prisma.feeHead.deleteMany({ where: { schoolId } }),
     prisma.payslip.deleteMany({ where: { schoolId } }),
@@ -119,6 +171,14 @@ adminRouter.post('/reset', requireRole('superadmin'), wrap(async (req, res) => {
     prisma.timetableEntry.deleteMany({ where: { schoolId } }),
     prisma.timetablePublish.deleteMany({ where: { schoolId } }),
     prisma.periodTemplate.deleteMany({ where: { schoolId } }),
+    // Bug B fix: Highlight and AiConversation (AiMessage cascades from AiConversation via
+    // onDelete: Cascade — see schema) have no dependents that block this and no reason to survive a
+    // reset, but they were previously relying entirely on the User cascade below to clean them up. Since
+    // that user.deleteMany excludes the actor performing the reset, any Highlight/AiConversation owned
+    // by that actor's own account was left behind indefinitely. Delete them explicitly, scoped by
+    // schoolId directly (not through the user relation), so they're gone regardless of who created them.
+    prisma.aiConversation.deleteMany({ where: { schoolId } }),
+    prisma.highlight.deleteMany({ where: { schoolId } }),
     prisma.user.deleteMany({ where: { schoolId, id: { not: ctx.actorId } } }),
     prisma.academicYear.deleteMany({ where: { schoolId } }),
     prisma.curriculumSubject.deleteMany({ where: { schoolId } }),
@@ -131,6 +191,14 @@ adminRouter.post('/reset', requireRole('superadmin'), wrap(async (req, res) => {
     prisma.guardian.deleteMany({ where: { schoolId } }),
     prisma.classSubject.deleteMany({ where: { schoolId } }),
     prisma.auditLog.deleteMany({ where: { schoolId } }),
+    // Phase 28 — a reset is scoped to ONE school (`schoolId`), so it must only null out THIS school's own
+    // `groupId` — the SchoolGroup row itself and any other member schools are untouched (a reset of one
+    // campus must not destroy the whole group or its other members' data). GroupAdmin grants held by this
+    // school's own users are cleaned up implicitly: `onDelete: Cascade` on GroupAdmin.userId means the
+    // user.deleteMany(...) above already removed any such grants for users deleted in this reset (the
+    // caller's own user row survives the reset and keeps any grant it holds, correctly — resetting a
+    // school's data shouldn't revoke its superadmin's own group membership).
+    prisma.school.update({ where: { id: schoolId }, data: { groupId: null } }),
   ])
   await purgeSchoolFiles(schoolId)
   closeSchoolConnections(schoolId)

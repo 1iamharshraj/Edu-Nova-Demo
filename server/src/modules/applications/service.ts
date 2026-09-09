@@ -8,7 +8,7 @@ import type { Ctx } from '../../lib/rbac'
 import { fmtDate, toDate } from '../../lib/validate'
 import { assertViewStudent, isRestricted, isStaff, visibleStudentIds } from '../../lib/scope'
 import { syncUserTitle } from '../../lib/titleSync'
-import { sendEmail } from '../../lib/notify'
+import { sendEmail, sendWhatsApp } from '../../lib/notify'
 import { genPassword, makeEmail, uid } from '../../userDefaults'
 import { assertFileIds } from '../files/service'
 import * as certificates from '../certificates/service'
@@ -225,10 +225,10 @@ async function approveAdmission(ctx: Ctx, app: ApplicationFull): Promise<{ row: 
     body: `Welcome to EduNova, ${result.student.name}.\nLogin email: ${result.student.email}\nTemporary password: ${studentPassword}\nYou will be asked to set a new password on first login.`,
   })
   if (!result.existing) {
-    await sendEmail({
-      to: result.parent.email, subject: 'Your EduNova parent account',
-      body: `Welcome to EduNova. An account has been created for you as guardian of ${app.applicantName}.\nLogin email: ${result.parent.email}\nTemporary password: ${parentPassword}\nYou will be asked to set a new password on first login.`,
-    })
+    const parentBody = `Welcome to EduNova. An account has been created for you as guardian of ${app.applicantName}.\nLogin email: ${result.parent.email}\nTemporary password: ${parentPassword}\nYou will be asked to set a new password on first login.`
+    await sendEmail({ to: result.parent.email, subject: 'Your EduNova parent account', body: parentBody })
+    // Phase 23 item 3: WhatsApp alongside email/SMS, same best-effort pattern — only when a phone is on file.
+    if (result.parent.phone) await sendWhatsApp({ to: result.parent.phone, body: parentBody })
   }
   return {
     row: result.row,

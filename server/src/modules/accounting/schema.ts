@@ -4,7 +4,9 @@ import { idStr, dateStr } from '../../lib/validate'
 // See phase-17-accounting.md.
 
 export const ACCOUNT_TYPES = ['Asset', 'Liability', 'Equity', 'Income', 'Expense'] as const
-export const SOURCE_TYPES = ['Manual', 'FeePayment', 'Payroll', 'Other'] as const
+// 'CanteenTopUp'/'CanteenPurchase' — Phase 30, see modules/accounting/service.ts#postCanteenTopUpAutoEntry
+// / #postCanteenPurchaseAutoEntry.
+export const SOURCE_TYPES = ['Manual', 'FeePayment', 'Payroll', 'CanteenTopUp', 'CanteenPurchase', 'Other'] as const
 
 // ───────────────────────────── accounts ─────────────────────────────
 
@@ -63,3 +65,9 @@ export const journalQuery = z.object({
 export const trialBalanceQuery = z.object({ asOf: dateStr })
 export const profitAndLossQuery = z.object({ from: dateStr, to: dateStr })
 export const balanceSheetQuery = z.object({ asOf: dateStr })
+
+// ───────────────────────────── Phase 21 — financial intelligence ─────────────────────────────
+
+export const cashFlowForecastQuery = z.object({ months: z.coerce.number().int().min(1).max(12).default(3) })
+export const programProfitabilityQuery = z.object({ termId: idStr })
+export const concessionImpactQuery = z.object({ termId: idStr.optional() })

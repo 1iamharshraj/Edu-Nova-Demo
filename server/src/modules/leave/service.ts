@@ -6,7 +6,7 @@ import { HttpError, notFound } from '../../lib/errors'
 import type { Ctx } from '../../lib/rbac'
 import { fmtDate, toDate } from '../../lib/validate'
 import { isAdmin, isStaff, visibleStudentIds } from '../../lib/scope'
-import { notify, sendEmail } from '../../lib/notify'
+import { notify, sendEmail, sendWhatsApp } from '../../lib/notify'
 import type { createLeaveType, patchLeaveType, createLeaveRequest, requestsQuery, decideBody, balanceQuery } from './schema'
 
 // See phase-6-hr.md → /api/leave. "Student leave" = LeaveType.appliesTo "student" (or no leaveType at all when
@@ -190,6 +190,8 @@ async function notifyDecision(ctx: Ctx, row: LeaveRequest, decision: 'Approved' 
   const body = `Your leave request for ${fmtDate(row.fromDate)}–${fmtDate(row.toDate)} was ${decision.toLowerCase()}.${row.decisionNote ? ` Note: ${row.decisionNote}` : ''}`
   await notify(ctx.schoolId, requester.id, 'leave', title, body)
   await sendEmail({ to: requester.email, subject: `EduNova — ${title}`, body })
+  // Phase 23 item 3: WhatsApp alongside email, same best-effort pattern — only when a phone is on file.
+  if (requester.phone) await sendWhatsApp({ to: requester.phone, body: `EduNova — ${title}\n${body}` })
 }
 
 export async function approve(ctx: Ctx, id: string, input: z.infer<typeof decideBody>) {
