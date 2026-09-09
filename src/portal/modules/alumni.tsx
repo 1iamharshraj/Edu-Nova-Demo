@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 import {
   Briefcase, Calendar, GraduationCap, HandCoins, Linkedin, MapPin, Pencil, Plus, Trash2, UserPlus, Users,
 } from 'lucide-react'
@@ -14,6 +15,7 @@ import {
   useAlumniDonations, useAlumniEventRsvps, useAlumniEvents, useAlumniProfiles,
 } from '@/lib/hooks/useAlumni'
 import { Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
 
 // Phase 13 — Alumni management: Directory (search/filter, standalone + student-converted profiles),
 // Events (create, RSVP on an alumnus's behalf — alumni have no portal login), Donations (log + totals).
@@ -65,9 +67,8 @@ export function AlumniMod() {
 
 /* ── Directory ──────────────────────────────────────────── */
 
-const emptyProfileForm = { name: '', email: '', phone: '', graduationYear: String(new Date().getFullYear()), lastClassLabel: '', currentOccupation: '', currentOrganization: '', currentCity: '', linkedInUrl: '', notes: '' }
-
 function DirectoryTab() {
+  const navigate = useNavigate()
   const { db } = useStore()
   const { classOf, currentYear } = useAcademic()
   const [q, setQ] = useState('')
@@ -77,36 +78,6 @@ function DirectoryTab() {
   const years = useMemo(() => graduationYears(profiles.items), [profiles.items])
   const [busy, setBusy] = useState<string | null>(null)
 
-  const [addOpen, setAddOpen] = useState(false)
-  const [form, setForm] = useState(emptyProfileForm)
-  const openAdd = () => { setForm(emptyProfileForm); setAddOpen(true) }
-  const addProfile = async () => {
-    if (!form.name.trim() || !form.graduationYear || !form.lastClassLabel.trim()) return
-    setBusy('add')
-    try {
-      await api.post('/alumni/profiles', {
-        name: form.name.trim(), email: form.email.trim() || undefined, phone: form.phone.trim() || undefined,
-        graduationYear: Number(form.graduationYear), lastClassLabel: form.lastClassLabel.trim(),
-        currentOccupation: form.currentOccupation.trim() || undefined, currentOrganization: form.currentOrganization.trim() || undefined,
-        currentCity: form.currentCity.trim() || undefined, linkedInUrl: form.linkedInUrl.trim() || undefined, notes: form.notes.trim() || undefined,
-      })
-      setAddOpen(false); profiles.reload(); toast.success('Alumni profile added')
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
-  }
-
-  const [editing, setEditing] = useState<AlumniProfile | null>(null)
-  const saveEdit = async () => {
-    if (!editing) return
-    setBusy(editing.id)
-    try {
-      await api.patch(`/alumni/profiles/${editing.id}`, {
-        email: editing.email || undefined, phone: editing.phone || undefined,
-        currentOccupation: editing.currentOccupation || undefined, currentOrganization: editing.currentOrganization || undefined,
-        currentCity: editing.currentCity || undefined, linkedInUrl: editing.linkedInUrl || undefined, notes: editing.notes || undefined,
-      })
-      setEditing(null); profiles.reload(); toast.success('Profile updated')
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
-  }
   const remove = async (a: AlumniProfile) => {
     if (!confirm(`Delete alumni profile for "${a.name}"? This does not affect any linked student account.`)) return
     setBusy(a.id)
@@ -116,13 +87,15 @@ function DirectoryTab() {
 
   // Convert-student flow — a standalone action here (see final report re: also offering this at TC-issuance
   // time in the Applications module, which this frontend agent does not own).
-  const students = useMemo(() => db.users.filter(u => u.role === 'student').sort((a, b) => a.name.localeCompare(b.name)), [db.users])
+  // The student picker below is an AsyncEntityPicker (Phase B, ui-architecture-fix.md) rather than a flat
+  // `<select>` over the whole roster; `convertedIds`/`hasConvertible` are cheap existence checks against the
+  // already-loaded db.users cache, not a full list built for rendering hundreds of `<option>`s.
   const convertedIds = useMemo(() => new Set((profiles.items ?? []).map(a => a.studentUserId).filter((x): x is string => !!x)), [profiles.items])
-  const convertible = useMemo(() => students.filter(s => !convertedIds.has(s.id)), [students, convertedIds])
+  const hasConvertible = useMemo(() => db.users.some(u => u.role === 'student' && !convertedIds.has(u.id)), [db.users, convertedIds])
   const [convertOpen, setConvertOpen] = useState(false)
   const defaultGradYear = currentYear?.endDate ? new Date(currentYear.endDate).getFullYear() : new Date().getFullYear()
   const [cForm, setCForm] = useState({ studentId: '', graduationYear: String(defaultGradYear), notes: '' })
-  const openConvert = () => { setCForm({ studentId: convertible[0]?.id ?? '', graduationYear: String(defaultGradYear), notes: '' }); setConvertOpen(true) }
+  const openConvert = () => { setCForm({ studentId: '', graduationYear: String(defaultGradYear), notes: '' }); setConvertOpen(true) }
   const selectedClass = cForm.studentId ? classOf(cForm.studentId) : undefined
   const convert = async () => {
     if (!cForm.studentId || !cForm.graduationYear) return
@@ -141,10 +114,10 @@ function DirectoryTab() {
           <option value="">All graduation years</option>
           {years.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
-        <button onClick={openConvert} disabled={convertible.length === 0} className={ghostBtn} title={convertible.length === 0 ? 'No unconverted students' : undefined}>
+        <button onClick={openConvert} disabled={!hasConvertible} className={ghostBtn} title={!hasConvertible ? 'No unconverted students' : undefined}>
           <UserPlus size={14} /> Convert student
         </button>
-        <button onClick={openAdd} className={primaryBtn}><Plus size={14} /> Add profile</button>
+        <button onClick={() => navigate('/portal/alumni/new')} className={primaryBtn}><Plus size={14} /> Add profile</button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -178,56 +151,24 @@ function DirectoryTab() {
                 {a.notes && <p className="text-[12.5px] text-black/45 dark:text-white/45">{a.notes}</p>}
               </div>
               <div className="mt-4 flex gap-2">
-                <button onClick={() => setEditing(a)} className={ghostBtn}><Pencil size={12} /> Edit</button>
+                <button onClick={() => navigate(`/portal/alumni/${a.id}/edit`)} className={ghostBtn}><Pencil size={12} /> Edit</button>
                 <button onClick={() => remove(a)} disabled={busy === a.id} className={dangerBtn}><Trash2 size={12} /></button>
               </div>
             </Card>
           ))}
       </div>
 
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add alumni profile" wide>
-        <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Name"><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className={inputCls} /></Field>
-            <Field label="Graduation year"><input type="number" value={form.graduationYear} onChange={e => setForm({ ...form, graduationYear: e.target.value })} className={inputCls} /></Field>
-            <Field label="Last class"><input value={form.lastClassLabel} onChange={e => setForm({ ...form, lastClassLabel: e.target.value })} placeholder="e.g. XII-A CBSE" className={inputCls} /></Field>
-            <Field label="Email"><input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className={inputCls} /></Field>
-            <Field label="Phone"><input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} className={inputCls} /></Field>
-            <Field label="Current occupation"><input value={form.currentOccupation} onChange={e => setForm({ ...form, currentOccupation: e.target.value })} className={inputCls} /></Field>
-            <Field label="Current organization"><input value={form.currentOrganization} onChange={e => setForm({ ...form, currentOrganization: e.target.value })} className={inputCls} /></Field>
-            <Field label="Current city"><input value={form.currentCity} onChange={e => setForm({ ...form, currentCity: e.target.value })} className={inputCls} /></Field>
-            <Field label="LinkedIn URL"><input value={form.linkedInUrl} onChange={e => setForm({ ...form, linkedInUrl: e.target.value })} className={inputCls} /></Field>
-          </div>
-          <Field label="Notes"><textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} className={inputCls} /></Field>
-          <button onClick={addProfile} disabled={busy === 'add' || !form.name.trim() || !form.graduationYear || !form.lastClassLabel.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy === 'add' ? 'Adding…' : 'Add profile'}</button>
-        </div>
-      </Modal>
-
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing ? editing.name : ''} wide>
-        {editing && (
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Email"><input type="email" value={editing.email ?? ''} onChange={e => setEditing({ ...editing, email: e.target.value })} className={inputCls} /></Field>
-              <Field label="Phone"><input value={editing.phone ?? ''} onChange={e => setEditing({ ...editing, phone: e.target.value })} className={inputCls} /></Field>
-              <Field label="Current occupation"><input value={editing.currentOccupation ?? ''} onChange={e => setEditing({ ...editing, currentOccupation: e.target.value })} className={inputCls} /></Field>
-              <Field label="Current organization"><input value={editing.currentOrganization ?? ''} onChange={e => setEditing({ ...editing, currentOrganization: e.target.value })} className={inputCls} /></Field>
-              <Field label="Current city"><input value={editing.currentCity ?? ''} onChange={e => setEditing({ ...editing, currentCity: e.target.value })} className={inputCls} /></Field>
-              <Field label="LinkedIn URL"><input value={editing.linkedInUrl ?? ''} onChange={e => setEditing({ ...editing, linkedInUrl: e.target.value })} className={inputCls} /></Field>
-            </div>
-            <Field label="Notes"><textarea value={editing.notes ?? ''} onChange={e => setEditing({ ...editing, notes: e.target.value })} rows={2} className={inputCls} /></Field>
-            <button onClick={saveEdit} disabled={busy === editing.id} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Save</button>
-          </div>
-        )}
-      </Modal>
-
       <Modal open={convertOpen} onClose={() => setConvertOpen(false)} title="Convert student to alumnus">
         <div className="space-y-4">
-          {convertible.length === 0 ? <Empty text="No students available to convert — every current student is already an alumnus, or there are no students yet." /> : (
+          {!hasConvertible ? <Empty text="No students available to convert — every current student is already an alumnus, or there are no students yet." /> : (
             <>
               <Field label="Student">
-                <select value={cForm.studentId} onChange={e => setCForm({ ...cForm, studentId: e.target.value })} className={inputCls}>
-                  {convertible.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+                <AsyncEntityPicker role="student" value={cForm.studentId}
+                  onChange={id => {
+                    if (id && convertedIds.has(id)) { toast.error('Already converted to an alumnus'); return }
+                    setCForm({ ...cForm, studentId: id })
+                  }}
+                  placeholder="Search students…" />
               </Field>
               <p className="text-[12.5px] text-black/45 dark:text-white/45">
                 {selectedClass ? `Currently enrolled in ${selectedClass.label} · ${selectedClass.boardCode}` : 'No active enrolment found — the profile will still be created.'}
@@ -247,8 +188,8 @@ function DirectoryTab() {
 /* ── Events & RSVPs ─────────────────────────────────────── */
 
 function EventsTab() {
+  const navigate = useNavigate()
   const events = useAlumniEvents()
-  const profiles = useAlumniProfiles({})
   const list = useMemo(() => [...(events.items ?? [])].sort((a, b) => b.date.localeCompare(a.date)), [events.items])
   const [busy, setBusy] = useState<string | null>(null)
 
@@ -269,8 +210,6 @@ function EventsTab() {
     try { await api.del(`/alumni/events/${ev.id}`); events.reload(); toast.success('Event deleted') }
     catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
   }
-
-  const [detail, setDetail] = useState<AlumniEvent | null>(null)
 
   return (
     <div>
@@ -294,7 +233,7 @@ function EventsTab() {
               </div>
               {ev.description && <p className="mt-3 text-[13px] leading-relaxed text-black/60 dark:text-white/60">{ev.description}</p>}
               <div className="mt-4 flex gap-2">
-                <button onClick={() => setDetail(ev)} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">RSVPs</button>
+                <button onClick={() => navigate(`/portal/alumni/events/${ev.id}/rsvps`)} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">RSVPs</button>
                 <button onClick={() => remove(ev)} disabled={busy === ev.id} className={dangerBtn}><Trash2 size={12} /></button>
               </div>
             </Card>
@@ -312,15 +251,11 @@ function EventsTab() {
           <button onClick={create} disabled={busy === 'create' || !form.title.trim() || !form.date} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy === 'create' ? 'Creating…' : 'Create event'}</button>
         </div>
       </Modal>
-
-      <Modal open={!!detail} onClose={() => setDetail(null)} title={detail ? `RSVPs · ${detail.title}` : ''} wide>
-        {detail && <EventRsvps event={detail} alumni={profiles.items ?? []} />}
-      </Modal>
     </div>
   )
 }
 
-function EventRsvps({ event, alumni }: { event: AlumniEvent; alumni: AlumniProfile[] }) {
+export function EventRsvps({ event, alumni }: { event: AlumniEvent; alumni: AlumniProfile[] }) {
   const rsvps = useAlumniEventRsvps(event.id)
   const list = useMemo(() => [...(rsvps.items ?? [])].sort((a, b) => b.respondedAt.localeCompare(a.respondedAt)), [rsvps.items])
   const nameOf = (id: string, fallback?: string) => fallback ?? alumni.find(a => a.id === id)?.name ?? id

@@ -1,17 +1,23 @@
-import { useMemo, useState } from 'react'
-import { Check, ChevronDown, ChevronRight, Download, Eye, EyeOff, Lock, LockOpen, Paperclip, Pencil, Plus, Save, Trash2, Unlock } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, Check, ChevronDown, ChevronRight, CloudOff, Download, Eye, EyeOff, Lock, LockOpen, Paperclip, Pencil, Plus, RefreshCw, Save, Trash2, Unlock, WifiOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
-import { api, downloadFile, errorMessage, uploadFile } from '@/lib/api'
+import { ApiError, api, downloadFile, errorMessage, uploadFile } from '@/lib/api'
 import { isAdmin } from '@/lib/access'
-import { compareClasses, type Assessment, type GradeScale, type HomeworkRec, type HomeworkSubmission, type SessionStatus, type StaffStatus } from '@/lib/data'
+import { compareClasses, type Assessment, type AssessmentClash, type GradeScale, type HomeworkRec, type HomeworkSubmission, type SessionStatus, type StaffStatus } from '@/lib/data'
 import { isoDate, sortedPeriods, useFetch, type TeacherTimetable } from '@/lib/hooks/useTimetable'
+import { useHomeworkLoad } from '@/lib/hooks/useAnalytics'
 import {
   SESSION_STATUSES, STAFF_STATUSES, STATUS_LABEL, STATUS_SOLID, bandsForClass, downloadCsv, fmtDate, gradeFromBands, termForDate,
   useAssessments, useClassStudents, useGradeScales, useHomework, useSessions, useStaffAttendance, useTeachableClassSubjects,
 } from '@/lib/hooks/useAcademics'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, TermTabs, inputCls, statusTone } from '../ui'
 import { useActiveTerm } from './viewer'
+import { useOnlineStatus, useAttendanceQueue } from '@/lib/hooks/useOfflineSync'
+import {
+  cacheSessionSnapshot, discardQueueItem, enqueueSubmission, forceSyncItem, getCachedSessionSnapshot, isNetworkFailure,
+  removeQueueItem, scopeKey, type QueuedRecord, type QueuedSubmission,
+} from '@/lib/offlineAttendance'
 
 // Teacher/office screens for Phase 3: attendance capture & management, the gradebook and homework authoring.
 // Re-exported from office.tsx so the Portal registry keeps importing from one place.
@@ -63,28 +69,96 @@ export function TakeAttendanceMod() {
 
   const sessions = useSessions(classId, date, date)
   const existing = sessions.items?.find(s => (s.periodIdx ?? null) === periodIdx)
-  const serverStatus = useMemo(() => new Map((existing?.records ?? []).map(r => [r.studentId, r.status])), [existing])
-  const locked = !!existing?.lockedAt
+
+  // ── Offline resilience (Phase 29B) ──────────────────────
+  // A dedicated IndexedDB scope key — distinct from the `scope` string below, which drives *local edits*
+  // and keys on the raw `period` picker value; this one keys on the resolved `periodIdx` and is what the
+  // offline queue/cache index on, since that's what the server endpoint actually addresses.
+  const offlineScope = scopeKey(classId, date, periodIdx)
+  const online = useOnlineStatus()
+  const { items: queue, sync: syncQueueNow } = useAttendanceQueue()
+  const queueItem = queue.find(q => q.classId === classId && q.date === date && q.periodIdx === periodIdx)
+  const pendingElsewhere = queue.filter(q => q !== queueItem && (q.status === 'pending' || q.status === 'error' || q.status === 'syncing'))
+
+  // Cache the roster + last-known server session whenever this scope loads successfully, so reopening the
+  // same class/date/period with no network still shows real data instead of a blank screen.
+  useEffect(() => {
+    if (sessions.loading || sessions.error || !classId || students.length === 0) return
+    cacheSessionSnapshot({
+      scope: offlineScope, classId, date, periodIdx,
+      students: students.map(s => ({ id: s.id, name: s.name, rollNo: s.rollNo, avatarHue: s.avatarHue })),
+      serverRecords: (existing?.records ?? []).map(r => ({ studentId: r.studentId, status: r.status })),
+      lockedAt: existing?.lockedAt, markedById: existing?.markedById,
+    }).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions.loading, sessions.error, classId, date, periodIdx, existing])
+
+  // When the session GET itself failed (most likely offline), fall back to the last cached snapshot for
+  // this exact scope so the teacher can still see (and re-mark) the roster instead of a blank screen.
+  const [cached, setCached] = useState<Awaited<ReturnType<typeof getCachedSessionSnapshot>>>(undefined)
+  const usingCache = !!sessions.error && !!cached
+  useEffect(() => {
+    let cancelled = false
+    if (!sessions.error) {
+      Promise.resolve().then(() => { if (!cancelled) setCached(undefined) })
+      return () => { cancelled = true }
+    }
+    getCachedSessionSnapshot(classId, date, periodIdx)
+      .then(c => { if (!cancelled) setCached(c) })
+      .catch(() => { if (!cancelled) setCached(undefined) })
+    return () => { cancelled = true }
+  }, [sessions.error, classId, date, periodIdx])
+
+  const effectiveStudents = usingCache && cached ? cached.students : students
+  const serverStatus = useMemo(() => {
+    if (usingCache && cached) return new Map(cached.serverRecords.map(r => [r.studentId, r.status]))
+    return new Map((existing?.records ?? []).map(r => [r.studentId, r.status]))
+  }, [existing, usingCache, cached])
+  const locked = usingCache && cached ? !!cached.lockedAt : !!existing?.lockedAt
 
   // Local edits overlay the saved session, scoped to class × date × period so a picker change never leaks a draft.
   const scope = `${classId}|${date}|${period}`
   const [edits, setEdits] = useState<{ scope: string; cells: Record<string, SessionStatus> }>({ scope, cells: {} })
   const cells = edits.scope === scope ? edits.cells : {}
+  // A not-yet-synced queued submission for this exact scope overlays the server/cached state too, so the
+  // screen keeps showing what the teacher actually marked while it's waiting to sync (and never reverts to
+  // whatever's on the server, or blank, in the meantime).
+  const queuedCells = useMemo(() => {
+    if (!queueItem || queueItem.status === 'synced') return new Map<string, SessionStatus>()
+    return new Map(queueItem.records.map(r => [r.studentId, r.status]))
+  }, [queueItem])
   const dirty = Object.keys(cells).length > 0
-  const statusOf = (id: string): SessionStatus => cells[id] ?? serverStatus.get(id) ?? 'P'
+  const statusOf = (id: string): SessionStatus => cells[id] ?? queuedCells.get(id) ?? serverStatus.get(id) ?? 'P'
   const setStatus = (id: string, s: SessionStatus) => setEdits({ scope, cells: { ...cells, [id]: s } })
-  const markAll = () => setEdits({ scope, cells: Object.fromEntries(students.map(s => [s.id, 'P' as SessionStatus])) })
-  const counts = students.reduce((acc, s) => { const st = statusOf(s.id); acc[st] = (acc[st] ?? 0) + 1; return acc }, {} as Partial<Record<SessionStatus, number>>)
+  const markAll = () => setEdits({ scope, cells: Object.fromEntries(effectiveStudents.map(s => [s.id, 'P' as SessionStatus])) })
+  const counts = effectiveStudents.reduce((acc, s) => { const st = statusOf(s.id); acc[st] = (acc[st] ?? 0) + 1; return acc }, {} as Partial<Record<SessionStatus, number>>)
+
+  const currentPeriodLabel = period === 'day' ? 'Whole day' : (periodOptions.find(p => String(p.idx) === period)?.label ?? `Period ${period}`)
 
   const [busy, setBusy] = useState<'save' | 'lock' | null>(null)
   const save = async () => {
     setBusy('save')
+    const records: QueuedRecord[] = effectiveStudents.map(s => ({ studentId: s.id, status: statusOf(s.id) }))
     try {
-      await api.post('/attendance/sessions', { classId, date, periodIdx: periodIdx ?? undefined, records: students.map(s => ({ studentId: s.id, status: statusOf(s.id) })) })
+      // Always try the network first — navigator.onLine can be wrong (a captive portal, a flaky VPN), so
+      // the only thing that decides "offline" here is whether this request itself fails to complete.
+      await api.post('/attendance/sessions', { classId, date, periodIdx: periodIdx ?? undefined, records })
       setEdits({ scope, cells: {} })
+      if (queueItem) await removeQueueItem(queueItem.id) // an earlier offline save for this scope is now superseded
       sessions.reload()
-      toast.success(`Attendance saved — ${counts.P ?? 0}/${students.length} present`)
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+      toast.success(`Attendance saved — ${counts.P ?? 0}/${records.length} present`)
+    } catch (e) {
+      if (isNetworkFailure(e)) {
+        await enqueueSubmission({
+          classId, classLabel: cls?.label ?? classId, date, periodIdx, periodLabel: currentPeriodLabel,
+          records, baseline: (existing?.records ?? []).map(r => ({ studentId: r.studentId, status: r.status })),
+        })
+        setEdits({ scope, cells: {} })
+        toast('Saved offline — will sync automatically when you\'re back online', { icon: '📴' })
+      } else {
+        toast.error(errorMessage(e))
+      }
+    } finally { setBusy(null) }
   }
   const lock = async () => {
     if (!existing) return
@@ -96,10 +170,14 @@ export function TakeAttendanceMod() {
     } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
   }
   const markedBy = existing ? db.users.find(u => u.id === existing.markedById)?.name : undefined
+  const hasSavedState = !!existing || (usingCache && !!cached)
+  const saveBtnLabel = busy === 'save' ? 'Saving…'
+    : queueItem && (queueItem.status === 'pending' || queueItem.status === 'error' || queueItem.status === 'syncing') && !dirty ? 'Save again'
+    : hasSavedState ? 'Save changes' : 'Save attendance'
 
   return (
     <div>
-      <PageHead title="Take Attendance" sub={cls ? `${cls.label} · ${students.length} students` : 'No class assigned to you yet'}>
+      <PageHead title="Take Attendance" sub={cls ? `${cls.label} · ${effectiveStudents.length} students` : 'No class assigned to you yet'}>
         <div className="flex flex-wrap items-center gap-2">
           {myClasses.length > 1 && (
             <select value={classId} onChange={e => setPicked(e.target.value)} className={`${inputCls} w-auto py-2 text-[13.5px]`} aria-label="Class">
@@ -114,21 +192,53 @@ export function TakeAttendanceMod() {
         </div>
       </PageHead>
 
+      {/* Persistent offline/sync indicators — never a toast-only signal (Phase 29B). */}
+      {(!online || pendingElsewhere.length > 0) && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-amber-300/50 bg-amber-50 dark:border-amber-500/25 dark:bg-amber-500/10 px-4 py-3 text-[13px] font-medium text-amber-800 dark:text-amber-300">
+          {!online && <span className="flex items-center gap-1.5"><WifiOff size={14} /> You're offline — attendance you save now is stored on this device and will sync automatically once you're back online.</span>}
+          {pendingElsewhere.length > 0 && (
+            <span className="flex items-center gap-1.5">
+              <CloudOff size={14} /> {pendingElsewhere.length} other session{pendingElsewhere.length > 1 ? 's' : ''} waiting to sync.
+            </span>
+          )}
+          <span className="flex-1" />
+          <button onClick={() => syncQueueNow()} className="flex items-center gap-1.5 rounded-full bg-white dark:bg-black/20 px-3 py-1.5 text-[12px] font-semibold shadow-sm hover:opacity-80">
+            <RefreshCw size={12} /> Sync now
+          </button>
+        </div>
+      )}
+      {usingCache && (
+        <div className="mb-4 flex items-center gap-2 rounded-2xl border border-sky-300/50 bg-sky-50 dark:border-sky-500/25 dark:bg-sky-500/10 px-4 py-2.5 text-[12.5px] font-medium text-sky-800 dark:text-sky-300">
+          <CloudOff size={13} /> Showing the last data saved on this device for {fmtDate(date)} — couldn't reach the server just now.
+        </div>
+      )}
+      {queueItem?.status === 'conflict' && (
+        <div className="mb-4 rounded-2xl border border-rose-300/60 bg-rose-50 dark:border-rose-500/30 dark:bg-rose-500/10 px-4 py-3.5">
+          <p className="flex items-center gap-2 text-[13px] font-semibold text-rose-700 dark:text-rose-300"><AlertTriangle size={15} /> Sync conflict</p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-rose-700/90 dark:text-rose-300/90">{queueItem.message ?? 'This session changed on the server before your offline changes could sync.'}</p>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            <button onClick={async () => { await forceSyncItem(queueItem.id); sessions.reload() }} className="rounded-full bg-rose-600 px-3.5 py-1.5 text-[12px] font-semibold text-white hover:bg-rose-700">Overwrite with my offline version</button>
+            <button onClick={async () => { await discardQueueItem(queueItem.id); sessions.reload() }} className="rounded-full border border-rose-300 dark:border-rose-500/40 px-3.5 py-1.5 text-[12px] font-semibold text-rose-700 dark:text-rose-300 hover:bg-rose-100/60 dark:hover:bg-rose-500/10">Discard my offline changes</button>
+          </div>
+        </div>
+      )}
+
       {myClasses.length === 0 ? <Empty text="No classes assigned to you yet. Ask the admin to assign you in Academic Setup." />
-        : students.length === 0 ? <Empty text={`No students enrolled in ${cls?.label ?? 'this class'} yet.`} />
+        : effectiveStudents.length === 0 ? <Empty text={sessions.error ? 'No cached data for this class yet — connect once online to enable offline attendance for it.' : `No students enrolled in ${cls?.label ?? 'this class'} yet.`} />
         : (
           <Card className="p-0">
             <div className="flex flex-wrap items-center gap-3 border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
-              <p className="text-[14px] font-semibold">{counts.P ?? 0} of {students.length} present</p>
+              <p className="text-[14px] font-semibold">{counts.P ?? 0} of {effectiveStudents.length} present</p>
               {(['A', 'L', 'E'] as SessionStatus[]).map(s => (counts[s] ?? 0) > 0 && <Pill key={s} tone={s === 'A' ? 'rose' : s === 'L' ? 'amber' : 'sky'}>{counts[s]} {STATUS_LABEL[s].toLowerCase()}</Pill>)}
               {sessions.loading ? <span className="text-[12.5px] text-black/40 dark:text-white/40">checking saved…</span>
                 : existing ? (locked ? <Pill tone="slate"><Lock size={11} /> Locked{markedBy ? ` · ${markedBy}` : ''}</Pill> : <Pill tone="green"><Check size={11} /> Saved{markedBy ? ` · ${markedBy}` : ''}</Pill>)
-                : <Pill tone="amber">Not taken yet</Pill>}
+                : !usingCache && <Pill tone="amber">Not taken yet</Pill>}
+              <QueueStatusPill item={queueItem} />
               {dirty && <Pill tone="rose">Unsaved</Pill>}
               <span className="flex-1" />
               <button onClick={markAll} disabled={locked} className="text-[12.5px] font-semibold text-indigo-600 hover:underline disabled:opacity-40">Mark all present</button>
             </div>
-            {students.map((s, i) => (
+            {effectiveStudents.map((s, i) => (
               <div key={s.id} className="flex items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3 last:border-0">
                 <span className="w-7 text-[13px] font-semibold text-black/35 dark:text-white/35">{s.rollNo ?? i + 1}</span>
                 <Avatar name={s.name} hue={s.avatarHue} size={34} />
@@ -137,8 +247,8 @@ export function TakeAttendanceMod() {
               </div>
             ))}
             <div className="flex flex-wrap gap-3 p-5">
-              <button onClick={save} disabled={locked || !!busy || (!!existing && !dirty)} className="btn-ink flex flex-1 items-center justify-center gap-2 py-3.5 text-[14.5px] font-semibold disabled:opacity-40">
-                <Save size={16} /> {busy === 'save' ? 'Saving…' : existing ? 'Save changes' : 'Save attendance'}
+              <button onClick={save} disabled={locked || !!busy || (hasSavedState && !dirty && !queueItem)} className="btn-ink flex flex-1 items-center justify-center gap-2 py-3.5 text-[14.5px] font-semibold disabled:opacity-40">
+                <Save size={16} /> {saveBtnLabel}
               </button>
               {existing && !locked && (
                 <button onClick={lock} disabled={!!busy || dirty} title={dirty ? 'Save first' : 'Lock this session'} className={ghostBtn}><Lock size={14} /> Lock</button>
@@ -149,6 +259,20 @@ export function TakeAttendanceMod() {
         )}
     </div>
   )
+}
+
+/** Per-session sync-state pill next to the "Saved"/"Locked" pill — the persistent, never-missable signal
+ *  the spec asks for (as opposed to a toast, which can be missed). */
+function QueueStatusPill({ item }: { item?: QueuedSubmission }) {
+  if (!item) return null
+  switch (item.status) {
+    case 'pending': return <Pill tone="sky"><CloudOff size={11} /> Saved offline — will sync</Pill>
+    case 'syncing': return <Pill tone="sky"><RefreshCw size={11} className="animate-spin" /> Syncing…</Pill>
+    case 'synced': return <Pill tone="green"><Check size={11} /> Synced</Pill>
+    case 'error': return <Pill tone="rose"><AlertTriangle size={11} /> Sync failed — will retry</Pill>
+    case 'conflict': return <Pill tone="rose"><AlertTriangle size={11} /> Conflict — needs review</Pill>
+    default: return null
+  }
 }
 
 /* ── Staff / admin: attendance management ──────────────── */
@@ -378,12 +502,16 @@ export function GradebookMod() {
 
   // add / edit assessment
   const [editing, setEditing] = useState<{ id?: string; form: AssessmentForm } | null>(null)
-  const openNew = () => setEditing({ form: emptyAssessment() })
-  const openEdit = (a: Assessment) => setEditing({ id: a.id, form: { name: a.name, maxMarks: String(a.maxMarks), weight: String(a.weight ?? 1), date: a.date ?? '' } })
+  const openNew = () => { setEditing({ form: emptyAssessment() }); setClashes([]) }
+  const openEdit = (a: Assessment) => { setEditing({ id: a.id, form: { name: a.name, maxMarks: String(a.maxMarks), weight: String(a.weight ?? 1), date: a.date ?? '' } }); setClashes([]) }
   const formOk = !!editing && editing.form.name.trim() !== '' && Number(editing.form.maxMarks) > 0 && Number(editing.form.weight) > 0
+  // Phase 25 item 5 — scheduling a date onto an assessment can clash with another elective a student is
+  // enrolled in; the server answers 409 + `conflicts[]`, same shape the timetable builder already uses.
+  const [clashes, setClashes] = useState<AssessmentClash[]>([])
   const submitForm = async () => {
     if (!editing || !formOk || !csId) return
     setBusy('form')
+    setClashes([])
     const body = { name: editing.form.name.trim(), maxMarks: Number(editing.form.maxMarks), weight: Number(editing.form.weight), date: editing.form.date || undefined }
     try {
       if (editing.id) await api.patch(`/assessments/${editing.id}`, body)
@@ -391,8 +519,19 @@ export function GradebookMod() {
       setEditing(null)
       reload()
       toast.success(editing.id ? 'Assessment updated' : 'Assessment added')
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+    } catch (e) {
+      const conflictBody = e instanceof ApiError && e.status === 409 ? (e.body as { conflicts?: AssessmentClash[] } | undefined) : undefined
+      if (conflictBody?.conflicts?.length) {
+        setClashes(conflictBody.conflicts)
+        toast.error(`${conflictBody.conflicts.length} elective clash${conflictBody.conflicts.length === 1 ? '' : 'es'} — nothing was saved`)
+      } else {
+        toast.error(errorMessage(e))
+      }
+    } finally { setBusy(null) }
   }
+  // The whole roster is nominally sitting both electives (no per-student elective-selection model), so the
+  // clash is reported per elective class-subject rather than per student.
+  const clashText = (c: AssessmentClash) => `Clashes with the ${c.subjectName} paper already scheduled on ${c.date} — every student in this class taking both electives is affected.`
 
   // weighted aggregate per student over assessments that have a score
   const aggregate = (sId: string) => {
@@ -503,7 +642,7 @@ export function GradebookMod() {
 
       {isAdmin(user) && <GradeScales scales={scales ?? []} reload={reloadScales} />}
 
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing?.id ? 'Edit assessment' : `New assessment · ${row?.label ?? ''}`}>
+      <Modal open={!!editing} onClose={() => { setEditing(null); setClashes([]) }} title={editing?.id ? 'Edit assessment' : `New assessment · ${row?.label ?? ''}`}>
         {editing && (
           <div className="space-y-4">
             <Field label="Name"><input value={editing.form.name} onChange={e => setEditing({ ...editing, form: { ...editing.form, name: e.target.value } })} placeholder="e.g. Unit Test 1" className={inputCls} autoFocus /></Field>
@@ -513,9 +652,17 @@ export function GradebookMod() {
               <Field label="Date"><input type="date" value={editing.form.date} onChange={e => setEditing({ ...editing, form: { ...editing.form, date: e.target.value } })} className={inputCls} /></Field>
             </div>
             <p className="text-[12.5px] text-black/50 dark:text-white/50">Weight scales this assessment's share of the term aggregate (1 = equal to the others).</p>
+            {clashes.length > 0 && (
+              <div className="rounded-2xl border border-rose-200 dark:border-rose-500/30 bg-rose-50/70 dark:bg-rose-500/10 p-3.5">
+                <p className="flex items-center gap-2 text-[13px] font-semibold text-rose-700 dark:text-rose-300"><AlertTriangle size={14} /> Nothing was saved — this date clashes with another elective</p>
+                <ul className="mt-2 space-y-1 text-[12.5px] text-rose-700/90 dark:text-rose-300/90">
+                  {clashes.map((c, i) => <li key={i}>• {clashText(c)}</li>)}
+                </ul>
+              </div>
+            )}
             <div className="flex gap-3 pt-2">
               <button onClick={submitForm} disabled={!formOk || busy === 'form'} className="btn-ink flex-1 py-3 text-[14px] font-semibold disabled:opacity-40">{busy === 'form' ? 'Saving…' : editing.id ? 'Save' : 'Add'}</button>
-              <button onClick={() => setEditing(null)} className="rounded-xl bg-black/[.05] dark:bg-white/[.07] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">Cancel</button>
+              <button onClick={() => { setEditing(null); setClashes([]) }} className="rounded-xl bg-black/[.05] dark:bg-white/[.07] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">Cancel</button>
             </div>
           </div>
         )}
@@ -622,6 +769,13 @@ export function CreateAssignmentMod() {
   const [files, setFiles] = useState<File[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const canPost = !!row && !!title.trim() && !!due && !!term
+
+  // Phase 19 item 4 — homework load regulation: warn (don't block) when other subjects already have
+  // homework due the same day for this class, mirroring the Timetable Builder's teacher-workload warning
+  // banner convention (see timetableBuilder.tsx's `effectiveTeacherLoad?.overThreshold` banner).
+  const { data: homeworkLoad } = useHomeworkLoad(row?.cls.id, due, !!row?.cls.id && !!due)
+  const otherSubjectLoad = useMemo(() => (homeworkLoad?.items ?? []).filter(i => i.subjectId !== row?.cs.subjectId), [homeworkLoad, row?.cs.subjectId])
+
   const create = async () => {
     if (!canPost || !row) return
     setBusy('create')
@@ -676,6 +830,12 @@ export function CreateAssignmentMod() {
               <Field label="Title"><input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Circle theorems — worksheet 3" className={inputCls} /></Field>
               <Field label="Instructions"><textarea value={desc} onChange={e => setDesc(e.target.value)} rows={3} className={inputCls} /></Field>
               <Field label="Due date"><input type="date" value={due} onChange={e => setDue(e.target.value)} className={inputCls} /></Field>
+              {otherSubjectLoad.length > 0 && (
+                <div className="flex items-start gap-2 rounded-2xl border border-amber-200 dark:border-amber-500/30 bg-amber-50/70 dark:bg-amber-500/10 p-3.5 text-[12.5px] text-amber-800 dark:text-amber-300">
+                  <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                  <span>{otherSubjectLoad.length} other subject{otherSubjectLoad.length === 1 ? '' : 's'} already {otherSubjectLoad.length === 1 ? 'has' : 'have'} homework due this day for {row?.cls.label}: {otherSubjectLoad.map(i => i.subjectName).join(', ')}.</span>
+                </div>
+              )}
               <label className="flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-black/15 dark:border-white/15 py-6 text-black/40 dark:text-white/40 hover:border-indigo-300 hover:text-indigo-500">
                 <Paperclip size={22} />
                 <span className="mt-2 text-[13px] font-medium">{files.length ? files.map(f => f.name).join(', ') : 'Attach files (pdf, docx, xlsx, images · ≤ 10 MB each)'}</span>

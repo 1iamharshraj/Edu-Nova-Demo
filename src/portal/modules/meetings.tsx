@@ -5,6 +5,7 @@ import { useStore } from '@/lib/store'
 import { api, errorMessage } from '@/lib/api'
 import type { MeetingRec } from '@/lib/data'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
 import { useViewedStudents } from './viewer'
 import { MEETING_STATUSES, fmtDayTime, meetingTone, nowLocal, useMeetings } from '@/lib/hooks/useComms'
 
@@ -28,12 +29,11 @@ export function MeetingsMod() {
 
   // eligible "with" people, per the model (`withUserId` a teacher or admin): a teacher requester meets an
   // admin (another teacher can't decide a teacher's request); parents/students meet a teacher or admin.
-  const withOptions = useMemo(() => {
-    const pool = role === 'teacher'
-      ? db.users.filter(u => u.role === 'admin' || u.role === 'superadmin')
-      : db.users.filter(u => u.role === 'teacher' || u.role === 'admin' || u.role === 'superadmin')
-    return pool.filter(u => u.id !== user?.id)
-  }, [db.users, user?.id, role])
+  // AsyncEntityPicker replaces the old whole-school flat select (Phase B, see ui-architecture-fix.md) — the
+  // role pool below still gates who's searchable, and `hasWithOptions` is a cheap existence check (not a
+  // full-roster render) reused only to disable the "New request" trigger when nobody's eligible at all.
+  const withRoles = useMemo(() => (role === 'teacher' ? (['admin', 'superadmin'] as const) : (['teacher', 'admin', 'superadmin'] as const)), [role])
+  const hasWithOptions = useMemo(() => db.users.some(u => (withRoles as readonly string[]).includes(u.role)), [db.users, withRoles])
   const wards = useViewedStudents()
   const needsStudent = role === 'parent' || role === 'student'
 
@@ -46,7 +46,7 @@ export function MeetingsMod() {
 
   const openNew = () => {
     setPurpose(''); setScheduledAt(nowLocal())
-    setWithUserId(withOptions[0]?.id ?? '')
+    setWithUserId('')
     setStudentId(wards[0]?.id ?? '')
     setOpen(true)
   }
@@ -82,7 +82,7 @@ export function MeetingsMod() {
     <div>
       <PageHead title="Meetings" sub="Request and manage video meetings">
         {isRequester && (
-          <button onClick={openNew} disabled={withOptions.length === 0} className="btn-ink flex items-center gap-2 px-4 py-2 text-[13.5px] font-semibold disabled:opacity-40">
+          <button onClick={openNew} disabled={!hasWithOptions} className="btn-ink flex items-center gap-2 px-4 py-2 text-[13.5px] font-semibold disabled:opacity-40">
             <Plus size={15} /> New request
           </button>
         )}
@@ -140,10 +140,7 @@ export function MeetingsMod() {
           </Field>
           <div className={`grid gap-4 ${needsStudent ? 'sm:grid-cols-2' : ''}`}>
             <Field label={role === 'teacher' ? 'Meet with (admin)' : 'Meet with (teacher or admin)'}>
-              <select value={withUserId} onChange={e => setWithUserId(e.target.value)} className={inputCls}>
-                {withOptions.length === 0 && <option value="">No one available</option>}
-                {withOptions.map(t => <option key={t.id} value={t.id}>{t.name}{t.role !== 'teacher' ? ' (Admin)' : ''}</option>)}
-              </select>
+              <AsyncEntityPicker role={[...withRoles]} value={withUserId} onChange={id => setWithUserId(id)} placeholder="Search…" />
             </Field>
             {needsStudent && (
               <Field label="About">

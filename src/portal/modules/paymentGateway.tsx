@@ -151,7 +151,7 @@ export function PaymentGatewayMod() {
                     <ReceiptIcon size={18} />
                   </span>
                   <div className="min-w-48 flex-1">
-                    <p className="text-[14.5px] font-semibold">{invoiceLabel(r)}</p>
+                    <p className="text-[14.5px] font-semibold">{invoiceLabel(r)}{r.installmentLabel ? <span className="ml-2 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">Installment · {r.installmentLabel}</span> : null}</p>
                     <p className="text-[12.5px] text-black/45 dark:text-white/45">{r.invoiceNo} · due {fmtDate(r.dueDate, { day: 'numeric', month: 'short', year: 'numeric' })}{r.concession > 0 ? ` · concession ${fmtINR(r.concession)}` : ''}</p>
                   </div>
                   <div className="text-right">

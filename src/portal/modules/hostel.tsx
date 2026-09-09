@@ -3,7 +3,7 @@ import {
   BedDouble, Building2, ChevronDown, ChevronRight, DoorOpen, MapPin, Pencil, Phone, Plus, ShieldCheck, Trash2, UserPlus, Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { useAcademic, useStore } from '@/lib/store'
+import { useStore } from '@/lib/store'
 import { api, errorMessage } from '@/lib/api'
 import type { HostelAllocationRec, HostelBedRec, HostelRec, HostelRoomRec, HostelType } from '@/lib/data'
 import { fmtDate } from '@/lib/hooks/useAcademics'
@@ -13,6 +13,7 @@ import {
   useHostelAllocations, useHostelBeds, useHostelRooms, useHostels, useMyHostel,
 } from '@/lib/hooks/useHostel'
 import { Card, Empty, Field, Modal, PageHead, Pill, Progress, inputCls } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
 import { SearchableUserPicker } from './employee'
 import { WardPicker } from './academics'
 import { firstName, useWard } from './viewer'
@@ -91,16 +92,8 @@ function AllocateModal({ open, onClose, target, availableBeds, onDone }: {
   availableBeds: AllocateTarget[]
   onDone: () => void
 }) {
-  const { db } = useStore()
-  const { classOf } = useAcademic()
   const allocations = useHostelAllocations({ status: 'Active' })
   const allocatedIds = useMemo(() => new Set((allocations.items ?? []).map(a => a.studentId)), [allocations.items])
-  const students = useMemo(
-    () => db.users.filter(u => u.role === 'student' && !allocatedIds.has(u.id))
-      .map(s => ({ ...s, name: classOf(s.id) ? `${s.name} — ${classOf(s.id)!.label}` : s.name }))
-      .sort((a, b) => a.name.localeCompare(b.name)),
-    [db.users, allocatedIds, classOf],
-  )
   const [studentId, setStudentId] = useState('')
   const [bedId, setBedId] = useState('')
   const [checkInDate, setCheckInDate] = useState(todayIso())
@@ -113,6 +106,7 @@ function AllocateModal({ open, onClose, target, availableBeds, onDone }: {
 
   const save = async () => {
     if (!studentId || !effectiveBedId) return
+    if (allocatedIds.has(studentId)) { toast.error('This student already has an active hostel allocation'); return }
     setBusy(true)
     try {
       await api.post('/hostel/allocations', { studentId, bedId: effectiveBedId, checkInDate, notes: notes.trim() || undefined })
@@ -125,11 +119,11 @@ function AllocateModal({ open, onClose, target, availableBeds, onDone }: {
     <Modal open={open} onClose={close} title={target ? `Allocate ${target.roomNumber} · Bed ${target.bed.bedLabel}` : 'Allocate a student'} wide>
       <div className="space-y-4">
         <Field label="Student">
-          <select value={studentId} onChange={e => setStudentId(e.target.value)} className={inputCls}>
-            <option value="">Select student</option>
-            {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          <AsyncEntityPicker role="student" value={studentId} onChange={id => setStudentId(id)} placeholder="Search student…" />
         </Field>
+        {studentId && allocatedIds.has(studentId) && (
+          <p className="text-[12.5px] text-rose-500">This student already has an active hostel allocation.</p>
+        )}
         {!target && (
           <Field label="Bed">
             <select value={bedId} onChange={e => setBedId(e.target.value)} className={inputCls}>
@@ -142,8 +136,7 @@ function AllocateModal({ open, onClose, target, availableBeds, onDone }: {
           <Field label="Check-in date"><input type="date" value={checkInDate} onChange={e => setCheckInDate(e.target.value)} className={inputCls} /></Field>
         </div>
         <Field label="Notes"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Optional" className={inputCls} /></Field>
-        {students.length === 0 && <p className={muted}>Every student already has an active hostel allocation.</p>}
-        <FormActions onCancel={close} onSave={save} label="Allocate" disabled={!studentId || !effectiveBedId || busy} />
+        <FormActions onCancel={close} onSave={save} label="Allocate" disabled={!studentId || !effectiveBedId || busy || allocatedIds.has(studentId)} />
       </div>
     </Modal>
   )

@@ -1,4 +1,7 @@
-import { Download, FileText, HeartPulse, Phone, TrendingUp, Users } from 'lucide-react'
+import { useState } from 'react'
+import { useNavigate } from 'react-router'
+import { AlertTriangle, Download, FileText, HeartPulse, Phone, Sparkles, TrendingUp, Users } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   fmtINR, type AchievementRec, type AttendanceSummary, type CallLogRec, type DisciplinaryCaseRec,
   type HealthRecordRec, type ReportCard,
@@ -7,6 +10,8 @@ import { errorMessage } from '@/lib/api'
 import { useOne } from '@/lib/hooks/useAcademics'
 import { useCertificates } from '@/lib/hooks/useIdentity'
 import { downloadPath } from '@/lib/api'
+import { useAcademic, useStore } from '@/lib/store'
+import { isStaffOrAdmin } from '@/lib/access'
 import { Card, Empty, PageHead, Pill, Progress } from '../ui'
 
 interface DossierMeeting { id: string; purpose: string; scheduledAt: string; status: string }
@@ -39,8 +44,21 @@ const statusTone = (s: string) => {
 }
 
 export function StudentReportMod({ studentId }: StudentReportModProps) {
+  const { user } = useStore()
+  const navigate = useNavigate()
+  const { currentTerm } = useAcademic()
   const { data: dossier, error, loading } = useOne<StudentDossier>(`/reports/student/${encodeURIComponent(studentId)}`)
   const { items: certificates } = useCertificates(studentId)
+  const canViewPortfolio = isStaffOrAdmin(user) || user?.role === 'teacher'
+  const [hallTicketBusy, setHallTicketBusy] = useState(false)
+  const downloadHallTicket = async () => {
+    if (!currentTerm) return
+    setHallTicketBusy(true)
+    try {
+      const name = (dossier?.profile.name ?? studentId).replace(/\s+/g, '_')
+      await downloadPath(`/exams/hall-ticket/${encodeURIComponent(studentId)}?termId=${encodeURIComponent(currentTerm.id)}`, `Hall-Ticket-${name}.pdf`)
+    } catch (e) { toast.error(errorMessage(e)) } finally { setHallTicketBusy(false) }
+  }
 
   if (loading) {
     return (
@@ -65,6 +83,8 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
   const attPct = attendance && attendance.overall.total > 0 ? Math.round(attendance.overall.pct) : 0
   const rc = dossier.reportCard
   const myRank = dossier.ranks?.items.find(r => r.studentId === studentId)
+
+  const allergies = dossier.health.filter(h => h.kind === 'Allergy')
 
   const feeTotal = dossier.invoices.reduce((a, i) => a + i.total, 0)
   const feePaid = dossier.invoices.reduce((a, i) => a + i.paid, 0)
@@ -121,9 +141,19 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
   return (
     <div className="space-y-5">
       <PageHead title="Student Profile Report" sub={`${student.name} · comprehensive dossier`}>
-        <button onClick={downloadTxt} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
-          <Download size={15} /> Download report
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5">
+          {canViewPortfolio && (
+            <button onClick={() => navigate(`/portal/students/${encodeURIComponent(studentId)}/portfolio`)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
+              <Sparkles size={15} /> View Portfolio
+            </button>
+          )}
+          <button onClick={downloadHallTicket} disabled={hallTicketBusy || !currentTerm} title={currentTerm ? undefined : 'No current term set'} className="flex items-center gap-2 rounded-full border border-black/10 dark:border-white/15 px-5 py-2.5 text-[13.5px] font-semibold hover:bg-black/[.04] dark:hover:bg-white/[.06] disabled:opacity-40">
+            <Download size={15} /> {hallTicketBusy ? 'Preparing…' : 'Download Hall Ticket'}
+          </button>
+          <button onClick={downloadTxt} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
+            <Download size={15} /> Download report
+          </button>
+        </div>
       </PageHead>
 
       {/* profile */}
@@ -138,6 +168,15 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
             {dossier.ranks?.classLabel && <div className="mt-3 flex flex-wrap gap-2"><Pill tone="sky">{dossier.ranks.classLabel}</Pill></div>}
           </div>
         </div>
+        {allergies.length > 0 && (
+          <div className="mt-4 flex items-start gap-3 rounded-2xl border border-rose-200 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 p-4">
+            <AlertTriangle size={18} className="mt-0.5 shrink-0 text-rose-500" />
+            <div>
+              <p className="text-[13.5px] font-semibold text-rose-700 dark:text-rose-400">Allergy alert</p>
+              <p className="mt-0.5 text-[12.5px] text-rose-700/80 dark:text-rose-300/80">{allergies.map(a => a.title).join(' · ')}</p>
+            </div>
+          </div>
+        )}
       </Card>
 
       {/* attendance */}

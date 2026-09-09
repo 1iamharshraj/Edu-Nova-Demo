@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
-import { Briefcase, Check, Download, FileBadge, FileText, Pencil, Plus, ScrollText, Trash2 } from 'lucide-react'
+import { useNavigate } from 'react-router'
+import { Briefcase, Check, ClipboardList, Download, FileBadge, FileText, Pencil, Plus, ScrollText, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { useStore } from '@/lib/store'
+import { useAcademic, useStore } from '@/lib/store'
 import { api, downloadPath, errorMessage } from '@/lib/api'
 import type { ContractRec, Duty, LeaveRequest, LeaveRequestStatus, LeaveType, ResignationRec } from '@/lib/data'
 import { fmtDate } from '@/lib/hooks/useAcademics'
@@ -11,7 +12,9 @@ import {
   LEAVE_APPLIES_TO, LEAVE_STATUSES, MIN_NOTICE_DAYS, contractRecTone, countLeaveDays, leaveTone, leaveTypeName,
   noticeShortfallDays, useContracts, useDuties, useLeaveBalance, useLeaveRequests, useLeaveTypes, useResignations,
 } from '@/lib/hooks/useHr'
+import { invigilationTone, useInvigilationDuties } from '@/lib/hooks/useExams'
 import { Card, Empty, Field, Modal, PageHead, Pill, inputCls, statusTone } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
 
 // Phase 6 HR screens: leave types (admin), my leave (teacher/staff), leave approvals (teacher over students,
 // staff/admin over staff), my contract + resignation (employee), contracts & resignations (admin), duties.
@@ -404,6 +407,7 @@ export function MyContractMod() {
 /* ── Admin: Contracts & Resignations ───────────────────── */
 
 export function ContractsResignationsAdminMod() {
+  const navigate = useNavigate()
   const employees = useEmployees()
   const [tab, setTab] = useState<'contracts' | 'resignations'>('contracts')
   const contracts = useContracts({}, tab === 'contracts')
@@ -417,32 +421,6 @@ export function ContractsResignationsAdminMod() {
   )
   const resignationList = useMemo(() => [...(resignations.items ?? [])].sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)), [resignations.items])
 
-  const [creating, setCreating] = useState(false)
-  const [form, setForm] = useState({ userId: '', designation: '', department: '', startDate: isoDate(new Date()), endDate: '', terms: '' })
-  const openCreate = () => { setForm({ userId: employees[0]?.id ?? '', designation: '', department: '', startDate: isoDate(new Date()), endDate: '', terms: '' }); setCreating(true) }
-  const createContract = async () => {
-    setBusy('create')
-    try {
-      await api.post('/hr/contracts', {
-        userId: form.userId, designation: form.designation.trim(), department: form.department.trim() || undefined,
-        startDate: form.startDate, endDate: form.endDate || undefined, terms: form.terms.trim(),
-      })
-      setCreating(false); contracts.reload(); toast.success('Contract created')
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
-  }
-
-  const [editing, setEditing] = useState<ContractRec | null>(null)
-  const saveEdit = async () => {
-    if (!editing) return
-    setBusy(editing.id)
-    try {
-      await api.patch(`/hr/contracts/${editing.id}`, {
-        designation: editing.designation, department: editing.department || undefined,
-        startDate: editing.startDate, endDate: editing.endDate || undefined, terms: editing.terms,
-      })
-      setEditing(null); contracts.reload(); toast.success('Contract updated')
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
-  }
   const signAsAdmin = async (c: ContractRec) => {
     setBusy(c.id)
     try { await api.post(`/hr/contracts/${c.id}/sign`); contracts.reload(); toast.success('Contract signed') }
@@ -477,7 +455,7 @@ export function ContractsResignationsAdminMod() {
       <PageHead title="Contracts & Resignations" sub="Manage employment contracts and approve exit requests">
         <div className="flex items-center gap-2">
           <SegTabs value={tab} onChange={setTab} options={[{ id: 'contracts', label: 'Contracts' }, { id: 'resignations', label: 'Resignations' }]} />
-          {tab === 'contracts' && <button onClick={openCreate} disabled={employees.length === 0} className={primaryBtn}><Plus size={13} /> New contract</button>}
+          {tab === 'contracts' && <button onClick={() => navigate('/portal/hr/contracts/new')} disabled={employees.length === 0} className={primaryBtn}><Plus size={13} /> New contract</button>}
         </div>
       </PageHead>
 
@@ -504,7 +482,7 @@ export function ContractsResignationsAdminMod() {
                   <span>Admin {c.adminSignedAt ? `signed ${fmtDate(c.adminSignedAt)}` : 'not signed'}</span>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  {c.status === 'Draft' && <button onClick={() => setEditing(c)} disabled={busy === c.id} className={ghostBtn}><Pencil size={12} /> Edit</button>}
+                  {c.status === 'Draft' && <button onClick={() => navigate(`/portal/hr/contracts/${c.id}`)} disabled={busy === c.id} className={ghostBtn}><Pencil size={12} /> Edit</button>}
                   {!c.adminSignedAt && c.status !== 'Ended' && <button onClick={() => signAsAdmin(c)} disabled={busy === c.id} className={primaryBtn}><Check size={12} /> Sign</button>}
                   {c.status === 'Active' && <button onClick={() => { setEnding(c); setEndReason('') }} disabled={busy === c.id} className={dangerBtn}>End contract</button>}
                   <button onClick={() => download(c)} className={ghostBtn}><Download size={12} /> PDF</button>
@@ -535,39 +513,6 @@ export function ContractsResignationsAdminMod() {
             ))}
         </div>
       )}
-
-      <Modal open={creating} onClose={() => setCreating(false)} title="New contract" wide>
-        <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Employee">
-              <select value={form.userId} onChange={e => setForm({ ...form, userId: e.target.value })} className={inputCls}>
-                {employees.map(e => <option key={e.id} value={e.id}>{e.name} · {e.role}</option>)}
-              </select>
-            </Field>
-            <Field label="Designation"><input value={form.designation} onChange={e => setForm({ ...form, designation: e.target.value })} className={inputCls} /></Field>
-            <Field label="Department"><input value={form.department} onChange={e => setForm({ ...form, department: e.target.value })} className={inputCls} /></Field>
-            <Field label="Start date"><input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} className={inputCls} /></Field>
-            <Field label="End date (optional)"><input type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} className={inputCls} /></Field>
-          </div>
-          <Field label="Terms"><textarea value={form.terms} onChange={e => setForm({ ...form, terms: e.target.value })} rows={4} placeholder="Notice period, leave policy, confidentiality clauses…" className={inputCls} /></Field>
-          <button onClick={createContract} disabled={busy === 'create' || !form.userId || !form.designation.trim() || !form.terms.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Create draft</button>
-        </div>
-      </Modal>
-
-      <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit contract" wide>
-        {editing && (
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Designation"><input value={editing.designation} onChange={e => setEditing({ ...editing, designation: e.target.value })} className={inputCls} /></Field>
-              <Field label="Department"><input value={editing.department ?? ''} onChange={e => setEditing({ ...editing, department: e.target.value })} className={inputCls} /></Field>
-              <Field label="Start date"><input type="date" value={editing.startDate} onChange={e => setEditing({ ...editing, startDate: e.target.value })} className={inputCls} /></Field>
-              <Field label="End date"><input type="date" value={editing.endDate ?? ''} onChange={e => setEditing({ ...editing, endDate: e.target.value })} className={inputCls} /></Field>
-            </div>
-            <Field label="Terms"><textarea value={editing.terms} onChange={e => setEditing({ ...editing, terms: e.target.value })} rows={4} className={inputCls} /></Field>
-            <button onClick={saveEdit} disabled={busy === editing.id} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Save contract</button>
-          </div>
-        )}
-      </Modal>
 
       <Modal open={!!ending} onClose={() => setEnding(null)} title="End contract">
         {ending && (
@@ -609,9 +554,23 @@ export function DutiesMod({ manage = false }: { manage?: boolean }) {
   const nameOf = (id?: string | null, fallback?: string) => fallback ?? employees.find(e => e.id === id)?.name ?? 'Unassigned'
   const [busy, setBusy] = useState<string | null>(null)
 
+  // Phase 25 item 2 — "My Invigilation Duties" folds into this screen rather than a separate nav item.
+  // The server's serializeDuty carries only bare ids (no name decorations) — resolve the room from the
+  // rooms the caller already has loaded; the assessment has no single-GET endpoint, so it's left unnamed.
+  const { rooms } = useAcademic()
+  const roomName = (id: string) => rooms.find(r => r.id === id)?.name ?? id
+  const myInvigilations = useInvigilationDuties({ teacherId: user?.id }, !manage && !!user)
+  const invigilationList = useMemo(() => [...(myInvigilations.items ?? [])].sort((a, b) => a.date.localeCompare(b.date)), [myInvigilations.items])
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const confirmInvigilation = async (id: string) => {
+    setConfirmingId(id)
+    try { await api.post(`/exams/invigilation/${id}/confirm`); myInvigilations.reload(); toast.success('Duty confirmed') }
+    catch (e) { toast.error(errorMessage(e)) } finally { setConfirmingId(null) }
+  }
+
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState({ title: '', eventTitle: '', eventDate: isoDate(new Date()), assigneeId: '' })
-  const openCreate = () => { setForm({ title: '', eventTitle: '', eventDate: isoDate(new Date()), assigneeId: employees[0]?.id ?? '' }); setOpen(true) }
+  const openCreate = () => { setForm({ title: '', eventTitle: '', eventDate: isoDate(new Date()), assigneeId: '' }); setOpen(true) }
   const create = async () => {
     setBusy('create')
     try {
@@ -671,16 +630,40 @@ export function DutiesMod({ manage = false }: { manage?: boolean }) {
             </Card>
           ))}
       </div>
+
+      {!manage && (
+        <div className="mt-6">
+          <p className="mb-3 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><ClipboardList size={15} /> My Invigilation Duties</p>
+          <div className="grid gap-4 md:grid-cols-2">
+            {myInvigilations.loading ? <div className="md:col-span-2">{loadingRow('Loading invigilation duties…')}</div>
+              : myInvigilations.error ? <div className="md:col-span-2"><Empty text={myInvigilations.error} /></div>
+              : invigilationList.length === 0 ? <div className="md:col-span-2"><Empty text="No exam invigilation duties assigned to you yet." /></div>
+              : invigilationList.map(d => (
+                <Card key={d.id} className="flex items-center gap-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[14.5px] font-semibold">Exam invigilation</p>
+                    <p className="text-[12.5px] text-black/45 dark:text-white/45">{fmtDate(d.date)} · {roomName(d.roomId)}</p>
+                  </div>
+                  <Pill tone={invigilationTone(d.status)}>{d.status}</Pill>
+                  {d.status === 'Assigned' && (
+                    <button onClick={() => confirmInvigilation(d.id)} disabled={confirmingId === d.id} className="flex items-center gap-1.5 rounded-full bg-emerald-600 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">
+                      <Check size={13} /> {confirmingId === d.id ? 'Confirming…' : 'Confirm'}
+                    </button>
+                  )}
+                </Card>
+              ))}
+          </div>
+        </div>
+      )}
+
       <Modal open={open} onClose={() => setOpen(false)} title="Assign duty">
         <div className="space-y-4">
           <Field label="Duty"><input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Stage lights coordination" className={inputCls} /></Field>
           <Field label="Event"><input value={form.eventTitle} onChange={e => setForm({ ...form, eventTitle: e.target.value })} placeholder="e.g. Tech Fest '26" className={inputCls} /></Field>
           <Field label="Event date"><input type="date" value={form.eventDate} onChange={e => setForm({ ...form, eventDate: e.target.value })} className={inputCls} /></Field>
           <Field label="Assignee">
-            <select value={form.assigneeId} onChange={e => setForm({ ...form, assigneeId: e.target.value })} className={inputCls}>
-              <option value="">Unassigned</option>
-              {employees.map(e => <option key={e.id} value={e.id}>{e.name} · {e.role}</option>)}
-            </select>
+            <AsyncEntityPicker role={['teacher', 'staff', 'admin']} value={form.assigneeId}
+              onChange={id => setForm({ ...form, assigneeId: id })} placeholder="Search staff/teachers… (optional)" />
           </Field>
           <button onClick={create} disabled={busy === 'create' || !form.title.trim() || !form.eventTitle.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Assign</button>
         </div>
@@ -692,10 +675,10 @@ export function DutiesMod({ manage = false }: { manage?: boolean }) {
             <Field label="Event"><input value={editing.eventTitle} onChange={e => setEditing({ ...editing, eventTitle: e.target.value })} className={inputCls} /></Field>
             <Field label="Event date"><input type="date" value={editing.eventDate} onChange={e => setEditing({ ...editing, eventDate: e.target.value })} className={inputCls} /></Field>
             <Field label="Assignee">
-              <select value={editing.assigneeId ?? ''} onChange={e => setEditing({ ...editing, assigneeId: e.target.value || null })} className={inputCls}>
-                <option value="">Unassigned</option>
-                {employees.map(e => <option key={e.id} value={e.id}>{e.name} · {e.role}</option>)}
-              </select>
+              <AsyncEntityPicker role={['teacher', 'staff', 'admin']} value={editing.assigneeId ?? ''}
+                onChange={id => setEditing({ ...editing, assigneeId: id || null })}
+                initialLabel={nameOf(editing.assigneeId, editing.assigneeName) !== 'Unassigned' ? nameOf(editing.assigneeId, editing.assigneeName) : undefined}
+                placeholder="Search staff/teachers… (optional)" />
             </Field>
             <button onClick={saveEdit} disabled={busy === editing.id} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Save</button>
           </div>

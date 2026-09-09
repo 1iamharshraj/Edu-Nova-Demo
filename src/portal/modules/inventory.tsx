@@ -1,18 +1,17 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 import {
-  AlertTriangle, Boxes, ChevronRight, History, Mail, MapPin, Package, PackageMinus, PackagePlus, Pencil, Phone,
-  Plus, Search, ShoppingCart, Trash2, Truck, X,
+  AlertTriangle, Boxes, ChevronRight, Mail, MapPin, Package, Pencil, Phone,
+  Plus, Search, ShoppingCart, Trash2, Truck,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useStore } from '@/lib/store'
 import { api, errorMessage } from '@/lib/api'
 import { isStaffOrAdmin } from '@/lib/access'
-import type { InventoryItemRec, PurchaseOrderRec, PurchaseOrderStatus, VendorRec } from '@/lib/data'
+import type { InventoryItemRec, PurchaseOrderStatus, VendorRec } from '@/lib/data'
 import { fmtDate } from '@/lib/hooks/useAcademics'
-import { fmtDateTime } from '@/lib/hooks/useIdentity'
 import {
-  PURCHASE_ORDER_STATUSES, isLowStock, movementDelta, movementTone, poCancellable, poDeletable, poEditableDraft,
-  poReceiptTotals, poReceivable, poStatusTone, useInventoryItems, useLowStockItems, usePurchaseOrders, useStockMovements, useVendors,
+  PURCHASE_ORDER_STATUSES, isLowStock, poReceiptTotals, poStatusTone, useInventoryItems, useLowStockItems, usePurchaseOrders, useVendors,
 } from '@/lib/hooks/useInventory'
 import { Card, Empty, Field, Modal, PageHead, Pill, Progress, inputCls } from '../ui'
 
@@ -26,7 +25,6 @@ import { Card, Empty, Field, Modal, PageHead, Pill, Progress, inputCls } from '.
 // body). See .agents/edunova/phase-16-inventory.md
 
 const muted = 'text-[12.5px] text-black/50 dark:text-white/50'
-const sectionLabel = 'text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40'
 const rowCls = 'flex flex-wrap items-center gap-3 border-b border-black/[.05] dark:border-white/[.07] px-5 py-3.5 last:border-0'
 const iconBtn = 'rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15 disabled:opacity-30 disabled:hover:bg-black/[.05]'
 const dangerBtn = 'rounded-full bg-rose-50 dark:bg-rose-500/10 p-2 text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-500/20 disabled:opacity-40'
@@ -64,51 +62,6 @@ const emptyItemForm = (): ItemForm => ({ name: '', category: '', unit: '', isCon
 
 const STOCK_TONE = (item: Pick<InventoryItemRec, 'isConsumable' | 'reorderThreshold' | 'currentStock' | 'lowStock'>): 'rose' | 'green' | 'indigo' =>
   isLowStock(item) ? 'rose' : item.isConsumable ? 'green' : 'indigo'
-
-function AdjustStockModal({ item, onClose, onDone }: { item: InventoryItemRec | null; onClose: () => void; onDone: () => void }) {
-  const [direction, setDirection] = useState<'increase' | 'decrease'>('decrease')
-  const [quantity, setQuantity] = useState('')
-  const [reason, setReason] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const reset = () => { setDirection('decrease'); setQuantity(''); setReason('') }
-  const close = () => { reset(); onClose() }
-
-  const submit = async () => {
-    if (!item || !quantity.trim() || Number(quantity) <= 0) return
-    setBusy(true)
-    try {
-      // The server's `quantity` is signed (positive = add, negative = remove) — `direction` here is only a UI
-      // toggle, never sent as its own field.
-      const signed = direction === 'increase' ? Number(quantity) : -Number(quantity)
-      await api.post(`/inventory/items/${item.id}/adjust`, { quantity: signed, reason: reason.trim() || undefined })
-      toast.success('Stock adjusted')
-      reset(); onClose(); onDone()
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
-  }
-
-  if (!item) return null
-  return (
-    <Modal open={!!item} onClose={close} title={`Adjust stock — ${item.name}`}>
-      <div className="space-y-4">
-        <p className={muted}>Current stock: <span className="font-semibold text-black dark:text-white">{item.currentStock} {item.unit}</span></p>
-        <Field label="Direction">
-          <div className="inline-flex w-full rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] p-1">
-            {(['decrease', 'increase'] as const).map(d => (
-              <button key={d} onClick={() => setDirection(d)}
-                className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-1.5 text-[13px] font-semibold transition-all ${direction === d ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>
-                {d === 'increase' ? <PackagePlus size={14} /> : <PackageMinus size={14} />} {d === 'increase' ? 'Increase' : 'Decrease'}
-              </button>
-            ))}
-          </div>
-        </Field>
-        <Field label="Quantity"><input type="number" min={1} value={quantity} onChange={e => setQuantity(e.target.value)} className={inputCls} autoFocus /></Field>
-        <Field label="Reason"><input value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Damaged, Annual count correction, Issued to Science Lab" className={inputCls} /></Field>
-        <FormActions onCancel={close} onSave={submit} label="Record adjustment" disabled={!quantity.trim() || Number(quantity) <= 0 || busy} />
-      </div>
-    </Modal>
-  )
-}
 
 function ItemFormModal({ open, editing, categories, onClose, onSaved }: {
   open: boolean; editing: InventoryItemRec | null; categories: string[]; onClose: () => void; onSaved: () => void
@@ -169,99 +122,18 @@ function ItemFormModal({ open, editing, categories, onClose, onSaved }: {
   )
 }
 
-function ItemDetailModal({ item, categories, onClose, onChanged, canManage }: {
-  item: InventoryItemRec | null; categories: string[]; onClose: () => void; onChanged: () => void; canManage: boolean
-}) {
-  const { db } = useStore()
-  const movements = useStockMovements(item?.id, !!item)
-  const [adjustOpen, setAdjustOpen] = useState(false)
-  const [editOpen, setEditOpen] = useState(false)
-  const [delOpen, setDelOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
-
-  const sorted = useMemo(() => [...(movements.items ?? [])].sort((a, b) => (b.recordedAt || '').localeCompare(a.recordedAt || '')), [movements.items])
-
-  const remove = async () => {
-    if (!item) return
-    setBusy(true)
-    try { await api.del(`/inventory/items/${item.id}`); setDelOpen(false); onClose(); onChanged(); toast.success('Item deleted') }
-    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
-  }
-
-  if (!item) return null
-  const low = isLowStock(item)
-  return (
-    <Modal open={!!item} onClose={onClose} title={item.name} wide>
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center gap-2">
-          {item.category && <Pill tone="slate">{item.category}</Pill>
-          }<Pill tone={item.isConsumable ? 'sky' : 'indigo'}>{item.isConsumable ? 'Consumable' : 'Fixed asset'}</Pill>
-          {low && <Pill tone="rose"><AlertTriangle size={11} /> Low stock</Pill>}
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div><p className={muted}>Current stock</p><p className="font-display text-2xl font-medium">{item.currentStock} <span className="text-[14px] font-sans font-normal text-black/50 dark:text-white/50">{item.unit}</span></p></div>
-          {item.isConsumable && <div><p className={muted}>Reorder threshold</p><p className="font-medium">{item.reorderThreshold ?? '—'}</p></div>}
-        </div>
-
-        {canManage && (
-          <div className="flex flex-wrap gap-2">
-            <button onClick={() => setAdjustOpen(true)} className="flex items-center gap-1.5 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3.5 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
-              <PackageMinus size={13} /> Adjust stock
-            </button>
-            <button onClick={() => setEditOpen(true)} className="flex items-center gap-1.5 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3.5 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
-              <Pencil size={13} /> Edit item
-            </button>
-            <button onClick={() => setDelOpen(true)} className="flex items-center gap-1.5 rounded-full bg-rose-50 dark:bg-rose-500/10 px-3.5 py-2 text-[12.5px] font-semibold text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-500/20">
-              <Trash2 size={13} /> Delete
-            </button>
-          </div>
-        )}
-
-        <div>
-          <p className={`${sectionLabel} mb-2 flex items-center gap-1.5`}><History size={13} /> Stock movement history</p>
-          <Card className="p-0">
-            {movements.loading && <div className="p-5 text-center text-[13px] text-black/40 dark:text-white/40">Loading history…</div>}
-            {movements.error && <div className="p-5"><Empty text={movements.error} /></div>}
-            {!movements.loading && !movements.error && sorted.length === 0 && <div className="p-5"><Empty text="No stock movements recorded yet." /></div>}
-            {sorted.map(m => {
-              const who = db.users.find(u => u.id === m.recordedById)?.name ?? 'Someone'
-              const delta = movementDelta(m)
-              return (
-                <div key={m.id} className={rowCls}>
-                  <Pill tone={movementTone(m)}>{m.type}</Pill>
-                  <div className="min-w-32 flex-1">
-                    <p className="text-[14px] font-semibold">{delta > 0 ? '+' : ''}{delta} {item.unit}{m.reason ? ` · ${m.reason}` : ''}</p>
-                    <p className={muted}>{fmtDateTime(m.recordedAt)} · by {who}{m.relatedPoId ? ' · via purchase order' : ''}</p>
-                  </div>
-                </div>
-              )
-            })}
-          </Card>
-        </div>
-      </div>
-
-      <AdjustStockModal item={adjustOpen ? item : null} onClose={() => setAdjustOpen(false)} onDone={() => { movements.reload(); onChanged() }} />
-      <ItemFormModal open={editOpen} editing={item} categories={categories} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); onChanged() }} />
-      <ConfirmModal open={delOpen} onClose={() => setDelOpen(false)} title={`Delete ${item.name}?`}
-        body="This cannot be undone. Items with recorded stock history may not be deletable." action="Delete item" busy={busy} onConfirm={remove} />
-    </Modal>
-  )
-}
-
 export function InventoryCatalogMod() {
   const { user } = useStore()
+  const navigate = useNavigate()
   const canManage = isStaffOrAdmin(user)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
   const items = useInventoryItems({ q: search.trim() || undefined, category: category || undefined })
   const lowStock = useLowStockItems()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
 
   const categories = useMemo(() => Array.from(new Set((items.items ?? []).map(i => i.category).filter((c): c is string => !!c))).sort(), [items.items])
   const sorted = useMemo(() => [...(items.items ?? [])].sort((a, b) => a.name.localeCompare(b.name)), [items.items])
-  const selected = selectedId ? (items.items ?? []).find(i => i.id === selectedId) ?? (lowStock.items ?? []).find(i => i.id === selectedId) ?? null : null
 
   const reload = () => { items.reload(); lowStock.reload() }
 
@@ -284,7 +156,7 @@ export function InventoryCatalogMod() {
           </div>
           <div className="divide-y divide-black/[.05] dark:divide-white/[.07]">
             {(lowStock.items ?? []).map(i => (
-              <button key={i.id} onClick={() => setSelectedId(i.id)} className={`${rowCls} w-full text-left hover:bg-black/[.02] dark:hover:bg-white/[.03]`}>
+              <button key={i.id} onClick={() => navigate(`/portal/inventory/items/${i.id}`)} className={`${rowCls} w-full text-left hover:bg-black/[.02] dark:hover:bg-white/[.03]`}>
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rose-50 dark:bg-rose-500/10 text-rose-500"><Package size={16} /></span>
                 <div className="min-w-32 flex-1">
                   <p className="text-[14px] font-semibold">{i.name}</p>
@@ -322,7 +194,7 @@ export function InventoryCatalogMod() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {sorted.map(i => (
-          <Card key={i.id} className="card-lift flex cursor-pointer flex-col gap-3" onClick={() => setSelectedId(i.id)}>
+          <Card key={i.id} className="card-lift flex cursor-pointer flex-col gap-3" onClick={() => navigate(`/portal/inventory/items/${i.id}`)}>
             <div className="flex items-start gap-3">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600"><Package size={20} /></span>
               <div className="min-w-0 flex-1">
@@ -339,7 +211,6 @@ export function InventoryCatalogMod() {
         ))}
       </div>
 
-      <ItemDetailModal item={selected} categories={categories} onClose={() => setSelectedId(null)} onChanged={reload} canManage={canManage} />
       <ItemFormModal open={addOpen} editing={null} categories={categories} onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); reload() }} />
     </div>
   )
@@ -447,263 +318,23 @@ export function VendorsMod() {
 }
 
 /* ── Purchase Orders: create, Draft → Ordered, receive (staff/admin) ─── */
-
-interface POLineDraft { itemId: string; quantityOrdered: string; unitCost: string }
-const emptyLine = (): POLineDraft => ({ itemId: '', quantityOrdered: '', unitCost: '' })
-
-function CreatePOModal({ open, vendors, items, onClose, onCreated }: {
-  open: boolean; vendors: VendorRec[]; items: InventoryItemRec[]; onClose: () => void; onCreated: () => void
-}) {
-  const [vendorId, setVendorId] = useState('')
-  const [expectedDate, setExpectedDate] = useState('')
-  const [notes, setNotes] = useState('')
-  const [lines, setLines] = useState<POLineDraft[]>([emptyLine()])
-  const [busy, setBusy] = useState(false)
-
-  const reset = () => { setVendorId(''); setExpectedDate(''); setNotes(''); setLines([emptyLine()]) }
-  const close = () => { reset(); onClose() }
-  const setLine = (idx: number, patch: Partial<POLineDraft>) => setLines(ls => ls.map((l, i) => i === idx ? { ...l, ...patch } : l))
-  const removeLine = (idx: number) => setLines(ls => ls.filter((_, i) => i !== idx))
-  const validLines = lines.filter(l => l.itemId && Number(l.quantityOrdered) > 0)
-
-  const save = async () => {
-    if (!vendorId || validLines.length === 0) return
-    setBusy(true)
-    try {
-      await api.post('/inventory/purchase-orders', {
-        vendorId, expectedDate: expectedDate || undefined, notes: notes.trim() || undefined,
-        lines: validLines.map(l => ({ itemId: l.itemId, quantityOrdered: Number(l.quantityOrdered), unitCost: l.unitCost.trim() ? Number(l.unitCost) : undefined })),
-      })
-      toast.success('Purchase order created'); reset(); onClose(); onCreated()
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
-  }
-
-  return (
-    <Modal open={open} onClose={close} title="New purchase order" wide>
-      <div className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Vendor">
-            <select value={vendorId} onChange={e => setVendorId(e.target.value)} className={inputCls}>
-              <option value="">Select a vendor</option>
-              {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Expected date"><input type="date" value={expectedDate} onChange={e => setExpectedDate(e.target.value)} className={inputCls} /></Field>
-        </div>
-        <Field label="Notes"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Optional" className={inputCls} /></Field>
-
-        <div>
-          <div className="mb-2 flex items-center justify-between">
-            <p className={sectionLabel}>Line items</p>
-            <button onClick={() => setLines(ls => [...ls, emptyLine()])} className="flex items-center gap-1.5 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3 py-1.5 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
-              <Plus size={13} /> Add line
-            </button>
-          </div>
-          <div className="space-y-2">
-            {lines.map((l, idx) => (
-              <div key={idx} className="flex flex-wrap items-center gap-2 rounded-2xl border border-black/[.06] dark:border-white/[.08] p-3">
-                <select value={l.itemId} onChange={e => setLine(idx, { itemId: e.target.value })} className={`${inputCls} min-w-[160px] flex-1`}>
-                  <option value="">Select item</option>
-                  {items.map(it => <option key={it.id} value={it.id}>{it.name} ({it.unit})</option>)}
-                </select>
-                <input type="number" min={1} value={l.quantityOrdered} onChange={e => setLine(idx, { quantityOrdered: e.target.value })} placeholder="Qty" className={`${inputCls} w-24`} />
-                <input type="number" min={0} value={l.unitCost} onChange={e => setLine(idx, { unitCost: e.target.value })} placeholder="Unit cost (optional)" className={`${inputCls} w-40`} />
-                {lines.length > 1 && (
-                  <button onClick={() => removeLine(idx)} className="rounded-full p-2 text-black/40 hover:bg-rose-50 hover:text-rose-500 dark:text-white/40 dark:hover:bg-rose-500/10" aria-label="Remove line"><X size={15} /></button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <FormActions onCancel={close} onSave={save} label="Create purchase order" disabled={!vendorId || validLines.length === 0 || busy} />
-      </div>
-    </Modal>
-  )
-}
-
-interface ReceiveDraft { lineId: string; label: string; remaining: number; unit: string; qty: string }
-
-function ReceivePOModal({ po, items, onClose, onDone }: { po: PurchaseOrderRec | null; items: InventoryItemRec[]; onClose: () => void; onDone: () => void }) {
-  const itemById = useMemo(() => new Map(items.map(i => [i.id, i])), [items])
-  const [drafts, setDrafts] = useState<ReceiveDraft[] | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const key = po?.id ?? null
-  const [syncedFor, setSyncedFor] = useState<string | null>(null)
-  if (po && key !== syncedFor) {
-    setSyncedFor(key)
-    setDrafts(po.lines.filter(l => l.quantityReceived < l.quantityOrdered).map(l => {
-      const item = itemById.get(l.itemId)
-      const remaining = l.quantityOrdered - l.quantityReceived
-      return { lineId: l.id, label: item?.name ?? 'Item', remaining, unit: item?.unit ?? '', qty: String(remaining) }
-    }))
-  }
-
-  const setQty = (lineId: string, qty: string) => setDrafts(ds => (ds ?? []).map(d => d.lineId === lineId ? { ...d, qty } : d))
-  const close = () => { setSyncedFor(null); setDrafts(null); onClose() }
-
-  const submit = async () => {
-    if (!po || !drafts) return
-    const payload = drafts.filter(d => Number(d.qty) > 0).map(d => ({ lineId: d.lineId, quantityReceived: Math.min(Number(d.qty), d.remaining) }))
-    if (payload.length === 0) return
-    setBusy(true)
-    try {
-      await api.post(`/inventory/purchase-orders/${po.id}/receive`, { lines: payload })
-      toast.success('Receipt recorded'); close(); onDone()
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
-  }
-
-  if (!po) return null
-  const anyPositive = (drafts ?? []).some(d => Number(d.qty) > 0)
-  return (
-    <Modal open={!!po} onClose={close} title="Receive purchase order" wide>
-      <div className="space-y-4">
-        {(drafts ?? []).length === 0 ? (
-          <Empty text="Every line on this order has already been fully received." />
-        ) : (
-          <div className="space-y-2">
-            {(drafts ?? []).map(d => (
-              <div key={d.lineId} className="flex flex-wrap items-center gap-3 rounded-2xl border border-black/[.06] dark:border-white/[.08] p-3.5">
-                <div className="min-w-32 flex-1">
-                  <p className="text-[14px] font-semibold">{d.label}</p>
-                  <p className={muted}>{d.remaining} {d.unit} remaining</p>
-                </div>
-                <input type="number" min={0} max={d.remaining} value={d.qty} onChange={e => setQty(d.lineId, e.target.value)} className={`${inputCls} w-28`} />
-              </div>
-            ))}
-          </div>
-        )}
-        <FormActions onCancel={close} onSave={submit} label="Record receipt" disabled={!anyPositive || busy} />
-      </div>
-    </Modal>
-  )
-}
-
-function POStatusActions({ po, busy, onOrder, onCancel, onReceive }: {
-  po: PurchaseOrderRec; busy: boolean; onOrder: () => void; onCancel: () => void; onReceive: () => void
-}) {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {poEditableDraft(po.status) && (
-        <button onClick={onOrder} disabled={busy} className="btn-ink flex items-center gap-1.5 px-4 py-2 text-[12.5px] font-semibold disabled:opacity-40">
-          <ShoppingCart size={13} /> Mark as ordered
-        </button>
-      )}
-      {poReceivable(po.status) && (
-        <button onClick={onReceive} className="flex items-center gap-1.5 rounded-full bg-emerald-500 px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-emerald-600">
-          <PackagePlus size={13} /> Receive
-        </button>
-      )}
-      {poCancellable(po.status) && (
-        <button onClick={onCancel} disabled={busy} className="flex items-center gap-1.5 rounded-full bg-rose-50 dark:bg-rose-500/10 px-4 py-2 text-[12.5px] font-semibold text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-500/20 disabled:opacity-40">
-          <X size={13} /> Cancel order
-        </button>
-      )}
-    </div>
-  )
-}
-
-function PODetailModal({ po, items, vendors, onClose, onChanged }: {
-  po: PurchaseOrderRec | null; items: InventoryItemRec[]; vendors: VendorRec[]; onClose: () => void; onChanged: () => void
-}) {
-  const { db } = useStore()
-  const itemById = useMemo(() => new Map(items.map(i => [i.id, i])), [items])
-  const [busy, setBusy] = useState(false)
-  const [receiveOpen, setReceiveOpen] = useState(false)
-  const [delOpen, setDelOpen] = useState(false)
-
-  const setStatus = async (status: PurchaseOrderStatus) => {
-    if (!po) return
-    setBusy(true)
-    try { await api.patch(`/inventory/purchase-orders/${po.id}`, { status }); toast.success(`Order ${status.toLowerCase()}`); onChanged() }
-    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
-  }
-  const remove = async () => {
-    if (!po) return
-    setBusy(true)
-    try { await api.del(`/inventory/purchase-orders/${po.id}`); setDelOpen(false); onClose(); onChanged(); toast.success('Purchase order deleted') }
-    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
-  }
-
-  if (!po) return null
-  const vendor = vendors.find(v => v.id === po.vendorId)
-  const totals = poReceiptTotals(po)
-  const createdBy = db.users.find(u => u.id === po.createdById)?.name
-
-  return (
-    <Modal open={!!po} onClose={onClose} title={vendor?.name ?? 'Purchase order'} wide>
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <Pill tone={poStatusTone(po.status)}>{po.status}</Pill>
-          {po.orderedAt && <span className={muted}>Ordered {fmtDate(po.orderedAt)}</span>}
-          {po.expectedDate && <span className={muted}>Expected {fmtDate(po.expectedDate)}</span>}
-          {createdBy && <span className={muted}>· by {createdBy}</span>}
-        </div>
-
-        {po.notes && <p className="text-[13.5px] text-black/60 dark:text-white/60">{po.notes}</p>}
-
-        {totals.ordered > 0 && (
-          <div>
-            <div className="mb-1.5 flex items-center justify-between text-[12.5px]">
-              <span className={muted}>Received</span>
-              <span className="font-semibold">{totals.received} / {totals.ordered} units</span>
-            </div>
-            <Progress pct={totals.pct} />
-          </div>
-        )}
-
-        <POStatusActions po={po} busy={busy} onOrder={() => setStatus('Ordered')} onCancel={() => setStatus('Cancelled')} onReceive={() => setReceiveOpen(true)} />
-        {poDeletable(po.status) && (
-          <button onClick={() => setDelOpen(true)} className="flex items-center gap-1.5 text-[12.5px] font-semibold text-black/40 hover:text-rose-500 dark:text-white/40">
-            <Trash2 size={13} /> Delete this draft
-          </button>
-        )}
-
-        <div>
-          <p className={`${sectionLabel} mb-2`}>Line items</p>
-          <Card className="p-0">
-            {po.lines.map(l => {
-              const item = itemById.get(l.itemId)
-              const remaining = l.quantityOrdered - l.quantityReceived
-              return (
-                <div key={l.id} className={rowCls}>
-                  <div className="min-w-32 flex-1">
-                    <p className="text-[14px] font-semibold">{item?.name ?? l.itemId}</p>
-                    <p className={muted}>{l.quantityReceived} of {l.quantityOrdered} {item?.unit ?? ''} received{l.unitCost != null ? ` · ₹${l.unitCost}/unit` : ''}</p>
-                  </div>
-                  <Pill tone={remaining === 0 ? 'green' : l.quantityReceived > 0 ? 'amber' : 'slate'}>{remaining === 0 ? 'Fully received' : `${remaining} remaining`}</Pill>
-                </div>
-              )
-            })}
-          </Card>
-        </div>
-      </div>
-
-      <ReceivePOModal po={receiveOpen ? po : null} items={items} onClose={() => setReceiveOpen(false)} onDone={onChanged} />
-      <ConfirmModal open={delOpen} onClose={() => setDelOpen(false)} title="Delete this draft purchase order?"
-        body="This cannot be undone. Only Draft orders can be deleted." action="Delete draft" busy={busy} onConfirm={remove} />
-    </Modal>
-  )
-}
+// New-PO creation moved to a routed page — src/pages/portal/PurchaseOrderNew.tsx — see
+// .agents/edunova/ui-architecture-fix.md Phase D #5.
 
 export function PurchaseOrdersMod() {
+  const navigate = useNavigate()
   const [status, setStatus] = useState<PurchaseOrderStatus | ''>('')
   const pos = usePurchaseOrders(status ? { status } : {})
   const vendors = useVendors()
-  const invItems = useInventoryItems()
   const vendorById = useMemo(() => new Map((vendors.items ?? []).map(v => [v.id, v])), [vendors.items])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [createOpen, setCreateOpen] = useState(false)
 
   const sorted = useMemo(() => [...(pos.items ?? [])].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')), [pos.items])
-  const selected = selectedId ? (pos.items ?? []).find(p => p.id === selectedId) ?? null : null
   const statusFilters: (PurchaseOrderStatus | '')[] = ['', ...PURCHASE_ORDER_STATUSES]
 
   return (
     <div>
       <PageHead title="Purchase Orders" sub="Order inventory from a vendor, then receive it in full or in part">
-        <button onClick={() => setCreateOpen(true)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
+        <button onClick={() => navigate('/portal/inventory/purchase-orders/new')} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
           <Plus size={15} /> New purchase order
         </button>
       </PageHead>
@@ -734,7 +365,7 @@ export function PurchaseOrdersMod() {
           const vendor = vendorById.get(po.vendorId)
           const totals = poReceiptTotals(po)
           return (
-            <Card key={po.id} className="card-lift cursor-pointer" onClick={() => setSelectedId(po.id)}>
+            <Card key={po.id} className="card-lift cursor-pointer" onClick={() => navigate(`/portal/inventory/purchase-orders/${po.id}`)}>
               <div className="flex flex-wrap items-center gap-3">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600"><Truck size={20} /></span>
                 <div className="min-w-40 flex-1">
@@ -751,9 +382,6 @@ export function PurchaseOrdersMod() {
           )
         })}
       </div>
-
-      <PODetailModal po={selected} items={invItems.items ?? []} vendors={vendors.items ?? []} onClose={() => setSelectedId(null)} onChanged={() => pos.reload()} />
-      <CreatePOModal open={createOpen} vendors={vendors.items ?? []} items={invItems.items ?? []} onClose={() => setCreateOpen(false)} onCreated={() => pos.reload()} />
     </div>
   )
 }

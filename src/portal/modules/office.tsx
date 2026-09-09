@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 import {
-  AlertCircle, AlertTriangle, BadgeCheck, CalendarPlus, Check, Copy, Download, FileBadge, History, Paperclip, Pencil, Plus,
-  School, Search, Send, ShieldAlert, Sparkles, Trash2, UserPlus, X,
+  AlertCircle, AlertTriangle, BadgeCheck, CalendarPlus, Check, Copy, Download, FileBadge, HeartHandshake, History, Paperclip, Pencil, Plus,
+  School, Search, Send, ShieldAlert, Sparkles, Trash2, UserCheck, UserPlus, UserX, X,
 } from 'lucide-react'
-import { useAcademic, useStore, type CreateUserInput } from '@/lib/store'
+import { useAcademic, useStore } from '@/lib/store'
 import { api, downloadFile, downloadPath, errorMessage } from '@/lib/api'
 import { canManage, isAdmin, isStaffOrAdmin, isSuperAdmin } from '@/lib/access'
 import {
@@ -19,10 +20,9 @@ import {
 import { fmtDate, qs, useFetchMany } from '@/lib/hooks/useAcademics'
 import { useCalendarEvents } from '@/lib/hooks/useComms'
 import { ACTIVITY_KIND_LABEL, ACTIVITY_KINDS, activityRegTone, useActivities, useActivityRegistrations } from '@/lib/hooks/useWelfare'
-import { useEmployees } from '@/lib/hooks/useFinance'
+import { useBoardReadiness } from '@/lib/hooks/useExams'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, UploadField, inputCls, statusTone, type UploadedFile } from '../ui'
-import { StudentReportMod } from './studentReport'
-import { EmployeeDetailModal, SearchableUserPicker } from './employee'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
 import { useViewedStudents } from './viewer'
 import { toast } from 'sonner'
 
@@ -131,7 +131,7 @@ function ActivityForm({ onDone }: { onDone: () => void }) {
   )
 }
 
-function ActivityRegistrationsList({ activity }: { activity: ActivityRec }) {
+export function ActivityRegistrationsList({ activity }: { activity: ActivityRec }) {
   const { db } = useStore()
   const { items, loading } = useActivityRegistrations(activity.id)
   const nameOf = (id: string) => db.users.find(u => u.id === id)?.name ?? id
@@ -151,10 +151,10 @@ function ActivityRegistrationsList({ activity }: { activity: ActivityRec }) {
 }
 
 export function ActivitiesAdminMod() {
+  const navigate = useNavigate()
   const [kindFilter, setKindFilter] = useState<ActivityKind | ''>('')
   const { items, loading, reload } = useActivities(kindFilter || undefined)
   const [createOpen, setCreateOpen] = useState(false)
-  const [viewing, setViewing] = useState<ActivityRec | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
   const remove = async (a: ActivityRec) => {
@@ -187,7 +187,7 @@ export function ActivitiesAdminMod() {
               <p className="text-[14.5px] font-semibold">{a.title}</p>
               <p className="text-[12.5px] text-black/45 dark:text-white/45">{a.capacity ? `${a.registered ?? 0}/${a.capacity} registered` : `${a.registered ?? 0} registered`}</p>
             </div>
-            <button onClick={() => setViewing(a)} className={ghostPill}>View registrations</button>
+            <button onClick={() => navigate(`/portal/activities/${a.id}/registrations`)} className={ghostPill}>View registrations</button>
             <button onClick={() => remove(a)} disabled={busy === a.id} className="rounded-full p-1.5 text-black/35 hover:bg-rose-50 hover:text-rose-500 dark:text-white/35" title="Delete activity"><Trash2 size={14} /></button>
           </div>
         ))}
@@ -195,9 +195,6 @@ export function ActivitiesAdminMod() {
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New activity">
         {createOpen && <ActivityForm onDone={() => { setCreateOpen(false); reload() }} />}
-      </Modal>
-      <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing ? `Registrations · ${viewing.title}` : ''}>
-        {viewing && <ActivityRegistrationsList activity={viewing} />}
       </Modal>
     </div>
   )
@@ -210,7 +207,7 @@ export function ActivitiesAdminMod() {
 
 type AppTab = 'All' | ApplicationKind | 'Issued'
 type AppModal =
-  | { t: 'admission' } | { t: 'cert' } | { t: 'issue' }
+  | { t: 'cert' } | { t: 'issue' }
   | { t: 'decline'; app: ApplicationRec } | { t: 'approve'; app: ApplicationRec }
 
 const pillBtn = 'rounded-full px-4 py-1.5 text-[12.5px] font-semibold disabled:opacity-40'
@@ -247,6 +244,7 @@ function CertificateDownload({ cert, studentName, compact = false }: { cert: Cer
 }
 
 export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
+  const navigate = useNavigate()
   const { db, user } = useStore()
   const { classById, classOf, boardById } = useAcademic()
   const viewed = useViewedStudents()
@@ -310,7 +308,7 @@ export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
           {approver && (
             <>
               <button onClick={() => setModal({ t: 'issue' })} className="flex items-center gap-1.5 rounded-full border border-black/10 dark:border-white/15 px-4 py-2.5 text-[13px] font-semibold hover:bg-black/[.04] dark:hover:bg-white/[.06]"><FileBadge size={14} /> Issue certificate</button>
-              <button onClick={() => setModal({ t: 'admission' })} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><UserPlus size={15} /> New admission</button>
+              <button onClick={() => navigate('/portal/admissions/new')} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><UserPlus size={15} /> New admission</button>
             </>
           )}
           <button onClick={() => setModal({ t: 'cert' })} disabled={applyStudents.length === 0} title={applyStudents.length === 0 ? 'No student linked to this account yet' : undefined}
@@ -397,14 +395,11 @@ export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
         </Card>
       )}
 
-      <Modal open={modal?.t === 'admission'} onClose={() => setModal(null)} title="New admission" wide>
-        {modal?.t === 'admission' && <AdmissionForm onDone={() => { setModal(null); reloadAll() }} />}
-      </Modal>
       <Modal open={modal?.t === 'cert'} onClose={() => setModal(null)} title="Apply for a certificate">
-        {modal?.t === 'cert' && <CertificateApplicationForm students={applyStudents} onDone={() => { setModal(null); reloadAll() }} />}
+        {modal?.t === 'cert' && <CertificateApplicationForm students={applyStudents} wholeSchool={approver} onDone={() => { setModal(null); reloadAll() }} />}
       </Modal>
       <Modal open={modal?.t === 'issue'} onClose={() => setModal(null)} title="Issue a certificate directly">
-        {modal?.t === 'issue' && <IssueCertificateForm students={applyStudents} onDone={() => { setModal(null); setTab('Issued'); reloadAll() }} />}
+        {modal?.t === 'issue' && <IssueCertificateForm students={applyStudents} wholeSchool={approver} onDone={() => { setModal(null); setTab('Issued'); reloadAll() }} />}
       </Modal>
       <Modal open={modal?.t === 'decline'} onClose={() => setModal(null)} title="Decline application">
         {modal?.t === 'decline' && <DeclineForm app={modal.app} onDone={() => { setModal(null); apps.reload() }} />}
@@ -416,7 +411,7 @@ export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
   )
 }
 
-function AdmissionForm({ onDone }: { onDone: () => void }) {
+export function AdmissionForm({ onDone }: { onDone: () => void }) {
   const { classes, classById, currentYear, gradeById } = useAcademic()
   const options = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort(compareClasses(gradeById)), [classes, currentYear, gradeById])
   const [f, setF] = useState({ applicantName: '', dob: '', gender: '', gName: '', gPhone: '', gEmail: '', gRelation: 'Parent', targetClassId: options[0]?.id ?? '' })
@@ -470,19 +465,25 @@ function AdmissionForm({ onDone }: { onDone: () => void }) {
   )
 }
 
-function CertificateApplicationForm({ students, onDone }: { students: User[]; onDone: () => void }) {
+// `wholeSchool` (approver flow, applying/issuing for any student in the school) swaps the bounded flat
+// `<select>` for an AsyncEntityPicker over the whole roster; the non-approver flow keeps the flat select
+// over `students` since that's already bounded to the caller's own viewed wards (parent/student), never the
+// full school. See ui-architecture-fix.md Phase B.
+function CertificateApplicationForm({ students, wholeSchool, onDone }: { students: User[]; wholeSchool?: boolean; onDone: () => void }) {
   const { classOf } = useAcademic()
   const [kind, setKind] = useState<CertificateKind>('Bonafide')
-  const [studentId, setStudentId] = useState(students[0]?.id ?? '')
+  const [studentId, setStudentId] = useState(wholeSchool ? '' : (students[0]?.id ?? ''))
+  const [studentName, setStudentName] = useState('')
   const [notes, setNotes] = useState('')
   const [docs, setDocs] = useState<UploadedFile[]>([])
   const [busy, setBusy] = useState(false)
   const student = students.find(s => s.id === studentId)
+  const applicantName = wholeSchool ? studentName : (student?.name ?? '')
   const submit = async () => {
-    if (!student) return
+    if (!studentId || !applicantName) return
     setBusy(true)
     try {
-      await api.post('/applications', { kind, studentId: student.id, applicantName: student.name, notes: notes.trim() || undefined, documents: docs.map(d => d.id) })
+      await api.post('/applications', { kind, studentId, applicantName, notes: notes.trim() || undefined, documents: docs.map(d => d.id) })
       toast.success(`${KIND_LABEL[kind]} requested`)
       onDone()
     } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
@@ -494,7 +495,11 @@ function CertificateApplicationForm({ students, onDone }: { students: User[]; on
           {CERTIFICATE_KINDS.map(k => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
         </select>
       </Field>
-      {students.length > 1 ? (
+      {wholeSchool ? (
+        <Field label="Student">
+          <AsyncEntityPicker role="student" value={studentId} onChange={(id, label) => { setStudentId(id); setStudentName(label) }} placeholder="Search students…" />
+        </Field>
+      ) : students.length > 1 ? (
         <Field label="Student">
           <select value={studentId} onChange={e => setStudentId(e.target.value)} className={inputCls}>
             {students.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
@@ -503,15 +508,15 @@ function CertificateApplicationForm({ students, onDone }: { students: User[]; on
       ) : student && <p className="text-[13.5px] text-black/60 dark:text-white/60">For <b>{student.name}</b>{classOf(student.id) ? ` · ${classOf(student.id)!.label}` : ''}</p>}
       <Field label="Reason / notes"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder={kind === 'TC' ? 'Where is the student moving to, and when?' : 'What is the certificate needed for?'} className={inputCls} /></Field>
       <Field label="Supporting documents (optional)"><UploadField files={docs} onChange={setDocs} multiple accept=".pdf,.png,.jpg,.jpeg" /></Field>
-      <button onClick={submit} disabled={!student || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Submitting…' : 'Submit application'}</button>
+      <button onClick={submit} disabled={!studentId || !applicantName || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Submitting…' : 'Submit application'}</button>
     </div>
   )
 }
 
-function IssueCertificateForm({ students, onDone }: { students: User[]; onDone: () => void }) {
+function IssueCertificateForm({ students, wholeSchool, onDone }: { students: User[]; wholeSchool?: boolean; onDone: () => void }) {
   const { classOf } = useAcademic()
   const [kind, setKind] = useState<CertificateKind>('Bonafide')
-  const [studentId, setStudentId] = useState(students[0]?.id ?? '')
+  const [studentId, setStudentId] = useState(wholeSchool ? '' : (students[0]?.id ?? ''))
   const [busy, setBusy] = useState(false)
   const submit = async () => {
     setBusy(true)
@@ -530,10 +535,14 @@ function IssueCertificateForm({ students, onDone }: { students: User[]; onDone: 
         </select>
       </Field>
       <Field label="Student">
-        <select value={studentId} onChange={e => setStudentId(e.target.value)} className={inputCls}>
-          {students.length === 0 && <option value="">No students yet</option>}
-          {students.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
-        </select>
+        {wholeSchool ? (
+          <AsyncEntityPicker role="student" value={studentId} onChange={id => setStudentId(id)} placeholder="Search students…" />
+        ) : (
+          <select value={studentId} onChange={e => setStudentId(e.target.value)} className={inputCls}>
+            {students.length === 0 && <option value="">No students yet</option>}
+            {students.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
+          </select>
+        )}
       </Field>
       <button onClick={submit} disabled={!studentId || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Issuing…' : 'Issue certificate'}</button>
     </div>
@@ -656,61 +665,42 @@ const ALL_TABS: PeopleTab[] = [
   { id: 'admins', label: 'Admins', singular: 'admin', roles: ['admin', 'superadmin'] },
 ]
 
-/** Placeholder hint only — the server derives the real default (server/src/userDefaults.ts). */
-function emailHint(name: string, role: Role) {
-  const base = name.trim().toLowerCase().replace(/[^a-z]+/g, '.').replace(/(^\.|\.$)/g, '') || 'first.last'
-  return role === 'parent' ? `parent.${base}@edunova.in` : `${base}@edunova.in`
-}
-
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)
 
-interface PersonForm {
-  name: string
-  email: string
-  role: Role
-  // student
-  classId: string
-  rollNo: string
-  dob: string
-  parentIds: string[]
-  // parent
-  studentIds: string[]
-  phone: string
-  // teacher
-  classTeacherOf: string
-  joinDate: string
-  // staff / admin
-  department: string
-  designation: string
-  // teacher / staff / admin — A2: reporting line
-  reportsTo: string
-}
-
-const emptyPersonForm = (role: Role): PersonForm => ({
-  name: '', email: '', role,
-  classId: '', rollNo: '', dob: '', parentIds: [],
-  studentIds: [], phone: '',
-  classTeacherOf: '', joinDate: todayISO(),
-  department: '', designation: '',
-  reportsTo: '',
-})
-
-function PickList({ items, selected, onToggle, empty }: { items: { id: string; label: string; sub?: string }[]; selected: string[]; onToggle: (id: string) => void; empty: string }) {
-  if (items.length === 0) return <p className="rounded-xl border border-dashed border-black/15 dark:border-white/15 px-3 py-2.5 text-[13px] text-black/45 dark:text-white/45">{empty}</p>
+/** Add-one-at-a-time picker over an unbounded role (AsyncEntityPicker, Phase B) — replaces the old flat
+ * checkbox grid that rendered every parent/student in the school. Selected ids show as removable chips;
+ * names resolve from the already-loaded `db.users` cache (`nameOf`), not from the search results — no need
+ * to keep a whole-roster array around just to label a handful of already-chosen ids. `pickKey` remounts the
+ * inner AsyncEntityPicker after each add so its search text clears, ready for the next pick. */
+export function AsyncPickList({ role, selected, onAdd, onRemove, nameOf, placeholder }: {
+  role: Role | Role[]
+  selected: string[]
+  onAdd: (id: string) => void
+  onRemove: (id: string) => void
+  nameOf: (id: string) => string
+  placeholder: string
+}) {
+  const [pickKey, setPickKey] = useState(0)
   return (
-    <div className="grid max-h-48 grid-cols-1 gap-2 overflow-y-auto thin-scroll sm:grid-cols-2">
-      {items.map(it => (
-        <label key={it.id} className={`flex cursor-pointer items-center gap-2 rounded-xl border p-2.5 text-[13px] transition-colors ${selected.includes(it.id) ? 'border-indigo-300 bg-indigo-50/60 dark:border-indigo-500/40 dark:bg-indigo-500/10' : 'border-black/10 dark:border-white/15'}`}>
-          <input type="checkbox" checked={selected.includes(it.id)} onChange={() => onToggle(it.id)} />
-          <span className="min-w-0 flex-1 truncate font-medium">{it.label}</span>
-          {it.sub && <span className="shrink-0 text-[11.5px] text-black/45 dark:text-white/45">{it.sub}</span>}
-        </label>
-      ))}
+    <div className="space-y-2">
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map(id => (
+            <span key={id} className="flex items-center gap-1.5 rounded-full bg-indigo-50 dark:bg-indigo-500/10 px-3 py-1.5 text-[12.5px] font-medium text-indigo-700 dark:text-indigo-300">
+              {nameOf(id)}
+              <button type="button" onClick={() => onRemove(id)} aria-label={`Remove ${nameOf(id)}`} className="rounded-full p-0.5 hover:bg-indigo-100 dark:hover:bg-indigo-500/20"><X size={11} /></button>
+            </span>
+          ))}
+        </div>
+      )}
+      <AsyncEntityPicker key={pickKey} role={role} value=""
+        onChange={id => { if (id) { onAdd(id); setPickKey(k => k + 1) } }}
+        placeholder={placeholder} />
     </div>
   )
 }
 
-function CredentialRow({ label, value }: { label: string; value: string }) {
+export function CredentialRow({ label, value }: { label: string; value: string }) {
   const copy = async () => {
     try { await navigator.clipboard.writeText(value); toast.success(`${label} copied`) }
     catch { toast.error('Could not copy — select the text manually') }
@@ -729,7 +719,8 @@ function CredentialRow({ label, value }: { label: string; value: string }) {
 }
 
 export function PeopleMod() {
-  const { db, user, createUser, updateUser, deleteUser, refreshAcademic, refreshDB } = useStore()
+  const navigate = useNavigate()
+  const { db, user, setUserActive, refreshDB } = useStore()
   const academic = useAcademic()
   const { currentYear, classById, subjectById, classOf, wardsOf, classesTaughtBy } = academic
   const current = user!
@@ -743,14 +734,7 @@ export function PeopleMod() {
   const [subject, setSubject] = useState('')
   const [department, setDepartment] = useState('')
 
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editing, setEditing] = useState<User | null>(null)
-  const [saving, setSaving] = useState(false)
   const [confirmId, setConfirmId] = useState<string | null>(null)
-  const [viewReportId, setViewReportId] = useState<string | null>(null)
-  const [viewEmployee, setViewEmployee] = useState<User | null>(null)
-  const [created, setCreated] = useState<{ name: string; email: string; password: string } | null>(null)
-  const employeeOptions = useEmployees()
 
   const setTab = (t: PeopleTabId) => { setTabState(t); setCls(''); setSubject(''); setDepartment('') }
 
@@ -763,8 +747,6 @@ export function PeopleMod() {
     [academic.classes, academic.gradeById, currentYear],
   )
   const userById = useMemo(() => new Map(db.users.map(u => [u.id, u])), [db.users])
-  const students = useMemo(() => db.users.filter(u => u.role === 'student').sort(byName), [db.users])
-  const parents = useMemo(() => db.users.filter(u => u.role === 'parent').sort(byName), [db.users])
 
   const enrollmentOf = (studentId: string) =>
     academic.enrollments.find(e => e.studentId === studentId && e.status === 'active' && (!currentYear || e.academicYearId === currentYear.id))
@@ -799,113 +781,23 @@ export function PeopleMod() {
     return true
   }).sort(byName)
 
-  /* ── form ── */
-  const [form, setForm] = useState<PersonForm>(() => emptyPersonForm('student'))
-  const patch = (p: Partial<PersonForm>) => setForm(f => ({ ...f, ...p }))
-  const toggleIn = (key: 'parentIds' | 'studentIds', id: string) =>
-    setForm(f => ({ ...f, [key]: f[key].includes(id) ? f[key].filter(x => x !== id) : [...f[key], id] }))
-
-  const openAdd = () => {
-    setEditing(null)
-    setForm(emptyPersonForm(tab === 'admins' ? 'admin' : activeTab.singular as Role))
-    setModalOpen(true)
-  }
-
-  const openEdit = (u: User) => {
-    const e = enrollmentOf(u.id)
-    const c = classOf(u.id)
-    setEditing(u)
-    setForm({
-      ...emptyPersonForm(u.role),
-      name: u.name,
-      email: u.email,
-      classId: c && yearClasses.some(x => x.id === c.id) ? c.id : '',
-      rollNo: e?.rollNo ?? '',
-      dob: u.dob ?? '',
-      parentIds: guardiansOf(u.id).map(g => g.parentId),
-      studentIds: wardsOf(u.id),
-      phone: u.phone ?? '',
-      classTeacherOf: classTeacherOf(u.id)?.id ?? '',
-      joinDate: u.joinDate ?? todayISO(),
-      department: u.department ?? '',
-      designation: u.designation ?? '',
-      reportsTo: u.reportsTo ?? '',
-    })
-    setModalOpen(true)
-  }
-
-  const noClassForStudent = form.role === 'student' && yearClasses.length === 0
-  const canSave = !!form.name.trim() && !saving && (form.role !== 'student' || !!form.classId)
-
-  const save = async () => {
-    if (!canSave) return
-    setSaving(true)
-    const name = form.name.trim()
-    try {
-      if (editing) {
-        const id = editing.id
-        let touchedAcademic = false
-        if (form.role === 'student') {
-          await updateUser(id, { name, classId: form.classId, rollNo: form.rollNo.trim(), dob: form.dob || undefined })
-          const existing = guardiansOf(id)
-          const want = new Set(form.parentIds)
-          const toAdd = form.parentIds.filter(pid => !existing.some(g => g.parentId === pid))
-          const toRemove = existing.filter(g => !want.has(g.parentId))
-          if (toAdd.length || toRemove.length) {
-            await Promise.all([
-              ...toAdd.map(parentId => api.post('/academic/guardians', { parentId, studentId: id })),
-              ...toRemove.map(g => api.del('/academic/guardians/' + g.id)),
-            ])
-            touchedAcademic = true
-          }
-        } else if (form.role === 'parent') {
-          await updateUser(id, { name, phone: form.phone.trim(), studentIds: form.studentIds })
-        } else if (form.role === 'teacher') {
-          const prev = classTeacherOf(id)
-          await updateUser(id, { name, joinDate: form.joinDate, classTeacherOf: form.classTeacherOf || undefined, phone: form.phone.trim(), reportsTo: form.reportsTo || null })
-          if (prev && !form.classTeacherOf) {
-            // Unassign: PATCH /users can only (re)assign, so clear the class directly.
-            await api.patch('/academic/classes/' + prev.id, { classTeacherId: null })
-            touchedAcademic = true
-          }
-        } else if (form.role === 'staff') {
-          await updateUser(id, { name, department: form.department, designation: form.designation.trim(), joinDate: form.joinDate, phone: form.phone.trim(), reportsTo: form.reportsTo || null })
-        } else {
-          await updateUser(id, { name, designation: form.designation.trim(), department: form.department, phone: form.phone.trim(), reportsTo: form.reportsTo || null })
-        }
-        if (touchedAcademic) await Promise.all([refreshAcademic(), refreshDB()])
-        toast.success(`${name} updated`)
-      } else {
-        const email = form.email.trim() || undefined
-        const base = { role: form.role, name, email }
-        const input: CreateUserInput =
-          form.role === 'student' ? { ...base, classId: form.classId, rollNo: form.rollNo.trim() || undefined, dob: form.dob || undefined }
-          : form.role === 'parent' ? { ...base, phone: form.phone.trim() || undefined, studentIds: form.studentIds }
-          : form.role === 'teacher' ? { ...base, joinDate: form.joinDate, classTeacherOf: form.classTeacherOf || undefined, phone: form.phone.trim() || undefined, reportsTo: form.reportsTo || undefined }
-          : form.role === 'staff' ? { ...base, department: form.department || undefined, designation: form.designation.trim() || undefined, joinDate: form.joinDate, phone: form.phone.trim() || undefined, reportsTo: form.reportsTo || undefined }
-          : { ...base, designation: form.designation.trim() || undefined, department: form.department || undefined, phone: form.phone.trim() || undefined, reportsTo: form.reportsTo || undefined }
-        const res = await createUser(input)
-        if (form.role === 'student' && form.parentIds.length) {
-          await Promise.all(form.parentIds.map(parentId => api.post('/academic/guardians', { parentId, studentId: res.user.id })))
-          await Promise.all([refreshAcademic(), refreshDB()])
-        }
-        setCreated({ name: res.user.name, email: res.user.email, password: res.password })
-        toast.success(`${res.user.name} onboarded as ${res.user.role}`)
-      }
-      setModalOpen(false)
-    } catch (e) {
-      toast.error(errorMessage(e))
-    } finally {
-      setSaving(false)
-    }
-  }
-
+  // Bug A fix: "Revoke access" soft-deactivates (User.active = false) instead of hard-deleting the
+  // account — reversible via "Reactivate" below, matching the resignation-approval convention.
   const confirmDelete = async () => {
     if (!confirmId) return
-    const ok = await deleteUser(confirmId)
-    if (ok) toast.success('Access revoked')
-    else toast.error('Cannot delete yourself or the last superadmin')
+    const ok = await setUserActive(confirmId, false)
+    if (ok) toast.success('Access revoked — account deactivated')
+    else toast.error('Cannot revoke your own access or the last superadmin')
     setConfirmId(null)
+  }
+
+  const [reactivateBusy, setReactivateBusy] = useState<string | null>(null)
+  const reactivate = async (u: User) => {
+    setReactivateBusy(u.id)
+    const ok = await setUserActive(u.id, true)
+    if (ok) toast.success(`${u.name}'s access restored`)
+    else toast.error('Could not restore access')
+    setReactivateBusy(null)
   }
 
   const canEdit = (u: User) => user ? canManage(user, u, db.users) : false
@@ -925,6 +817,19 @@ export function PeopleMod() {
   const roleTone = (r: Role) => r === 'student' ? 'sky' : r === 'teacher' ? 'indigo' : r === 'parent' ? 'green' : r === 'staff' ? 'amber' : 'rose'
   const muted = 'text-[12.5px] text-black/50 dark:text-white/50'
   const isEmployeeRole = (r: Role) => r === 'teacher' || r === 'staff' || r === 'admin' || r === 'superadmin'
+
+  // Phase 22 item 3: the narrow flag gating the counseling module — admin/superadmin only, its own
+  // endpoint (not the generic PATCH /users/:id) since staff-managing-teacher must never be able to grant
+  // it. See phase-22-campus-safety.md.
+  const [counselorBusy, setCounselorBusy] = useState<string | null>(null)
+  const toggleCounselor = async (u: User) => {
+    setCounselorBusy(u.id)
+    try {
+      await api.patch(`/users/${u.id}/counselor`, { isCounselor: !u.isCounselor })
+      await refreshDB()
+      toast.success(u.isCounselor ? `${u.name} is no longer a counselor` : `${u.name} can now access the counseling module`)
+    } catch (e) { toast.error(errorMessage(e)) } finally { setCounselorBusy(null) }
+  }
 
   const details = (u: User) => {
     if (u.role === 'student') {
@@ -987,7 +892,7 @@ export function PeopleMod() {
   return (
     <div>
       <PageHead title="People Management" sub={`${tabLabel} · search, filter, add, edit and revoke access`}>
-        <button onClick={openAdd} disabled={addBlocked} title={addBlocked ? 'Create a class first in Academic Setup' : undefined}
+        <button onClick={() => navigate(`/portal/people/new?role=${tab === 'admins' ? 'admin' : activeTab.singular}`)} disabled={addBlocked} title={addBlocked ? 'Create a class first in Academic Setup' : undefined}
           className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-40">
           <UserPlus size={15} /> Add {activeTab.singular}
         </button>
@@ -1056,7 +961,10 @@ export function PeopleMod() {
                     <Avatar name={u.name} hue={u.avatarHue} size={40} />
                     <div>
                       <p className="font-semibold">{u.name}</p>
-                      <Pill tone={roleTone(u.role)}>{u.role}</Pill>
+                      <div className="flex items-center gap-1.5">
+                        <Pill tone={roleTone(u.role)}>{u.role}</Pill>
+                        {u.active === false && <Pill tone="rose">Inactive</Pill>}
+                      </div>
                     </div>
                   </div>
                 </td>
@@ -1069,13 +977,24 @@ export function PeopleMod() {
                   {canEdit(u) ? (
                     <div className="flex items-center justify-end gap-2">
                       {u.role === 'student' && (
-                        <button onClick={() => setViewReportId(u.id)} className="rounded-full bg-indigo-50 dark:bg-indigo-500/10 p-2 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20" title="View full report"><FileBadge size={15} /></button>
+                        <button onClick={() => navigate(`/portal/students/${u.id}/report`)} className="rounded-full bg-indigo-50 dark:bg-indigo-500/10 p-2 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20" title="View full report"><FileBadge size={15} /></button>
                       )}
                       {isEmployeeRole(u.role) && (
-                        <button onClick={() => setViewEmployee(u)} className="rounded-full bg-indigo-50 dark:bg-indigo-500/10 p-2 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20" title="View profile — history, documents, ID card"><History size={15} /></button>
+                        <button onClick={() => navigate(`/portal/employees/${u.id}`)} className="rounded-full bg-indigo-50 dark:bg-indigo-500/10 p-2 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20" title="View profile — history, documents, ID card"><History size={15} /></button>
                       )}
-                      <button onClick={() => openEdit(u)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15" title="Edit"><Pencil size={15} /></button>
-                      <button onClick={() => setConfirmId(u.id)} className="rounded-full bg-rose-50 p-2 text-rose-500 hover:bg-rose-100" title="Revoke access"><Trash2 size={15} /></button>
+                      {isEmployeeRole(u.role) && isAdmin(current) && (
+                        <button onClick={() => toggleCounselor(u)} disabled={counselorBusy === u.id}
+                          className={`rounded-full p-2 disabled:opacity-40 ${u.isCounselor ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-500/10' : 'bg-black/[.05] dark:bg-white/[.07] hover:bg-black/10 dark:hover:bg-white/15'}`}
+                          title={u.isCounselor ? 'Counselor — click to revoke access to the counseling module' : 'Grant access to the confidential counseling module'}>
+                          <HeartHandshake size={15} />
+                        </button>
+                      )}
+                      <button onClick={() => navigate(`/portal/people/${u.id}/edit`)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15" title="Edit"><Pencil size={15} /></button>
+                      {u.active === false ? (
+                        <button onClick={() => reactivate(u)} disabled={reactivateBusy === u.id} className="rounded-full bg-emerald-50 p-2 text-emerald-600 hover:bg-emerald-100 disabled:opacity-40" title="Reactivate access"><UserCheck size={15} /></button>
+                      ) : (
+                        <button onClick={() => setConfirmId(u.id)} className="rounded-full bg-rose-50 p-2 text-rose-500 hover:bg-rose-100" title="Revoke access"><UserX size={15} /></button>
+                      )}
                     </div>
                   ) : (
                     <span className="text-[12px] text-black/40 dark:text-white/40">Protected</span>
@@ -1096,7 +1015,10 @@ export function PeopleMod() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
                 <p className="truncate font-semibold">{u.name}</p>
-                <Pill tone={roleTone(u.role)}>{u.role}</Pill>
+                <div className="flex items-center gap-1.5">
+                  <Pill tone={roleTone(u.role)}>{u.role}</Pill>
+                  {u.active === false && <Pill tone="rose">Inactive</Pill>}
+                </div>
               </div>
               <p className="truncate text-[13px]">{u.email}</p>
               {u.phone && <p className={muted}>{u.phone}</p>}
@@ -1104,13 +1026,23 @@ export function PeopleMod() {
               {canEdit(u) && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {u.role === 'student' && (
-                    <button onClick={() => setViewReportId(u.id)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><FileBadge size={14} /> Report</button>
+                    <button onClick={() => navigate(`/portal/students/${u.id}/report`)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><FileBadge size={14} /> Report</button>
                   )}
                   {isEmployeeRole(u.role) && (
-                    <button onClick={() => setViewEmployee(u)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><History size={14} /> Profile</button>
+                    <button onClick={() => navigate(`/portal/employees/${u.id}`)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><History size={14} /> Profile</button>
                   )}
-                  <button onClick={() => openEdit(u)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><Pencil size={14} /> Edit</button>
-                  <button onClick={() => setConfirmId(u.id)} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-rose-50 py-2 text-[13px] font-semibold text-rose-500"><Trash2 size={14} /> Delete</button>
+                  {isEmployeeRole(u.role) && isAdmin(current) && (
+                    <button onClick={() => toggleCounselor(u)} disabled={counselorBusy === u.id}
+                      className={`flex flex-1 items-center justify-center gap-1 rounded-xl py-2 text-[13px] font-semibold disabled:opacity-40 ${u.isCounselor ? 'bg-emerald-50 text-emerald-600' : 'bg-black/[.05] dark:bg-white/[.07]'}`}>
+                      <HeartHandshake size={14} /> {u.isCounselor ? 'Counselor' : 'Make counselor'}
+                    </button>
+                  )}
+                  <button onClick={() => navigate(`/portal/people/${u.id}/edit`)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><Pencil size={14} /> Edit</button>
+                  {u.active === false ? (
+                    <button onClick={() => reactivate(u)} disabled={reactivateBusy === u.id} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-emerald-50 py-2 text-[13px] font-semibold text-emerald-600 disabled:opacity-40"><UserCheck size={14} /> Reactivate</button>
+                  ) : (
+                    <button onClick={() => setConfirmId(u.id)} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-rose-50 py-2 text-[13px] font-semibold text-rose-500"><UserX size={14} /> Revoke</button>
+                  )}
                 </div>
               )}
             </div>
@@ -1119,174 +1051,10 @@ export function PeopleMod() {
         {filtered.length === 0 && <Card><Empty text={emptyText} /></Card>}
       </div>
 
-      {/* add/edit modal */}
-      <Modal open={modalOpen} onClose={() => !saving && setModalOpen(false)} title={editing ? `Edit ${editing.name}` : `Add ${form.role}`} wide>
-        <div className="space-y-4">
-          {editing?.employeeId && <p className="text-[12.5px] text-black/45 dark:text-white/45">Employee ID: <span className="font-mono">{editing.employeeId}</span></p>}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Full name">
-              <input value={form.name} onChange={e => patch({ name: e.target.value })} placeholder="e.g. Kavya Nair" className={inputCls} autoFocus />
-            </Field>
-            {editing ? (
-              <Field label="Email"><input value={form.email} readOnly className={`${inputCls} bg-black/[.03] dark:bg-white/[.04] text-black/60 dark:text-white/60`} /></Field>
-            ) : (
-              <Field label="Email (optional)">
-                <input type="email" value={form.email} onChange={e => patch({ email: e.target.value })} placeholder={emailHint(form.name, form.role)} className={inputCls} />
-              </Field>
-            )}
-          </div>
-
-          {!editing && (
-            <Field label="Role">
-              <select value={form.role} onChange={e => setForm(emptyPersonForm(e.target.value as Role))} className={inputCls}>
-                {(['student', 'teacher', 'staff', 'parent', ...(isSuper ? ['admin'] : [])] as Role[]).map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </Field>
-          )}
-
-          {form.role === 'student' && (
-            <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Class">
-                  {noClassForStudent ? (
-                    <p className="rounded-xl border border-dashed border-amber-300 bg-amber-50/50 dark:border-amber-500/40 dark:bg-amber-500/10 px-3 py-2.5 text-[13px] text-amber-800 dark:text-amber-300">Create a class first in Academic Setup.</p>
-                  ) : (
-                    <select value={form.classId} onChange={e => patch({ classId: e.target.value })} className={inputCls}>
-                      <option value="">Select class</option>
-                      {yearClasses.map(c => <option key={c.id} value={c.id}>{classOption(c)}</option>)}
-                    </select>
-                  )}
-                </Field>
-                <Field label="Roll number"><input value={form.rollNo} onChange={e => patch({ rollNo: e.target.value })} placeholder="e.g. 12" className={inputCls} /></Field>
-                <Field label="Date of birth"><input type="date" value={form.dob} onChange={e => patch({ dob: e.target.value })} className={inputCls} /></Field>
-              </div>
-              <Field label="Parent(s) — optional">
-                <PickList
-                  items={parents.map(p => ({ id: p.id, label: p.name, sub: p.phone || p.email }))}
-                  selected={form.parentIds}
-                  onToggle={id => toggleIn('parentIds', id)}
-                  empty="No parent accounts yet. Add parents from the Parents tab and link them here later."
-                />
-              </Field>
-            </div>
-          )}
-
-          {form.role === 'parent' && (
-            <div className="space-y-4">
-              <Field label="Phone"><input value={form.phone} onChange={e => patch({ phone: e.target.value })} placeholder="+91 98765 43210" className={inputCls} /></Field>
-              <Field label="Wards">
-                <PickList
-                  items={students.map(s => ({ id: s.id, label: s.name, sub: classOf(s.id)?.label ?? 'No class' }))}
-                  selected={form.studentIds}
-                  onToggle={id => toggleIn('studentIds', id)}
-                  empty="No students yet. Add students first, then link them here."
-                />
-              </Field>
-            </div>
-          )}
-
-          {form.role === 'teacher' && (
-            <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Class teacher of">
-                  <select value={form.classTeacherOf} onChange={e => patch({ classTeacherOf: e.target.value })} className={inputCls}>
-                    <option value="">{yearClasses.length ? 'None' : 'No classes yet'}</option>
-                    {yearClasses.map(c => {
-                      const other = c.classTeacherId && c.classTeacherId !== editing?.id ? userById.get(c.classTeacherId)?.name : undefined
-                      return <option key={c.id} value={c.id}>{c.label}{other ? ` · currently ${other}` : ''}</option>
-                    })}
-                  </select>
-                </Field>
-                <Field label="Joining date"><input type="date" value={form.joinDate} onChange={e => patch({ joinDate: e.target.value })} className={inputCls} /></Field>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Phone"><input value={form.phone} onChange={e => patch({ phone: e.target.value })} placeholder="+91 …" className={inputCls} /></Field>
-                <SearchableUserPicker label="Reports to" employees={employeeOptions} value={form.reportsTo} onChange={id => patch({ reportsTo: id })} excludeId={editing?.id} />
-              </div>
-              <p className="text-[12px] text-black/45 dark:text-white/45">Set up salary in Finance → Payroll once the account is created.</p>
-              <div>
-                <span className="text-[13px] font-semibold text-black/60 dark:text-white/60">Subjects taught</span>
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {editing && teachingOf(editing.id).length > 0
-                    ? teachingOf(editing.id).map(x => <Pill key={x.id} tone="indigo">{x.label}</Pill>)
-                    : <span className="text-[13px] text-black/45 dark:text-white/45">No subjects assigned yet.</span>}
-                </div>
-                <p className="mt-1.5 text-[12px] text-black/45 dark:text-white/45">Assign subjects in Classes & Sections → Subjects & teachers.</p>
-              </div>
-            </div>
-          )}
-
-          {form.role === 'staff' && (
-            <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <Field label="Department">
-                  <select value={form.department} onChange={e => patch({ department: e.target.value })} className={inputCls}>
-                    <option value="">Select department</option>
-                    {Array.from(new Set([...departmentOptions, 'Administration', 'Finance', 'Admissions', 'Operations'])).map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </Field>
-                <Field label="Designation"><input value={form.designation} onChange={e => patch({ designation: e.target.value })} placeholder="e.g. Office Superintendent" className={inputCls} /></Field>
-                <Field label="Joining date"><input type="date" value={form.joinDate} onChange={e => patch({ joinDate: e.target.value })} className={inputCls} /></Field>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Phone"><input value={form.phone} onChange={e => patch({ phone: e.target.value })} placeholder="+91 …" className={inputCls} /></Field>
-                <SearchableUserPicker label="Reports to" employees={employeeOptions} value={form.reportsTo} onChange={id => patch({ reportsTo: id })} excludeId={editing?.id} />
-              </div>
-            </div>
-          )}
-
-          {(form.role === 'admin' || form.role === 'superadmin') && (
-            <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Designation"><input value={form.designation} onChange={e => patch({ designation: e.target.value })} placeholder="e.g. School Administrator" className={inputCls} /></Field>
-                <Field label="Access scope">
-                  <select value={form.department} onChange={e => patch({ department: e.target.value })} className={inputCls}>
-                    <option value="">Select scope</option>
-                    <option value="Full access">Full access</option>
-                    <option value="Finance">Finance only</option>
-                    <option value="Academics">Academics only</option>
-                    <option value="Admissions">Admissions only</option>
-                  </select>
-                </Field>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Phone"><input value={form.phone} onChange={e => patch({ phone: e.target.value })} placeholder="+91 …" className={inputCls} /></Field>
-                <SearchableUserPicker label="Reports to" employees={employeeOptions} value={form.reportsTo} onChange={id => patch({ reportsTo: id })} excludeId={editing?.id} />
-              </div>
-            </div>
-          )}
-
-          {!editing && (
-            <p className="text-[12.5px] text-black/45 dark:text-white/45">A one-time password is generated on creation and shown once — copy it for the new user.</p>
-          )}
-
-          <div className="flex gap-3 pt-2">
-            <button onClick={save} disabled={!canSave} className="btn-ink flex-1 py-3 text-[14px] font-semibold disabled:opacity-40">
-              {saving ? 'Saving…' : editing ? 'Save changes' : 'Create account'}
-            </button>
-            <button onClick={() => setModalOpen(false)} disabled={saving} className="rounded-xl bg-black/[.05] dark:bg-white/[.07] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:hover:bg-white/15 disabled:opacity-40">Cancel</button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* one-time credentials */}
-      <Modal open={!!created} onClose={() => setCreated(null)} title="Account created">
-        {created && (
-          <div className="space-y-4">
-            <p className="text-[14px] leading-relaxed text-black/60 dark:text-white/60">
-              Share these credentials with <b>{created.name}</b>. The password is shown only once; they will be asked to change it on first login.
-            </p>
-            <CredentialRow label="Email" value={created.email} />
-            <CredentialRow label="Password" value={created.password} />
-            <button onClick={() => setCreated(null)} className="btn-ink w-full py-3 text-[14px] font-semibold">Done</button>
-          </div>
-        )}
-      </Modal>
-
       {/* delete confirmation */}
       <Modal open={!!confirmId} onClose={() => setConfirmId(null)} title="Revoke access?">
         <div className="space-y-4">
-          <p className="text-[14px] text-black/60 dark:text-white/60">This will permanently remove the account. You cannot delete your own account or the last remaining superadmin.</p>
+          <p className="text-[14px] text-black/60 dark:text-white/60">This deactivates the account — they will no longer be able to log in, but their history (enrollment, records, certificates) is kept and access can be restored any time from this screen. You cannot revoke your own access or the last remaining superadmin.</p>
           <div className="flex gap-3">
             <button onClick={confirmDelete} className="btn-ink flex-1 py-3 text-[14px] font-semibold bg-rose-600 hover:bg-rose-700">Revoke access</button>
             <button onClick={() => setConfirmId(null)} className="rounded-xl bg-black/[.05] dark:bg-white/[.07] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">Cancel</button>
@@ -1294,11 +1062,6 @@ export function PeopleMod() {
         </div>
       </Modal>
 
-      <Modal open={!!viewReportId} onClose={() => setViewReportId(null)} title="Student Profile Report" wide>
-        {viewReportId ? <StudentReportMod studentId={viewReportId} /> : <Empty text="Select a student to view the report." />}
-      </Modal>
-
-      <EmployeeDetailModal user={viewEmployee} onClose={() => setViewEmployee(null)} />
     </div>
   )
 }
@@ -1432,6 +1195,7 @@ export function CalendarAdminMod() {
 // See .agents/edunova/phase-4-admissions-identity.md
 
 export function BoardRegistrationMod() {
+  const navigate = useNavigate()
   const { db, user } = useStore()
   const { currentYear, classOf, wardsOf, classesTaughtBy, boards, boardById } = useAcademic()
   const regs = useBoardRegistrations()
@@ -1439,8 +1203,11 @@ export function BoardRegistrationMod() {
   const [boardFilter, setBoardFilter] = useState('All')
   const [statusFilter, setStatusFilter] = useState<BoardRegistrationStatus | 'All' | 'None'>('All')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [editOpen, setEditOpen] = useState(false)
   const [prefilling, setPrefilling] = useState(false)
+  // Phase 25 item 4 — the board-exam readiness dashboard folds in as a second tab here, next to the
+  // per-student registration review, rather than a separate nav item.
+  const [tab, setTab] = useState<'registration' | 'readiness'>('registration')
+  const canSeeReadiness = !!user && (isStaffOrAdmin(user) || user.role === 'teacher')
 
   const canEdit = !!user && (isStaffOrAdmin(user) || user.role === 'teacher')
 
@@ -1495,26 +1262,40 @@ export function BoardRegistrationMod() {
 
   return (
     <div>
-      <PageHead title="Board Registration" sub="Check each student’s board record against the school record before it goes to the board">
+      <PageHead title="Board Registration" sub={tab === 'registration' ? 'Check each student’s board record against the school record before it goes to the board' : 'Every student’s syllabus pace, average scores and registration status in one place'}>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 rounded-xl border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] px-3 py-2">
-            <Search size={15} className="text-black/40 dark:text-white/40" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student / reg no." className="bg-transparent text-[13px] outline-none" />
-          </div>
-          {boards.length > 1 && (
-            <select value={boardFilter} onChange={e => setBoardFilter(e.target.value)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Board">
-              <option value="All">All boards</option>
-              {boards.map(b => <option key={b.id} value={b.id}>{b.code}</option>)}
-            </select>
+          {canSeeReadiness && (
+            <div className="inline-flex rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] p-1">
+              {([{ id: 'registration', label: 'Registration' }, { id: 'readiness', label: 'Readiness' }] as const).map(o => (
+                <button key={o.id} onClick={() => setTab(o.id)} className={`rounded-full px-4 py-1.5 text-[13px] font-semibold transition-all ${tab === o.id ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
           )}
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as BoardRegistrationStatus | 'All' | 'None')} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Status">
-            <option value="All">All statuses</option>
-            <option value="None">Not started</option>
-            {BOARD_REG_STATUSES.map(s => <option key={s} value={s}>{boardRegLabel(s)}</option>)}
-          </select>
+          {tab === 'registration' && (
+            <>
+              <div className="flex items-center gap-2 rounded-xl border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] px-3 py-2">
+                <Search size={15} className="text-black/40 dark:text-white/40" />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student / reg no." className="bg-transparent text-[13px] outline-none" />
+              </div>
+              {boards.length > 1 && (
+                <select value={boardFilter} onChange={e => setBoardFilter(e.target.value)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Board">
+                  <option value="All">All boards</option>
+                  {boards.map(b => <option key={b.id} value={b.id}>{b.code}</option>)}
+                </select>
+              )}
+              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as BoardRegistrationStatus | 'All' | 'None')} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Status">
+                <option value="All">All statuses</option>
+                <option value="None">Not started</option>
+                {BOARD_REG_STATUSES.map(s => <option key={s} value={s}>{boardRegLabel(s)}</option>)}
+              </select>
+            </>
+          )}
         </div>
       </PageHead>
 
+      {tab === 'readiness' && canSeeReadiness ? <BoardReadinessDashboard /> : (
       <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
         <Card className="p-0">
           <div className="border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
@@ -1560,14 +1341,108 @@ export function BoardRegistrationMod() {
               ) : <p className="mt-3 text-[12.5px] text-black/40 dark:text-white/40">The office starts the registration.</p>}
             </div>
           ) : (
-            <BoardRegistrationView key={reg.id} student={selected} reg={reg} canEdit={canEdit} onEdit={() => setEditOpen(true)} onChanged={regs.reload} />
+            <BoardRegistrationView key={reg.id} student={selected} reg={reg} canEdit={canEdit} onEdit={() => navigate(`/portal/students/${selected.id}/board-registration`)} onChanged={regs.reload} />
           )}
         </Card>
       </div>
-
-      {selected && reg && (
-        <EditBoardRegistrationModal open={editOpen} onClose={() => setEditOpen(false)} student={selected} reg={reg} onSaved={regs.reload} />
       )}
+    </div>
+  )
+}
+
+/* ── Board-exam readiness dashboard (Phase 25 item 4) ──── */
+
+function BoardReadinessDashboard() {
+  const { classes, currentYear, gradeById } = useAcademic()
+  const classList = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort(compareClasses(gradeById)), [classes, currentYear, gradeById])
+  // Grades typically labelled with the board-exam years (X / XII) sort to the front, but any class works.
+  const boardYear = (label: string) => /^(X|XII)(\b|-)/i.test(label.trim())
+  const [classId, setClassId] = useState('')
+  const cls = classId || classList.find(c => boardYear(gradeById.get(c.gradeId)?.label ?? c.label))?.id || classList[0]?.id || ''
+  const readiness = useBoardReadiness(cls, !!cls)
+  const [needsAttentionOnly, setNeedsAttentionOnly] = useState(false)
+  const [sortBy, setSortBy] = useState<'name' | 'avgScorePct' | 'status'>('name')
+
+  // `subjectsBehind`/`subjectsTotal` in the response are class-wide (pace is tracked per class-subject,
+  // not per student) — shown once as a banner rather than repeated on every row.
+  const students = useMemo(() => readiness.data?.students ?? [], [readiness.data])
+  const rows = useMemo(() => {
+    let list = [...students]
+    if (needsAttentionOnly) list = list.filter(s => s.needsAttention)
+    list.sort((a, b) => {
+      if (sortBy === 'avgScorePct') return (a.avgScorePct ?? -1) - (b.avgScorePct ?? -1)
+      if (sortBy === 'status') return a.registrationStatus.localeCompare(b.registrationStatus)
+      return a.name.localeCompare(b.name)
+    })
+    return list
+  }, [students, needsAttentionOnly, sortBy])
+
+  const attentionCount = students.filter(s => s.needsAttention).length
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <select value={cls} onChange={e => setClassId(e.target.value)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Class">
+          {classList.length === 0 && <option value="">No classes</option>}
+          {classList.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
+        </select>
+        <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Sort by">
+          <option value="name">Sort: name</option>
+          <option value="avgScorePct">Sort: average score</option>
+          <option value="status">Sort: registration status</option>
+        </select>
+        <label className="flex items-center gap-2 rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] px-3.5 py-2 text-[13px] font-medium">
+          <input type="checkbox" checked={needsAttentionOnly} onChange={e => setNeedsAttentionOnly(e.target.checked)} className="h-4 w-4 accent-rose-600" />
+          Needs attention only {attentionCount > 0 && <span className="text-black/40 dark:text-white/40">({attentionCount})</span>}
+        </label>
+      </div>
+
+      {readiness.data && (
+        <div className={`mb-4 rounded-2xl border p-3.5 text-[13px] ${readiness.data.subjectsBehind > 0 ? 'border-amber-300 bg-amber-50/50 dark:border-amber-500/30 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'border-black/[.06] dark:border-white/[.08] text-black/60 dark:text-white/60'}`}>
+          {readiness.data.subjectsBehind > 0
+            ? <><AlertTriangle size={13} className="mr-1.5 inline" />{readiness.data.subjectsBehind} of {readiness.data.subjectsTotal} subject{readiness.data.subjectsTotal === 1 ? '' : 's'} in this class {readiness.data.subjectsBehind === 1 ? 'is' : 'are'} behind pace — applies to every student in the class.</>
+            : `All ${readiness.data.subjectsTotal} subject${readiness.data.subjectsTotal === 1 ? '' : 's'} in this class are on pace.`}
+        </div>
+      )}
+
+      <Card className="p-0 overflow-x-auto">
+        {readiness.loading ? <div className="p-6 text-center text-[13px] text-black/40 dark:text-white/40">Loading…</div>
+          : readiness.error ? <div className="p-6"><Empty text={readiness.error} /></div>
+          : rows.length === 0 ? <div className="p-6"><Empty text={classList.length === 0 ? 'No classes to show yet.' : needsAttentionOnly ? 'No students need attention right now.' : 'No students in this class.'} /></div>
+          : (
+            <table className="w-full text-left text-[13.5px]">
+              <thead>
+                <tr className="border-b border-black/[.06] dark:border-white/[.08] text-[11.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">
+                  <th className="px-6 py-3">Student</th>
+                  <th className="px-4 py-3">Avg. score</th>
+                  <th className="px-4 py-3">Board registration</th>
+                  <th className="px-4 py-3">Flag</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.studentId} className="border-b border-black/[.05] dark:border-white/[.07] last:border-0">
+                    <td className="px-6 py-3">
+                      <p className="font-semibold">{r.name}</p>
+                      {r.rollNo && <p className="text-[11.5px] text-black/40 dark:text-white/40">Roll {r.rollNo}</p>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {r.avgScorePct == null ? <span className="text-black/35 dark:text-white/35">—</span> : (
+                        <span className={r.trendingDown ? 'font-semibold text-rose-600' : ''}>{Math.round(r.avgScorePct)}%{r.trendingDown ? ' ↓' : ''}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {r.registrationStatus === 'NotStarted' ? <Pill tone="slate">Not started</Pill> : <Pill tone={boardRegTone(r.registrationStatus)}>{boardRegLabel(r.registrationStatus)}</Pill>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {r.needsAttention && <Pill tone="rose"><AlertTriangle size={11} /> Needs attention</Pill>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+      </Card>
     </div>
   )
 }
@@ -1726,50 +1601,6 @@ function ComparisonRow({ label, school, board, match }: { label: string; school:
       </div>
       {!match && <p className="mt-2 flex items-center gap-1 text-[11.5px] font-semibold text-amber-700 dark:text-amber-400"><AlertTriangle size={12} /> Does not match</p>}
     </div>
-  )
-}
-
-function EditBoardRegistrationModal({ open, onClose, student, reg, onSaved }: { open: boolean; onClose: () => void; student: User; reg: BoardRegistration; onSaved: () => void }) {
-  const { boards } = useAcademic()
-  const [f, setF] = useState({
-    boardId: reg.boardId, nameOnCertificate: reg.nameOnCertificate, dob: reg.dob, registrationNo: reg.registrationNo ?? '', rollNo: reg.rollNo ?? '',
-    affiliationNo: reg.affiliationNo ?? '', mismatchNote: reg.mismatchNote ?? '',
-  })
-  const [busy, setBusy] = useState(false)
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF(x => ({ ...x, [k]: e.target.value }))
-  const save = async () => {
-    setBusy(true)
-    try {
-      await api.patch(`/board-registrations/${reg.id}`, {
-        boardId: f.boardId, nameOnCertificate: f.nameOnCertificate.trim(), dob: f.dob, registrationNo: f.registrationNo.trim() || null, rollNo: f.rollNo.trim() || null,
-        affiliationNo: f.affiliationNo.trim() || null, mismatchNote: f.mismatchNote.trim() || null,
-      })
-      onSaved(); onClose()
-      toast.success('Board details updated')
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
-  }
-  return (
-    <Modal open={open} onClose={onClose} title={`Edit board details — ${student.name}`} wide>
-      <div className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Board">
-            <select value={f.boardId} onChange={set('boardId')} className={inputCls}>
-              {boards.map(b => <option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}
-            </select>
-          </Field>
-          <Field label="Name on certificate"><input value={f.nameOnCertificate} onChange={set('nameOnCertificate')} className={inputCls} /></Field>
-          <Field label="Registration no."><input value={f.registrationNo} onChange={set('registrationNo')} className={inputCls} /></Field>
-          <Field label="Board roll no."><input value={f.rollNo} onChange={set('rollNo')} className={inputCls} /></Field>
-          <Field label="Date of birth (board record)"><input type="date" value={f.dob} onChange={set('dob')} className={inputCls} /></Field>
-          <Field label="Affiliation no."><input value={f.affiliationNo} onChange={set('affiliationNo')} placeholder="School’s affiliation with the board" className={inputCls} /></Field>
-        </div>
-        <Field label="Mismatch note (optional)">
-          <textarea value={f.mismatchNote} onChange={set('mismatchNote')} placeholder="Explain any difference between the school and board records." className={`${inputCls} min-h-[80px]`} />
-        </Field>
-        {reg.status === 'SentToBoard' && <p className="text-[12.5px] text-amber-700 dark:text-amber-300">This registration was already sent to the board — edits may need to be re-validated.</p>}
-        <button onClick={save} disabled={busy || !f.nameOnCertificate.trim() || !f.dob || !f.boardId} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Saving…' : 'Save details'}</button>
-      </div>
-    </Modal>
   )
 }
 

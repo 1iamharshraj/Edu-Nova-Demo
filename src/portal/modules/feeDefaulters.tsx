@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { Clock, Filter, MessageSquare, Phone, PhoneCall } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
@@ -10,6 +11,7 @@ import { isoDate } from '@/lib/hooks/useTimetable'
 import { isOutstanding, outstandingOf, useDefaulters } from '@/lib/hooks/useFinance'
 import { CALL_OUTCOMES, CALL_REASONS, callOutcomeTone, useCallLog } from '@/lib/hooks/useWelfare'
 import { Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
 import { useActiveTerm } from './viewer'
 
 // Defaulters are derived server-side (`GET /fees/defaulters`); reminders are real rows (`POST /fees/reminders`).
@@ -22,8 +24,8 @@ const CHANNELS: { value: ReminderChannel; label: string }[] = [{ value: 'InApp',
 
 export function FeeDefaultersAndCallsMod() {
   const { user } = useStore()
+  const navigate = useNavigate()
   const [tab, setTab] = useState<'defaulters' | 'calls'>('defaulters')
-  const [callLogFor, setCallLogFor] = useState<{ id: string; name: string } | null>(null)
 
   const canView = user && canViewFeeDefaulters(user)
 
@@ -135,7 +137,7 @@ export function FeeDefaultersAndCallsMod() {
                         className="flex items-center gap-1.5 rounded-full bg-indigo-600 px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-indigo-700">
                         <MessageSquare size={13} /> Send reminder
                       </button>
-                      <button onClick={() => setCallLogFor({ id: d.studentId, name: d.name })}
+                      <button onClick={() => navigate(`/portal/fee-defaulters/${encodeURIComponent(d.studentId)}/calls`)}
                         className="flex items-center gap-1.5 rounded-full bg-black/[.06] dark:bg-white/[.08] px-3.5 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
                         <PhoneCall size={13} /> Call log
                       </button>
@@ -168,32 +170,33 @@ export function FeeDefaultersAndCallsMod() {
           </div>
         )}
       </Modal>
-
-      <CallLogModal student={callLogFor} onClose={() => setCallLogFor(null)} />
     </div>
   )
 }
 
-/* ── call log: record a real call, browse by student ────── */
-
-function CallLogModal({ student, onClose }: { student: { id: string; name: string } | null; onClose: () => void }) {
+/* ── call log: record a real call, browse a student's history ─────────────
+ * Was `CallLogModal` — an outer modal wrapping a record-call form + full call history side-by-side.
+ * Converted to a real routed page (`/portal/fee-defaulters/:studentId/calls`, see
+ * `src/pages/portal/FeeDefaulterCallLog.tsx`) per .agents/edunova/ui-architecture-fix.md Phase D #1. Data/
+ * mutation logic is carried over verbatim; only the Modal wrapper is gone. */
+export function CallLogPanel({ studentId, studentName }: { studentId: string; studentName: string }) {
   const [reason, setReason] = useState<CallReason>('fee')
   const [summary, setSummary] = useState('')
   const [outcome, setOutcome] = useState<CallOutcome>('confirmed')
   const [durationMin, setDurationMin] = useState('')
   const [calledAt, setCalledAt] = useState(() => isoDate(new Date()))
   const [busy, setBusy] = useState(false)
-  const { items: history, loading, reload } = useCallLog(student?.id, !!student)
+  const { items: history, loading, reload } = useCallLog(studentId, !!studentId)
   const sortedHistory = useMemo(() => [...(history ?? [])].sort((a, b) => b.calledAt.localeCompare(a.calledAt)), [history])
 
   const reset = () => { setReason('fee'); setSummary(''); setOutcome('confirmed'); setDurationMin(''); setCalledAt(isoDate(new Date())) }
 
   const save = async () => {
-    if (!student || !summary.trim()) return
+    if (!studentId || !summary.trim()) return
     setBusy(true)
     try {
       await api.post('/calls', {
-        studentId: student.id, reason, summary: summary.trim(), outcome,
+        studentId, reason, summary: summary.trim(), outcome,
         calledAt: new Date(calledAt).toISOString(), durationMin: durationMin ? Number(durationMin) : undefined,
       })
       reset()
@@ -203,62 +206,57 @@ function CallLogModal({ student, onClose }: { student: { id: string; name: strin
   }
 
   return (
-    <Modal open={!!student} onClose={() => { onClose(); reset() }} title={`Call log — ${student?.name ?? ''}`} wide>
-      {student && (
-        <div className="grid gap-5 sm:grid-cols-2">
-          <div className="space-y-4">
-            <p className="text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Record a call</p>
-            <Field label="Reason">
-              <select value={reason} onChange={e => setReason(e.target.value as CallReason)} className={inputCls}>
-                {CALL_REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+    <div className="grid gap-5 sm:grid-cols-2">
+      <Card>
+        <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Record a call</p>
+        <div className="space-y-4">
+          <Field label="Reason">
+            <select value={reason} onChange={e => setReason(e.target.value as CallReason)} className={inputCls}>
+              {CALL_REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Summary"><textarea value={summary} onChange={e => setSummary(e.target.value)} rows={3} placeholder="What was discussed…" className={inputCls} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Outcome">
+              <select value={outcome} onChange={e => setOutcome(e.target.value as CallOutcome)} className={inputCls}>
+                {CALL_OUTCOMES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </Field>
-            <Field label="Summary"><textarea value={summary} onChange={e => setSummary(e.target.value)} rows={3} placeholder="What was discussed…" className={inputCls} /></Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Outcome">
-                <select value={outcome} onChange={e => setOutcome(e.target.value as CallOutcome)} className={inputCls}>
-                  {CALL_OUTCOMES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </Field>
-              <Field label="Duration (min)"><input type="number" min={0} value={durationMin} onChange={e => setDurationMin(e.target.value)} placeholder="optional" className={inputCls} /></Field>
-            </div>
-            <Field label="Date"><input type="date" value={calledAt} onChange={e => setCalledAt(e.target.value)} className={inputCls} /></Field>
-            <button onClick={save} disabled={!summary.trim() || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Saving…' : 'Log call'}</button>
+            <Field label="Duration (min)"><input type="number" min={0} value={durationMin} onChange={e => setDurationMin(e.target.value)} placeholder="optional" className={inputCls} /></Field>
           </div>
-          <div>
-            <p className="mb-3 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Call history</p>
-            <div className="max-h-[26rem] space-y-2.5 overflow-y-auto thin-scroll">
-              {loading && <p className="text-[13px] text-black/40 dark:text-white/40">Loading…</p>}
-              {!loading && sortedHistory.length === 0 && <Empty text="No calls logged for this student yet." />}
-              {sortedHistory.map(c => (
-                <div key={c.id} className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[13.5px] font-semibold capitalize">{c.reason}</p>
-                    <Pill tone={callOutcomeTone(c.outcome)}>{CALL_OUTCOMES.find(o => o.value === c.outcome)?.label ?? c.outcome}</Pill>
-                  </div>
-                  <p className="mt-1 text-[12.5px] text-black/60 dark:text-white/60">{c.summary}</p>
-                  <p className="mt-1.5 flex items-center gap-2 text-[11.5px] text-black/40 dark:text-white/40">
-                    <Clock size={11} /> {fmtDate(c.calledAt, { day: 'numeric', month: 'short', year: 'numeric' })} · by {c.byName ?? c.byId}
-                    {c.durationMin ? ` · ${c.durationMin}m` : ''}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
+          <Field label="Date"><input type="date" value={calledAt} onChange={e => setCalledAt(e.target.value)} className={inputCls} /></Field>
+          <button onClick={save} disabled={!summary.trim() || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Saving…' : 'Log call'}</button>
         </div>
-      )}
-    </Modal>
+      </Card>
+      <Card>
+        <p className="mb-3 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Call history — {studentName}</p>
+        <div className="max-h-[26rem] space-y-2.5 overflow-y-auto thin-scroll">
+          {loading && <p className="text-[13px] text-black/40 dark:text-white/40">Loading…</p>}
+          {!loading && sortedHistory.length === 0 && <Empty text="No calls logged for this student yet." />}
+          {sortedHistory.map(c => (
+            <div key={c.id} className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[13.5px] font-semibold capitalize">{c.reason}</p>
+                <Pill tone={callOutcomeTone(c.outcome)}>{CALL_OUTCOMES.find(o => o.value === c.outcome)?.label ?? c.outcome}</Pill>
+              </div>
+              <p className="mt-1 text-[12.5px] text-black/60 dark:text-white/60">{c.summary}</p>
+              <p className="mt-1.5 flex items-center gap-2 text-[11.5px] text-black/40 dark:text-white/40">
+                <Clock size={11} /> {fmtDate(c.calledAt, { day: 'numeric', month: 'short', year: 'numeric' })} · by {c.byName ?? c.byId}
+                {c.durationMin ? ` · ${c.durationMin}m` : ''}
+              </p>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
   )
 }
 
 /** Standalone "Call Log" tab: pick a student, see (and add to) their call history. */
 function CallLogBrowser() {
-  const { db } = useStore()
-  const { classOf } = useAcademic()
   const [studentId, setStudentId] = useState('')
+  const [studentLabel, setStudentLabel] = useState('')
   const [statusFilter, setStatusFilter] = useState<CallOutcome | 'all'>('all')
-  const students = useMemo(() => [...db.users.filter(u => u.role === 'student')].sort((a, b) => a.name.localeCompare(b.name)), [db.users])
-  const student = students.find(s => s.id === studentId)
   const { items, loading, error } = useCallLog(studentId, !!studentId)
   const filtered = useMemo(() => {
     const list = [...(items ?? [])].sort((a, b) => b.calledAt.localeCompare(a.calledAt))
@@ -269,10 +267,7 @@ function CallLogBrowser() {
     <Card className="p-0">
       <div className="flex flex-wrap items-center gap-3 border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
         <Filter size={16} className="text-black/40 dark:text-white/40" />
-        <select value={studentId} onChange={e => setStudentId(e.target.value)} className={`${inputCls} w-52 py-1.5 text-[12.5px]`}>
-          <option value="">Choose a student…</option>
-          {students.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
-        </select>
+        <div className="w-60"><AsyncEntityPicker role="student" value={studentId} onChange={(id, label) => { setStudentId(id); setStudentLabel(label) }} placeholder="Choose a student…" /></div>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as CallOutcome | 'all')} className={`${inputCls} w-44 py-1.5 text-[12.5px]`}>
           <option value="all">All outcomes</option>
           {CALL_OUTCOMES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -287,7 +282,7 @@ function CallLogBrowser() {
           <div key={c.id} className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <p className="text-[14.5px] font-semibold">{student?.name}</p>
+                <p className="text-[14.5px] font-semibold">{studentLabel}</p>
                 <Pill tone={callOutcomeTone(c.outcome)}>{CALL_OUTCOMES.find(o => o.value === c.outcome)?.label ?? c.outcome}</Pill>
               </div>
               <p className="mt-1 text-[12.5px] text-black/50 dark:text-white/50 capitalize">{c.reason} · {c.summary}</p>

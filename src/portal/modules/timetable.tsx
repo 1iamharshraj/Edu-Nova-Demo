@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Coffee, Sun, Utensils, Clock, MapPin, User, Users } from 'lucide-react'
+import { Coffee, Sun, Utensils, Clock, MapPin, Sparkles, User, Users } from 'lucide-react'
+import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
+import { api, errorMessage } from '@/lib/api'
 import type { PeriodDef, PeriodTemplate } from '@/lib/data'
 import {
   DAY_LABELS, cellKey, daysFor, hhmm, isRunning, isoDate, sortedPeriods, useClock, useEntryLookup, useFetch, useMyTimetable,
   type ClassTimetable, type EntryLookup, type TeacherTimetable, type TimetableEntryView,
 } from '@/lib/hooks/useTimetable'
-import { Card, Empty, PageHead, Pill, TermTabs, inputCls } from '../ui'
+import { useSubstituteSuggestions } from '@/lib/hooks/useAnalytics'
+import { Card, Empty, Field, PageHead, Pill, TermTabs, inputCls } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
 import { useActiveTerm, useViewedStudents } from './viewer'
 
 // Data hooks and helpers live in src/lib/hooks/useTimetable.ts; this file only exports components.
@@ -416,7 +420,7 @@ function ClassPicker({ term }: { term: string }) {
   const list = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true })), [classes, currentYear])
   const [picked, setPicked] = useState('')
   const classId = list.some(c => c.id === picked) ? picked : (list[0]?.id ?? '')
-  const { data, loading, error } = useFetch<ClassTimetable>(classId ? `/timetable?classId=${encodeURIComponent(classId)}&termId=${encodeURIComponent(term)}` : null)
+  const { data, loading, error, reload } = useFetch<ClassTimetable>(classId ? `/timetable?classId=${encodeURIComponent(classId)}&termId=${encodeURIComponent(term)}` : null)
   const lookup = useEntryLookup()
   const now = useClock()
   const entries = data?.entries ?? []
@@ -446,8 +450,82 @@ function ClassPicker({ term }: { term: string }) {
                 time={`${p.start} – ${p.end}`} highlight={isRunning(p, d, now)} />
             }} />
             <Legend entries={entries} lookup={lookup} template={template} />
+            <AssignSubstitute entries={entries} lookup={lookup} template={template} onAssigned={reload} />
           </>
         )}
     </div>
+  )
+}
+
+/**
+ * Phase 19 item 5 — smart substitute suggestion. Extends the existing `Substitution` model (`POST
+ * /substitutions`, see server/src/modules/substitutions/) with the picker itself, which didn't exist in the
+ * frontend yet — no prior screen called that endpoint. Placed under the staff/admin class timetable view
+ * since that's where an office user already sees which teacher is on which period. The "Suggested" list
+ * (free that period, teaches the subject preferred, sorted by current workload) sits above a manual
+ * teacher dropdown so the ranked suggestions augment rather than replace picking anyone by hand.
+ */
+function AssignSubstitute({ entries, lookup, template, onAssigned }: { entries: TimetableEntryView[]; lookup: EntryLookup; template: PeriodTemplate; onAssigned: () => void }) {
+  const [entryId, setEntryId] = useState('')
+  const [date, setDate] = useState(() => isoDate(new Date()))
+  const [reason, setReason] = useState('')
+  const [teacherId, setTeacherId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const periods = sortedPeriods(template).filter(p => p.kind === 'class')
+  const sortedEntries = useMemo(() => [...entries].sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.periodIdx - b.periodIdx), [entries])
+  const entry = sortedEntries.find(e => e.id === entryId) ?? sortedEntries[0]
+  const periodLabel = (e?: TimetableEntryView) => e ? `${DAY_LABELS[e.dayOfWeek].slice(0, 3)} · ${periods.find(p => p.idx === e.periodIdx)?.label ?? `Period ${e.periodIdx}`} · ${lookup.subjectOf(e)}` : ''
+
+  const { items: suggestions, loading: suggestLoading } = useSubstituteSuggestions(
+    { classSubjectId: entry?.classSubjectId, date, periodIdx: entry?.periodIdx }, !!entry && !!date,
+  )
+  const assign = async (substituteTeacherId: string) => {
+    if (!entry) return
+    setBusy(true)
+    try {
+      await api.post('/substitutions', { timetableEntryId: entry.id, date, substituteTeacherId, reason: reason.trim() || undefined })
+      toast.success('Substitute assigned')
+      setReason(''); setTeacherId('')
+      onAssigned()
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+
+  if (sortedEntries.length === 0) return null
+  return (
+    <Card className="mt-4">
+      <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Assign a substitute</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field label="Period">
+          <select value={entry?.id ?? ''} onChange={e => setEntryId(e.target.value)} className={inputCls}>
+            {sortedEntries.map(e => <option key={e.id} value={e.id}>{periodLabel(e)}</option>)}
+          </select>
+        </Field>
+        <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} /></Field>
+        <Field label="Reason (optional)"><input value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. sick leave" className={inputCls} /></Field>
+      </div>
+
+      <p className="mb-2 mt-4 flex items-center gap-1.5 text-[12.5px] font-semibold text-black/50 dark:text-white/50"><Sparkles size={13} /> Suggested</p>
+      {suggestLoading ? <p className="text-[12.5px] text-black/40 dark:text-white/40">Finding free teachers…</p>
+        : (suggestions ?? []).length === 0 ? <p className="text-[12.5px] text-black/40 dark:text-white/40">No free, matching teacher found for this slot — pick manually below.</p>
+        : (
+          <div className="flex flex-wrap gap-2">
+            {(suggestions ?? []).slice(0, 5).map(s => (
+              <button key={s.teacherId} onClick={() => assign(s.teacherId)} disabled={busy}
+                className="flex items-center gap-2 rounded-full border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/70 dark:bg-indigo-500/10 px-3.5 py-2 text-[12.5px] font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 disabled:opacity-40">
+                {s.teacherName}
+                {s.teachesSubject && <Pill tone="indigo">teaches subject</Pill>}
+                <span className="font-normal opacity-70">{s.periodsPerWeek}/wk</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+      <div className="mt-4 flex flex-wrap items-start gap-2">
+        <div className="w-auto min-w-[200px]">
+          <AsyncEntityPicker role="teacher" value={teacherId} onChange={id => setTeacherId(id)} placeholder="Pick manually…" />
+        </div>
+        <button onClick={() => teacherId && assign(teacherId)} disabled={!teacherId || busy} className="btn-ink px-5 py-2 text-[13px] font-semibold disabled:opacity-40">{busy ? 'Assigning…' : 'Assign'}</button>
+      </div>
+    </Card>
   )
 }

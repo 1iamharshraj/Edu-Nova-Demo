@@ -1,15 +1,16 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 import {
-  AlertTriangle, Barcode, BookMarked, BookOpen, Check, CheckCircle2, Clock3, IndianRupee, Pencil, Plus, Search, Trash2, Undo2, X,
+  AlertTriangle, BookMarked, BookOpen, Check, CheckCircle2, Clock3, IndianRupee, Plus, Search, Undo2, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useStore } from '@/lib/store'
 import { api, errorMessage } from '@/lib/api'
 import { isStaffOrAdmin } from '@/lib/access'
-import type { BookCondition, BookCopyRec, BookRec, CopyStatus, LoanRec, Role, User } from '@/lib/data'
+import type { BookCondition, BookRec, LoanRec, Role, User } from '@/lib/data'
 import { fmtDate } from '@/lib/hooks/useAcademics'
 import {
-  BOOK_CONDITIONS, COPY_STATUSES, DEFAULT_LIBRARY_SETTINGS, availabilityLabel, copyStatusTone, daysOverdue, fineStatusTone,
+  BOOK_CONDITIONS, DEFAULT_LIBRARY_SETTINGS, availabilityLabel, daysOverdue, fineStatusTone,
   isOverdue, loanLimitFor, previewFine, useBooks, useCopies, useLibrarySettings, useLoans, useSplitLoans,
 } from '@/lib/hooks/useLibrary'
 import { Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
@@ -23,8 +24,6 @@ import { Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
 const muted = 'text-[12.5px] text-black/50 dark:text-white/50'
 const sectionLabel = 'text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40'
 const rowCls = 'flex flex-wrap items-center gap-3 border-b border-black/[.05] dark:border-white/[.07] px-5 py-3.5 last:border-0'
-const iconBtn = 'rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15 disabled:opacity-30 disabled:hover:bg-black/[.05]'
-const dangerBtn = 'rounded-full bg-rose-50 dark:bg-rose-500/10 p-2 text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-500/20 disabled:opacity-40'
 
 function FormActions({ onCancel, onSave, label, disabled }: { onCancel: () => void; onSave: () => void; label: string; disabled?: boolean }) {
   return (
@@ -39,127 +38,13 @@ function FormActions({ onCancel, onSave, label, disabled }: { onCancel: () => vo
 
 interface BookForm { title: string; author: string; isbn: string; publisher: string; category: string }
 const emptyBookForm = (): BookForm => ({ title: '', author: '', isbn: '', publisher: '', category: '' })
-interface CopyForm { barcode: string; condition: BookCondition; status: CopyStatus }
-const emptyCopyForm = (): CopyForm => ({ barcode: '', condition: 'New', status: 'Available' })
-
-function BookDetailModal({ book, onClose, onChanged, canManage }: { book: BookRec | null; onClose: () => void; onChanged: () => void; canManage: boolean }) {
-  const copies = useCopies(book?.id, !!book && canManage)
-  const [copyOpen, setCopyOpen] = useState(false)
-  const [editCopy, setEditCopy] = useState<BookCopyRec | null>(null)
-  const [copyForm, setCopyForm] = useState<CopyForm>(emptyCopyForm())
-  const [busy, setBusy] = useState(false)
-  const [delCopy, setDelCopy] = useState<BookCopyRec | null>(null)
-
-  const openAddCopy = () => { setEditCopy(null); setCopyForm(emptyCopyForm()); setCopyOpen(true) }
-  const openEditCopy = (c: BookCopyRec) => { setEditCopy(c); setCopyForm({ barcode: c.barcode, condition: c.condition ?? 'Good', status: c.status }); setCopyOpen(true) }
-  const saveCopy = async () => {
-    if (!book) return
-    setBusy(true)
-    try {
-      // A new copy always starts Available server-side — POST /library/copies doesn't take `status`. Editing
-      // an existing copy does, but the server refuses a manual transition into/out of 'Loaned' (that's only
-      // ever set by the issue/return flow), so the status field is hidden once a copy is on loan.
-      if (editCopy) await api.patch(`/library/copies/${editCopy.id}`, { barcode: copyForm.barcode.trim(), condition: copyForm.condition, status: copyForm.status })
-      else await api.post('/library/copies', { barcode: copyForm.barcode.trim(), condition: copyForm.condition, bookId: book.id })
-      setCopyOpen(false); copies.reload(); onChanged(); toast.success(editCopy ? 'Copy updated' : 'Copy added')
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
-  }
-  const removeCopy = async () => {
-    if (!delCopy) return
-    setBusy(true)
-    try { await api.del(`/library/copies/${delCopy.id}`); setDelCopy(null); copies.reload(); onChanged(); toast.success('Copy removed') }
-    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
-  }
-
-  if (!book) return null
-  return (
-    <Modal open={!!book} onClose={onClose} title={book.title} wide>
-      <div className="space-y-5">
-        <div className="grid gap-3 text-[13.5px] sm:grid-cols-2">
-          <div><p className={muted}>Author</p><p className="font-medium">{book.author}</p></div>
-          {book.category && <div><p className={muted}>Category</p><p className="font-medium">{book.category}</p></div>}
-          {book.publisher && <div><p className={muted}>Publisher</p><p className="font-medium">{book.publisher}</p></div>}
-          {book.isbn && <div><p className={muted}>ISBN</p><p className="font-medium">{book.isbn}</p></div>}
-        </div>
-
-        {!canManage && (
-          <div className="rounded-2xl bg-black/[.04] dark:bg-white/[.06] px-4 py-3 text-[14px] font-medium">
-            {availabilityLabel(book)}
-          </div>
-        )}
-
-        {canManage && (
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <p className={sectionLabel}>Copies</p>
-              <button onClick={openAddCopy} className="flex items-center gap-1.5 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3 py-1.5 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
-                <Plus size={13} /> Add copy
-              </button>
-            </div>
-            <Card className="p-0">
-              {copies.loading && <div className="p-5 text-center text-[13px] text-black/40 dark:text-white/40">Loading copies…</div>}
-              {copies.error && <div className="p-5"><Empty text={copies.error} /></div>}
-              {!copies.loading && !copies.error && (copies.items ?? []).length === 0 && <div className="p-5"><Empty text="No copies catalogued yet." /></div>}
-              {(copies.items ?? []).map(c => (
-                <div key={c.id} className={rowCls}>
-                  <Barcode size={15} className="shrink-0 text-black/40 dark:text-white/40" />
-                  <div className="min-w-32 flex-1">
-                    <p className="font-mono text-[13.5px] font-semibold">{c.barcode}</p>
-                    <p className={muted}>{c.condition ?? 'Condition not set'}</p>
-                  </div>
-                  <Pill tone={copyStatusTone(c.status)}>{c.status}</Pill>
-                  <button onClick={() => openEditCopy(c)} className={iconBtn} aria-label="Edit copy"><Pencil size={14} /></button>
-                  <button onClick={() => setDelCopy(c)} className={dangerBtn} aria-label="Delete copy" disabled={c.status === 'Loaned'}><Trash2 size={14} /></button>
-                </div>
-              ))}
-            </Card>
-          </div>
-        )}
-      </div>
-
-      <Modal open={copyOpen} onClose={() => setCopyOpen(false)} title={editCopy ? `Edit copy ${editCopy.barcode}` : 'New copy'}>
-        <div className="space-y-4">
-          <Field label="Barcode"><input value={copyForm.barcode} onChange={e => setCopyForm({ ...copyForm, barcode: e.target.value })} placeholder="e.g. LIB-000123" className={inputCls} autoFocus /></Field>
-          <Field label="Condition">
-            <select value={copyForm.condition} onChange={e => setCopyForm({ ...copyForm, condition: e.target.value as BookCondition })} className={inputCls}>
-              {BOOK_CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </Field>
-          {editCopy && (
-            copyForm.status === 'Loaned' ? (
-              <p className={muted}>This copy is currently on loan — its status changes automatically when it's returned.</p>
-            ) : (
-              <Field label="Status">
-                <select value={copyForm.status} onChange={e => setCopyForm({ ...copyForm, status: e.target.value as CopyStatus })} className={inputCls}>
-                  {COPY_STATUSES.filter(s => s !== 'Loaned').map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </Field>
-            )
-          )}
-          <FormActions onCancel={() => setCopyOpen(false)} onSave={saveCopy} label={editCopy ? 'Save changes' : 'Add copy'} disabled={!copyForm.barcode.trim() || busy} />
-        </div>
-      </Modal>
-
-      <Modal open={!!delCopy} onClose={() => setDelCopy(null)} title={`Delete copy ${delCopy?.barcode ?? ''}?`}>
-        <div className="space-y-4">
-          <p className="text-[14px] text-black/60 dark:text-white/60">This cannot be undone.</p>
-          <div className="flex gap-3">
-            <button onClick={removeCopy} disabled={busy} className="btn-ink flex-1 bg-rose-600 py-3 text-[14px] font-semibold hover:bg-rose-700 disabled:opacity-40">Delete copy</button>
-            <button onClick={() => setDelCopy(null)} className="rounded-xl bg-black/[.05] dark:bg-white/[.07] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">Cancel</button>
-          </div>
-        </div>
-      </Modal>
-    </Modal>
-  )
-}
-
 export function LibraryCatalogMod() {
   const { user } = useStore()
+  const navigate = useNavigate()
   const canManage = isStaffOrAdmin(user)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
   const books = useBooks({ q: search.trim() || undefined, category: category || undefined })
-  const [selected, setSelected] = useState<BookRec | null>(null)
 
   const [addOpen, setAddOpen] = useState(false)
   const [form, setForm] = useState<BookForm>(emptyBookForm())
@@ -177,11 +62,6 @@ export function LibraryCatalogMod() {
 
   const categories = useMemo(() => Array.from(new Set((books.items ?? []).map(b => b.category).filter((c): c is string => !!c))).sort(), [books.items])
   const sorted = useMemo(() => [...(books.items ?? [])].sort((a, b) => a.title.localeCompare(b.title)), [books.items])
-
-  const refreshSelected = () => { books.reload() }
-  // Keep the open detail modal's availability count fresh after a copy add/edit/delete without an extra fetch —
-  // the reload above refetches the list; this just re-points `selected` at the refreshed row once it lands.
-  const selectedLive = selected ? (books.items ?? []).find(b => b.id === selected.id) ?? selected : null
 
   return (
     <div>
@@ -221,7 +101,7 @@ export function LibraryCatalogMod() {
           const available = (b.availableCopies ?? 0) > 0
           const hasCopies = (b.totalCopies ?? 0) > 0
           return (
-            <Card key={b.id} className="card-lift flex cursor-pointer flex-col gap-3" onClick={() => setSelected(b)}>
+            <Card key={b.id} className="card-lift flex cursor-pointer flex-col gap-3" onClick={() => navigate(`/portal/library/books/${b.id}`)}>
               <div className="flex items-start gap-3">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600"><BookOpen size={20} /></span>
                 <div className="min-w-0 flex-1">
@@ -237,8 +117,6 @@ export function LibraryCatalogMod() {
           )
         })}
       </div>
-
-      <BookDetailModal book={selectedLive} onClose={() => setSelected(null)} onChanged={refreshSelected} canManage={canManage} />
 
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="New book">
         <div className="space-y-4">

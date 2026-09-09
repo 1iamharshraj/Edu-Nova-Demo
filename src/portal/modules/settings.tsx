@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { AlertTriangle, Database, History, Sparkles } from 'lucide-react'
+import { AlertTriangle, Database, History, Network, Sparkles } from 'lucide-react'
 import { useStore } from '@/lib/store'
 import { api, errorMessage } from '@/lib/api'
 import { isSuperAdmin } from '@/lib/access'
+import { useCreateGroup, useGroupMemberships, useJoinGroup } from '@/lib/hooks/useGroup'
 import { Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
 
 interface AuditRow { id: string; actorId: string; action: string; entity: string; entityId: string; at: string }
@@ -87,6 +88,8 @@ export function SettingsMod() {
             <dt className="text-black/50 dark:text-white/50">People</dt><dd className="font-semibold">{db.users.length}</dd>
           </dl>
         </Card>
+
+        <GroupSettingsCard superadmin={superadmin} />
 
         {superadmin && (
           <Card>
@@ -176,5 +179,106 @@ export function SettingsMod() {
         </div>
       </Modal>
     </div>
+  )
+}
+
+/* ── Phase 28: which group is my school part of + create/join a group ────
+ * Visible to everyone who can reach Settings (admin/superadmin — see Portal.tsx's modulesFor), so the
+ * "which group" indicator is always readable. Create/Join are superadmin-only, and live HERE rather than
+ * inside the Group module: a superadmin with zero memberships has no "Group" nav entry yet (Portal.tsx
+ * only splices it in once useGroupMemberships().memberships.length > 0), so this is the only reachable
+ * place to create the first group or join an existing one before that entry appears. */
+function GroupSettingsCard({ superadmin }: { superadmin: boolean }) {
+  const { school, refresh } = useGroupMemberships()
+  const createGroup = useCreateGroup()
+  const joinGroup = useJoinGroup()
+  const [createOpen, setCreateOpen] = useState(false)
+  const [joinOpen, setJoinOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [joinGroupId, setJoinGroupId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [created, setCreated] = useState<{ id: string; name: string } | null>(null)
+
+  const submitCreate = async () => {
+    if (!name.trim()) return
+    setBusy(true)
+    try {
+      const item = await createGroup(name.trim())
+      setCreated({ id: item.id, name: item.name })
+      setName('')
+      toast.success(`Group "${item.name}" created — you're its Group Admin.`)
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+
+  const submitJoin = async () => {
+    if (!joinGroupId.trim()) return
+    setBusy(true)
+    try {
+      await joinGroup(joinGroupId.trim())
+      await refresh()
+      toast.success('This school joined the group')
+      setJoinOpen(false); setJoinGroupId('')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <Card>
+      <div className="mb-3 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">
+        <Network size={14} /> School group
+      </div>
+      <p className="text-[14px]">
+        {school?.groupId ? (
+          <>This school is part of <span className="font-semibold">{school.groupName}</span>.</>
+        ) : (
+          <span className="text-black/50 dark:text-white/50">Not part of any group.</span>
+        )}
+      </p>
+      {superadmin && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button onClick={() => setCreateOpen(true)} className="rounded-full border border-black/10 dark:border-white/15 px-4 py-2 text-[13px] font-semibold hover:bg-black/[.04] dark:hover:bg-white/[.06]">
+            Create a group
+          </button>
+          <button onClick={() => setJoinOpen(true)} disabled={!!school?.groupId} className="rounded-full border border-black/10 dark:border-white/15 px-4 py-2 text-[13px] font-semibold hover:bg-black/[.04] disabled:opacity-40 dark:border-white/15 dark:hover:bg-white/[.06]">
+            Join a group
+          </button>
+        </div>
+      )}
+
+      <Modal open={createOpen} onClose={() => { setCreateOpen(false); setCreated(null) }} title={created ? 'Group created' : 'Create a group'}>
+        {created ? (
+          <div className="space-y-4">
+            <p className="text-[13px] text-black/50 dark:text-white/50">
+              Your own school hasn't joined <span className="font-semibold">{created.name}</span> yet — use "Join a group" with the ID below. Share this ID with other schools' superadmins so they can join too.
+            </p>
+            <div className="flex items-center gap-3 rounded-2xl bg-black/[.04] dark:bg-white/[.06] px-4 py-3">
+              <div className="min-w-0 flex-1"><p className="text-[11.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Group ID</p><p className="select-all truncate font-mono text-[14px]">{created.id}</p></div>
+            </div>
+            <button onClick={() => { setCreateOpen(false); setCreated(null) }} className="btn-ink w-full py-3 text-[14px] font-semibold">Done</button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-[13px] text-black/50 dark:text-white/50">
+              You become this group's Group Admin. Your own school does not automatically join — use "Join a group" afterwards with the group ID shown once it's created.
+            </p>
+            <Field label="Group name"><input value={name} onChange={e => setName(e.target.value)} autoFocus className={inputCls} /></Field>
+            <button onClick={submitCreate} disabled={!name.trim() || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">
+              {busy ? 'Creating…' : 'Create group'}
+            </button>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={joinOpen} onClose={() => setJoinOpen(false)} title="Join a group">
+        <div className="space-y-4">
+          <p className="text-[13px] text-black/50 dark:text-white/50">
+            Enter the group ID given to you by the group's creator. This adds YOUR school to that group — you cannot add another school.
+          </p>
+          <Field label="Group ID"><input value={joinGroupId} onChange={e => setJoinGroupId(e.target.value)} placeholder="e.g. grp_abc123" autoFocus className={inputCls} /></Field>
+          <button onClick={submitJoin} disabled={!joinGroupId.trim() || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">
+            {busy ? 'Joining…' : 'Join group'}
+          </button>
+        </div>
+      </Modal>
+    </Card>
   )
 }

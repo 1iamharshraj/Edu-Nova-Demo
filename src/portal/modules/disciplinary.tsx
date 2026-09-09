@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
 import { Archive, Check, ChevronRight, FileText, Gavel, Lock, MessageSquarePlus, Plus, ShieldAlert, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
@@ -10,6 +11,7 @@ import {
   DISCIPLINARY_ACTIONS, disciplinaryTone, nextDisciplinaryStatus, useDisciplinaryCases, useDisciplinaryNotes,
 } from '@/lib/hooks/useWelfare'
 import { Card, Empty, Field, Modal, PageHead, Pill, UploadField, inputCls, type UploadedFile } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
 
 // Disciplinary committee: report (teacher, class-scoped / staff / admin), a status timeline of `DisciplinaryNote`s
 // (advance status or add a free note — both write a note), real evidence file uploads, and admin soft delete with
@@ -19,6 +21,7 @@ import { Card, Empty, Field, Modal, PageHead, Pill, UploadField, inputCls, type 
 
 export function DisciplinaryCommitteeMod() {
   const { db, user } = useStore()
+  const navigate = useNavigate()
   const { classOf, classesTaughtBy, enrollments } = useAcademic()
   const canManage = user ? canManageDisciplinary(user) : false
   const canDelete = user ? isAdmin(user) : false
@@ -29,15 +32,15 @@ export function DisciplinaryCommitteeMod() {
   // The server doesn't always decorate studentName/reportedByName — resolve from db.users when absent.
   const nameOf = (id: string) => db.users.find(u => u.id === id)?.name ?? id
 
-  // students a teacher may report on: those in their classes. Staff/admin may report on anyone.
-  const reportableStudents = useMemo(() => {
-    if (!user) return []
-    if (user.role === 'teacher') {
-      const classIds = new Set(classesTaughtBy(user.id).map(c => c.id))
-      const ids = new Set(enrollments.filter(e => classIds.has(e.classId) && e.status === 'active').map(e => e.studentId))
-      return db.users.filter(u => u.role === 'student' && ids.has(u.id))
-    }
-    return db.users.filter(u => u.role === 'student')
+  // A teacher may only report on students in their own classes — a genuine bounded list, kept as a flat
+  // select. Staff/admin may report on anyone, so that path uses the async search picker over the whole
+  // school roster (see .agents/edunova/ui-architecture-fix.md Phase B).
+  const isTeacher = user?.role === 'teacher'
+  const teacherReportableStudents = useMemo(() => {
+    if (!user || user.role !== 'teacher') return []
+    const classIds = new Set(classesTaughtBy(user.id).map(c => c.id))
+    const ids = new Set(enrollments.filter(e => classIds.has(e.classId) && e.status === 'active').map(e => e.studentId))
+    return db.users.filter(u => u.role === 'student' && ids.has(u.id))
   }, [user, db.users, classesTaughtBy, enrollments])
 
   const classOfStudent = (studentId: string) => enrollments.find(e => e.studentId === studentId && e.status === 'active')?.classId
@@ -70,7 +73,6 @@ export function DisciplinaryCommitteeMod() {
     catch (e) { toast.error(errorMessage(e)) }
   }
 
-  const [detailOpen, setDetailOpen] = useState<DisciplinaryCaseRec | null>(null)
   // Server scopes the list already (reporters/staff/admin: theirs or all; parent/student: own) — no client re-filtering.
   const visibleCases = sorted
 
@@ -115,7 +117,7 @@ export function DisciplinaryCommitteeMod() {
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <button onClick={() => setDetailOpen(c)}
+                <button onClick={() => navigate(`/portal/discipline/cases/${encodeURIComponent(c.id)}`)}
                   className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
                   {canManage ? 'Review case' : 'View case'}
                 </button>
@@ -135,10 +137,14 @@ export function DisciplinaryCommitteeMod() {
       <Modal open={createOpen} onClose={() => { setCreateOpen(false); resetForm() }} title="Report disciplinary case">
         <div className="space-y-4">
           <Field label="Student">
-            <select value={formStudent} onChange={e => setFormStudent(e.target.value)} className={inputCls}>
-              <option value="">Select student</option>
-              {reportableStudents.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
-            </select>
+            {isTeacher ? (
+              <select value={formStudent} onChange={e => setFormStudent(e.target.value)} className={inputCls}>
+                <option value="">Select student</option>
+                {teacherReportableStudents.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
+              </select>
+            ) : (
+              <AsyncEntityPicker role="student" value={formStudent} onChange={id => setFormStudent(id)} placeholder="Search student…" />
+            )}
           </Field>
           <Field label="Title"><input value={formTitle} onChange={e => setFormTitle(e.target.value)} placeholder="e.g. Lab equipment misuse" className={inputCls} /></Field>
           <Field label="Description"><textarea value={formDescription} onChange={e => setFormDescription(e.target.value)} rows={3} placeholder="What happened, where, when…" className={inputCls} /></Field>
@@ -149,20 +155,19 @@ export function DisciplinaryCommitteeMod() {
             className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{creating ? 'Reporting…' : 'Report case'}</button>
         </div>
       </Modal>
-
-      {/* Case detail / timeline */}
-      <CaseDetailModal caseRec={detailOpen} canManage={canManage} nameOf={nameOf} onClose={() => setDetailOpen(null)} onChanged={reload} />
     </div>
   )
 }
 
-/* ── case detail: description, evidence, status timeline ─ */
-
-function CaseDetailModal({ caseRec, canManage, nameOf, onClose, onChanged }: {
-  caseRec: DisciplinaryCaseRec | null
+/* ── case detail: description, evidence, status timeline ────────────────
+ * Was `CaseDetailModal` — an outer modal wrapping the case description/evidence plus a status-timeline and
+ * committee-action form. Converted to a real routed page (`/portal/discipline/cases/:id`, see
+ * `src/pages/portal/DisciplinaryCaseDetail.tsx`) per .agents/edunova/ui-architecture-fix.md Phase D #2.
+ * Data/mutation logic is carried over verbatim; only the Modal wrapper is gone. */
+export function CaseDetailPanel({ caseRec, canManage, nameOf, onChanged }: {
+  caseRec: DisciplinaryCaseRec
   canManage: boolean
   nameOf: (id: string) => string
-  onClose: () => void
   onChanged: () => void
 }) {
   const { items: fetchedNotes, loading: notesLoading, reload: reloadNotes } = useDisciplinaryNotes(caseRec?.id, !!caseRec)
@@ -172,15 +177,14 @@ function CaseDetailModal({ caseRec, canManage, nameOf, onClose, onChanged }: {
   const [localNotes, setLocalNotes] = useState<import('@/lib/data').DisciplinaryNote[]>([])
   const sortedNotes = useMemo(() => {
     const byId = new Map((fetchedNotes ?? []).map(n => [n.id, n]))
-    localNotes.filter(n => n.caseId === caseRec?.id).forEach(n => byId.set(n.id, n))
+    localNotes.filter(n => n.caseId === caseRec.id).forEach(n => byId.set(n.id, n))
     return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-  }, [fetchedNotes, localNotes, caseRec?.id])
+  }, [fetchedNotes, localNotes, caseRec.id])
 
   const [action, setAction] = useState<DisciplinaryActionRec | ''>('')
   const [noteBody, setNoteBody] = useState('')
   const [busy, setBusy] = useState(false)
 
-  if (!caseRec) return null
   const next = nextDisciplinaryStatus(caseRec.status)
 
   const advance = async (status: DisciplinaryCaseStatus) => {
@@ -209,9 +213,8 @@ function CaseDetailModal({ caseRec, canManage, nameOf, onClose, onChanged }: {
   }
 
   return (
-    <Modal open={!!caseRec} onClose={onClose} title={caseRec.title} wide>
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-2">
           <Pill tone={disciplinaryTone(caseRec.status)}>{caseRec.status}</Pill>
           {caseRec.actionTaken && <Pill tone="amber">{caseRec.actionTaken}</Pill>}
         </div>
@@ -301,7 +304,6 @@ function CaseDetailModal({ caseRec, canManage, nameOf, onClose, onChanged }: {
             <ShieldAlert size={16} className="mb-2" /> You can view this case because it involves your profile. Only the disciplinary committee can update it.
           </div>
         )}
-      </div>
-    </Modal>
+    </div>
   )
 }

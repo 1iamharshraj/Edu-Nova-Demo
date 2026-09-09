@@ -1,20 +1,22 @@
 import { useMemo, useState } from 'react'
-import { BookOpen, CalendarRange, ChevronDown, ChevronUp, Clock3, DoorOpen, GraduationCap, LayoutGrid, Pencil, Plus, RefreshCw, Star, Trash2, UserPlus, Users, X } from 'lucide-react'
+import { useNavigate } from 'react-router'
+import { BookMarked, BookOpen, CalendarRange, ChevronDown, ChevronUp, Clock3, DoorOpen, GraduationCap, LayoutGrid, Pencil, Plus, Star, Trash2, Users, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
 import { useEntity } from '@/lib/hooks/useEntity'
 import { api, errorMessage } from '@/lib/api'
-import type { AcademicYear, BoardRec, ClassRec, ClassSubject, CurriculumKind, CurriculumSubject, Enrollment, Grade, PeriodDef, PeriodKind, PeriodTemplate, Room, RoomKind, Stream, SubjectRec, TermRec } from '@/lib/data'
+import type { AcademicYear, BoardRec, ClassRec, CurriculumKind, CurriculumSubject, Grade, PeriodDef, PeriodKind, PeriodTemplate, Room, RoomKind, Stream, SubjectRec, TermRec } from '@/lib/data'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
+// Chrome primitives shared with the routed pages that used to be modals here (src/pages/portal/
+// SubjectChapters.tsx, ClassSubjects.tsx, ClassRoster.tsx) live in academicShared.tsx, not here — a file
+// mixing component and non-component exports breaks React Fast Refresh. See
+// .agents/edunova/ui-architecture-fix.md, Phase C.
+import { classPills, comboLabel, dangerBtn, ghostBtn, iconBtn, muted, sectionLabel, swatch } from './academicShared'
 
 /* ── shared bits ───────────────────────────────────────── */
 
 const today = () => new Date().toISOString().slice(0, 10)
-const sectionLabel = 'text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40'
-const iconBtn = 'rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15 disabled:opacity-30 disabled:hover:bg-black/[.05]'
-const dangerBtn = 'rounded-full bg-rose-50 dark:bg-rose-500/10 p-2 text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-500/20 disabled:opacity-40'
-const ghostBtn = 'rounded-full border border-black/10 dark:border-white/15 px-3 py-1.5 text-[12.5px] font-semibold hover:bg-black/[.04] dark:hover:bg-white/[.06] disabled:opacity-40'
-const muted = 'text-[12.5px] text-black/50 dark:text-white/50'
 const rowCls = 'flex items-center gap-3 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3.5 last:border-0'
 const cardHead = 'flex items-center justify-between gap-3 border-b border-black/[.06] dark:border-white/[.08] px-6 py-3'
 
@@ -30,7 +32,7 @@ function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
   )
 }
 
-function HeaderAdd({ label, onClick }: { label: string; onClick: () => void }) {
+export function HeaderAdd({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button onClick={onClick} className="flex shrink-0 items-center gap-1.5 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3 py-1.5 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
       <Plus size={13} /> {label}
@@ -38,7 +40,7 @@ function HeaderAdd({ label, onClick }: { label: string; onClick: () => void }) {
   )
 }
 
-function FormActions({ onCancel, onSave, label, disabled }: { onCancel: () => void; onSave: () => void; label: string; disabled?: boolean }) {
+export function FormActions({ onCancel, onSave, label, disabled }: { onCancel: () => void; onSave: () => void; label: string; disabled?: boolean }) {
   return (
     <div className="flex gap-3 pt-2">
       <button onClick={onSave} disabled={disabled} className="btn-ink flex-1 py-3 text-[14px] font-semibold disabled:opacity-40">{label}</button>
@@ -47,7 +49,7 @@ function FormActions({ onCancel, onSave, label, disabled }: { onCancel: () => vo
   )
 }
 
-function ConfirmModal({ open, title, body, action, busy, onClose, onConfirm }: {
+export function ConfirmModal({ open, title, body, action, busy, onClose, onConfirm }: {
   open: boolean; title: string; body: string; action: string; busy?: boolean; onClose: () => void; onConfirm: () => void
 }) {
   return (
@@ -63,17 +65,10 @@ function ConfirmModal({ open, title, body, action, busy, onClose, onConfirm }: {
   )
 }
 
-const swatch = (color: string, size = 12) => <span className="inline-block shrink-0 rounded-full ring-1 ring-black/10" style={{ width: size, height: size, background: color }} />
-
 const byDate = <T extends { startDate: string }>(a: T, b: T) => a.startDate.localeCompare(b.startDate)
 const byName = <T extends { name: string }>(a: T, b: T) => a.name.localeCompare(b.name)
 const byLabel = (a: ClassRec, b: ClassRec) => a.label.localeCompare(b.label, undefined, { numeric: true })
-const byRoll = (a: Enrollment, b: Enrollment) => (a.rollNo ?? '').localeCompare(b.rollNo ?? '', undefined, { numeric: true })
 const byOrder = (a: Grade, b: Grade) => a.order - b.order || a.label.localeCompare(b.label, undefined, { numeric: true })
-
-/** Human label for a board + grade (+ stream) combination, e.g. "CBSE · XI · Science". */
-const comboLabel = (board?: BoardRec, grade?: Grade, stream?: Stream) =>
-  [board?.code, grade?.label, stream?.name].filter(Boolean).join(' · ')
 
 /* ── 1. Academic Years & Terms ─────────────────────────── */
 
@@ -441,7 +436,16 @@ const KINDS: { value: CurriculumKind; label: string }[] = [
 interface SubjectForm { name: string; code: string; color: string }
 const emptySubjectForm = (): SubjectForm => ({ name: '', code: '', color: PALETTE[0] })
 
+/* ── chapter management (Phase 18) — per curriculum-subject, opened from the Curriculum table below ── */
+
+// The chapter manager (per curriculum-subject) used to be `ChapterManagerModal` here — an outer modal wrapping
+// its own nested add/edit/delete sub-modals. Converted to a real routed page,
+// `/portal/academic/subjects/:id/chapters` (src/pages/portal/SubjectChapters.tsx) — see
+// .agents/edunova/ui-architecture-fix.md. The nested add/edit form and delete-confirm stay as single-level
+// modals ON that page; only the outer wrapper was eliminated.
+
 export function CurriculumMod() {
+  const navigate = useNavigate()
   const { boards, grades, streams, subjectById } = useAcademic()
   const subjects = useEntity('subjects')
   const curriculum = useEntity('curriculum')
@@ -517,6 +521,11 @@ export function CurriculumMod() {
         onBlur={() => commitTextbook(r)}
         onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
         placeholder="Textbook (optional)" disabled={curriculum.busy} className={inputCls + ' py-2 text-[13.5px]'} />
+    ),
+    chapters: (
+      <button onClick={() => navigate(`/portal/academic/subjects/${r.id}/chapters`)} className="flex items-center gap-1.5 rounded-full border border-black/10 dark:border-white/15 px-3 py-1.5 text-[12.5px] font-semibold hover:bg-black/[.04] dark:hover:bg-white/[.06]">
+        <BookMarked size={13} /> Chapters
+      </button>
     ),
     remove: (
       <button onClick={() => curriculum.remove(r.id, 'Removed from curriculum')} disabled={curriculum.busy} className={dangerBtn} aria-label="Remove from curriculum"><Trash2 size={14} /></button>
@@ -611,6 +620,7 @@ export function CurriculumMod() {
                         <th className="px-4 py-3">Subject</th>
                         <th className="px-4 py-3">Kind</th>
                         <th className="px-4 py-3">Textbook</th>
+                        <th className="px-4 py-3">Syllabus</th>
                         <th className="px-4 py-3 text-right"></th>
                       </tr>
                     </thead>
@@ -627,6 +637,7 @@ export function CurriculumMod() {
                             </td>
                             <td className="w-[140px] px-4 py-3">{ctl.kind}</td>
                             <td className="min-w-[180px] px-4 py-3">{ctl.textbook}</td>
+                            <td className="px-4 py-3">{ctl.chapters}</td>
                             <td className="px-4 py-3 text-right">{ctl.remove}</td>
                           </tr>
                         )
@@ -648,6 +659,7 @@ export function CurriculumMod() {
                           <div className="grid gap-3">
                             <Field label="Kind">{ctl.kind}</Field>
                             <Field label="Textbook">{ctl.textbook}</Field>
+                            <Field label="Syllabus">{ctl.chapters}</Field>
                           </div>
                         </div>
                       )
@@ -714,10 +726,10 @@ function YearSelect({ years, value, onChange }: { years: AcademicYear[]; value: 
 }
 
 export function ClassesMod() {
-  const { db, refreshAcademic } = useStore()
-  const { years, currentYear, boards, grades, streams, subjectById, enrollments: allEnrollments, subjects: allSubjects, periodTemplates, defaultTemplate } = useAcademic()
+  const navigate = useNavigate()
+  const { db } = useStore()
+  const { years, currentYear, boards, grades, streams, enrollments: allEnrollments, periodTemplates, defaultTemplate } = useAcademic()
   const classes = useEntity('classes')
-  const enrollments = useEntity('enrollments')
   const classSubjects = useEntity('classSubjects')
 
   const sortedYears = useMemo(() => [...years].sort(byDate), [years])
@@ -727,9 +739,6 @@ export function ClassesMod() {
   const sortedBoards = useMemo(() => [...boards].sort(byName), [boards])
   const ladder = useMemo(() => [...grades].sort(byOrder), [grades])
   const sortedStreams = useMemo(() => [...streams].sort(byName), [streams])
-  const sortedSubjects = useMemo(() => [...allSubjects].sort(byName), [allSubjects])
-  const teachers = useMemo(() => db.users.filter(u => u.role === 'teacher'), [db.users])
-  const students = useMemo(() => db.users.filter(u => u.role === 'student'), [db.users])
   const userById = useMemo(() => new Map(db.users.map(u => [u.id, u])), [db.users])
   const yearClasses = useMemo(() => classes.items.filter(c => c.academicYearId === yearId), [classes.items, yearId])
   const activeCount = (classId: string) => allEnrollments.filter(e => e.classId === classId && e.status === 'active').length
@@ -774,95 +783,15 @@ export function ClassesMod() {
     if (out) setFormOpen(false)
   }
   const [del, setDel] = useState<ClassRec | null>(null)
-
-  // roster
-  const [rosterId, setRosterIdRaw] = useState<string | null>(null)
-  const [pickId, setPickId] = useState('')
-  const [pickRoll, setPickRoll] = useState('')
-  const [rollDraft, setRollDraft] = useState<Record<string, string>>({})
-  const setRosterId = (id: string | null) => { setRosterIdRaw(id); setPickId(''); setPickRoll(''); setRollDraft({}) }
-  const rosterClass = classes.items.find(c => c.id === rosterId) ?? null
-  const roster = useMemo(() =>
-    allEnrollments.filter(e => e.classId === rosterId && e.status === 'active').sort(byRoll),
-  [allEnrollments, rosterId])
-  const availableStudents = useMemo(() => {
-    if (!rosterClass) return []
-    const taken = new Set(allEnrollments.filter(e => e.academicYearId === rosterClass.academicYearId).map(e => e.studentId))
-    return students.filter(s => !taken.has(s.id)).sort(byName)
-  }, [rosterClass, allEnrollments, students])
-  const addStudent = async () => {
-    if (!rosterClass || !pickId) return
-    const out = await enrollments.create({ studentId: pickId, classId: rosterClass.id, rollNo: pickRoll.trim() || undefined }, 'Student enrolled')
-    if (out) { setPickId(''); setPickRoll('') }
-  }
-  const commitRoll = async (e: Enrollment) => {
-    const draft = rollDraft[e.id]
-    if (draft === undefined) return
-    const next = draft.trim()
-    setRollDraft(d => { const { [e.id]: _, ...rest } = d; void _; return rest })
-    if (next === (e.rollNo ?? '')) return
-    await enrollments.update(e.id, { rollNo: next || undefined }, 'Roll number updated')
-  }
-
-  // subjects & teachers
-  const [subjectsId, setSubjectsIdRaw] = useState<string | null>(null)
-  const [periodsDraft, setPeriodsDraft] = useState<Record<string, string>>({})
-  const [addSubjectId, setAddSubjectId] = useState('')
-  const [syncing, setSyncing] = useState(false)
-  const setSubjectsId = (id: string | null) => { setSubjectsIdRaw(id); setPeriodsDraft({}); setAddSubjectId('') }
-  const subjectsClass = classes.items.find(c => c.id === subjectsId) ?? null
-  const classRows = useMemo(() =>
-    classSubjects.items
-      .filter(cs => cs.classId === subjectsId)
-      .map(cs => ({ cs, subject: subjectById.get(cs.subjectId) }))
-      .sort((a, b) => (a.subject?.name ?? '').localeCompare(b.subject?.name ?? '')),
-  [classSubjects.items, subjectsId, subjectById])
-  const addableSubjects = useMemo(() => {
-    const onClass = new Set(classRows.map(r => r.cs.subjectId))
-    return sortedSubjects.filter(s => !onClass.has(s.id))
-  }, [classRows, sortedSubjects])
-  const totalPeriods = classRows.reduce((sum, r) => sum + r.cs.periodsPerWeek, 0)
-  const setTeacher = (cs: ClassSubject, teacherId: string) =>
-    // null clears the teacher on the server; the client type only knows `string | undefined`
-    classSubjects.update(cs.id, { teacherId: (teacherId || null) as unknown as string }, 'Teacher updated')
-  const commitPeriods = async (cs: ClassSubject) => {
-    const draft = periodsDraft[cs.id]
-    if (draft === undefined) return
-    setPeriodsDraft(d => { const { [cs.id]: _, ...rest } = d; void _; return rest })
-    const n = parseInt(draft, 10)
-    if (!Number.isFinite(n) || n < 0 || n === cs.periodsPerWeek) return
-    await classSubjects.update(cs.id, { periodsPerWeek: n }, 'Periods updated')
-  }
-  const addClassSubject = async () => {
-    if (!subjectsClass || !addSubjectId) return
-    const out = await classSubjects.create({ classId: subjectsClass.id, subjectId: addSubjectId, periodsPerWeek: 5 }, 'Subject added')
-    if (out) setAddSubjectId('')
-  }
-  const syncCurriculum = async () => {
-    if (!subjectsClass) return
-    setSyncing(true)
-    try {
-      await api.post('/academic/classes/' + subjectsClass.id + '/sync-curriculum')
-      await refreshAcademic()
-      toast.success('Synced from curriculum')
-    } catch (e) {
-      toast.error(errorMessage(e))
-    } finally {
-      setSyncing(false)
-    }
-  }
+  // The "Subjects & teachers" and "Roster" editors used to be mini list+editor modals opened from a class card
+  // here. Converted to real routed pages — `/portal/academic/classes/:id/subjects`
+  // (src/pages/portal/ClassSubjects.tsx) and `/portal/academic/classes/:id/roster`
+  // (src/pages/portal/ClassRoster.tsx) — see .agents/edunova/ui-architecture-fix.md, Phase C.
 
   const setupReady = sortedBoards.length > 0 && ladder.length > 0
   const formValid = form.boardId && form.gradeId && form.section.trim()
   const selectedYear = sortedYears.find(y => y.id === yearId)
-  const busyRows = classSubjects.busy || syncing
-
-  const classPills = (c: ClassRec) => (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <Pill tone="indigo">{c.boardCode}</Pill>
-      {c.stream && <Pill tone="sky">{c.stream}</Pill>}
-    </div>
-  )
+  // classPills is the module-level export above (also reused by ClassSubjects.tsx/ClassRoster.tsx pages)
 
   return (
     <div>
@@ -929,10 +858,10 @@ export function ClassesMod() {
                           {over && <Pill tone="rose">Over capacity</Pill>}
                         </div>
                         <div className="flex items-center gap-2">
-                          <button onClick={() => setSubjectsId(c.id)} className={ghostBtn}>
+                          <button onClick={() => navigate(`/portal/academic/classes/${c.id}/subjects`)} className={ghostBtn}>
                             <span className="flex items-center gap-1"><BookOpen size={12} /> Subjects{subjectCount ? ` · ${subjectCount}` : ''}</span>
                           </button>
-                          <button onClick={() => setRosterId(c.id)} className={ghostBtn}>Roster</button>
+                          <button onClick={() => navigate(`/portal/academic/classes/${c.id}/roster`)} className={ghostBtn}>Roster</button>
                         </div>
                       </div>
                     </Card>
@@ -969,12 +898,10 @@ export function ClassesMod() {
             </Field>
             <Field label="Section"><input value={form.section} onChange={e => setForm({ ...form, section: e.target.value.toUpperCase() })} placeholder="e.g. A" className={inputCls} /></Field>
           </div>
-          <Field label="Class teacher">
-            <select value={form.classTeacherId} onChange={e => setForm({ ...form, classTeacherId: e.target.value })} className={inputCls}>
-              <option value="">— none —</option>
-              {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </Field>
+          <AsyncEntityPicker label="Class teacher" role="teacher" value={form.classTeacherId}
+            onChange={id => setForm({ ...form, classTeacherId: id })}
+            placeholder="Search teachers by name or email…"
+            initialLabel={editing?.classTeacherId ? userById.get(editing.classTeacherId)?.name : undefined} />
           <div className="grid grid-cols-2 gap-3">
             <Field label="Capacity"><input type="number" min={0} value={form.capacity} onChange={e => setForm({ ...form, capacity: e.target.value })} placeholder="Optional" className={inputCls} /></Field>
             <Field label="Period template">
@@ -994,133 +921,6 @@ export function ClassesMod() {
         action="Delete class" busy={classes.busy}
         onConfirm={async () => { if (del && await classes.remove(del.id, 'Class deleted')) setDel(null) }} />
 
-      {/* subjects & teachers */}
-      <Modal open={!!subjectsClass} onClose={() => setSubjectsId(null)} title={subjectsClass ? `Subjects & teachers · ${subjectsClass.label}` : 'Subjects & teachers'} wide>
-        {subjectsClass && (
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                {classPills(subjectsClass)}
-                <span className={muted}>{classRows.length} subject{classRows.length === 1 ? '' : 's'} · {totalPeriods} periods/week</span>
-              </div>
-              <button onClick={syncCurriculum} disabled={busyRows} className={ghostBtn} title="Adds any curriculum subject for this board and grade that isn't on the class yet">
-                <span className="flex items-center gap-1.5"><RefreshCw size={12} className={syncing ? 'animate-spin' : ''} /> Sync from curriculum</span>
-              </button>
-            </div>
-
-            <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-4">
-              <p className={`mb-3 ${sectionLabel}`}>Add subject</p>
-              {sortedSubjects.length === 0 ? (
-                <p className="text-[13.5px] text-black/50 dark:text-white/50">The subject catalogue is empty — add subjects under Curriculum first.</p>
-              ) : addableSubjects.length === 0 ? (
-                <p className="text-[13.5px] text-black/50 dark:text-white/50">Every catalogue subject is already on this class.</p>
-              ) : (
-                <div className="flex flex-wrap gap-3">
-                  <select value={addSubjectId} onChange={e => setAddSubjectId(e.target.value)} className={inputCls + ' min-w-[200px] flex-1'}>
-                    <option value="">Select a subject…</option>
-                    {addableSubjects.map(s => <option key={s.id} value={s.id}>{s.name}{s.code ? ` (${s.code})` : ''}</option>)}
-                  </select>
-                  <button onClick={addClassSubject} disabled={!addSubjectId || busyRows} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold disabled:opacity-40">
-                    <Plus size={15} /> Add
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div>
-              <p className={`mb-2 ${sectionLabel}`}>Subjects · {classRows.length}</p>
-              {classRows.length === 0 ? (
-                <Empty text="No subjects on this class yet. Sync from the curriculum or add one above." />
-              ) : (
-                <div className="divide-y divide-black/[.05] dark:divide-white/[.07] rounded-2xl border border-black/[.06] dark:border-white/[.08]">
-                  <div className="hidden grid-cols-[minmax(0,1fr)_200px_88px_36px] items-center gap-3 px-4 py-2.5 text-[12px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40 sm:grid">
-                    <span>Subject</span><span>Teacher</span><span>Periods</span><span />
-                  </div>
-                  {classRows.map(({ cs, subject }) => (
-                    <div key={cs.id} className="grid grid-cols-[minmax(0,1fr)_36px] items-center gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_200px_88px_36px]">
-                      <div className="flex min-w-0 items-center gap-3">
-                        {swatch(subject?.color ?? '#94a3b8')}
-                        <div className="min-w-0">
-                          <p className="truncate text-[14px] font-semibold">{subject?.name ?? 'Unknown subject'}</p>
-                          <p className={muted}>{subject?.code || '—'}</p>
-                        </div>
-                      </div>
-                      <div className="order-last col-span-2 grid grid-cols-[1fr_88px] gap-3 sm:order-none sm:col-span-2 sm:contents">
-                        <select value={cs.teacherId ?? ''} onChange={e => setTeacher(cs, e.target.value)} disabled={busyRows} className={inputCls + ' py-2 text-[13.5px]'} aria-label="Teacher">
-                          <option value="">— unassigned —</option>
-                          {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                        </select>
-                        <input type="number" min={0} value={periodsDraft[cs.id] ?? String(cs.periodsPerWeek)}
-                          onChange={e => setPeriodsDraft(d => ({ ...d, [cs.id]: e.target.value }))}
-                          onBlur={() => commitPeriods(cs)}
-                          onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                          disabled={busyRows} className={inputCls + ' py-2 text-[13.5px]'} aria-label="Periods per week" />
-                      </div>
-                      <button onClick={() => classSubjects.remove(cs.id, 'Subject removed')} disabled={busyRows} className={dangerBtn} aria-label="Remove subject"><Trash2 size={14} /></button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* roster */}
-      <Modal open={!!rosterClass} onClose={() => setRosterId(null)} title={rosterClass ? `Roster · ${rosterClass.label}` : 'Roster'} wide>
-        {rosterClass && (
-          <div className="space-y-5">
-            <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-4">
-              <p className={`mb-3 ${sectionLabel}`}>Add student</p>
-              {availableStudents.length === 0 ? (
-                <p className="text-[13.5px] text-black/50 dark:text-white/50">Every student is already enrolled in a class this year.</p>
-              ) : (
-                <div className="flex flex-wrap gap-3">
-                  <select value={pickId} onChange={e => setPickId(e.target.value)} className={inputCls + ' min-w-[200px] flex-1'}>
-                    <option value="">Select a student…</option>
-                    {availableStudents.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                  <input value={pickRoll} onChange={e => setPickRoll(e.target.value)} placeholder="Roll no." className={inputCls + ' w-28'} />
-                  <button onClick={addStudent} disabled={!pickId || enrollments.busy} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold disabled:opacity-40">
-                    <UserPlus size={15} /> Add
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div>
-              <p className={`mb-2 ${sectionLabel}`}>Enrolled · {roster.length}</p>
-              {roster.length === 0 ? (
-                <Empty text="No students enrolled yet. Add one above." />
-              ) : (
-                <div className="divide-y divide-black/[.05] dark:divide-white/[.07] rounded-2xl border border-black/[.06] dark:border-white/[.08]">
-                  {roster.map(e => {
-                    const s = userById.get(e.studentId)
-                    return (
-                      <div key={e.id} className="flex items-center gap-3 px-4 py-3">
-                        {s ? <Avatar name={s.name} hue={s.avatarHue} size={34} /> : <span className="h-[34px] w-[34px] rounded-full bg-black/[.05]" />}
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[14px] font-semibold">{s?.name ?? 'Unknown student'}</p>
-                          {s && <p className={`truncate ${muted}`}>{s.email}</p>}
-                        </div>
-                        <label className="flex items-center gap-2 text-[12.5px] text-black/50 dark:text-white/50">
-                          Roll
-                          <input value={rollDraft[e.id] ?? e.rollNo ?? ''}
-                            onChange={ev => setRollDraft(d => ({ ...d, [e.id]: ev.target.value }))}
-                            onBlur={() => commitRoll(e)}
-                            onKeyDown={ev => { if (ev.key === 'Enter') (ev.target as HTMLInputElement).blur() }}
-                            className={inputCls + ' w-20 px-3 py-1.5 text-[13px]'} />
-                        </label>
-                        <button onClick={() => enrollments.remove(e.id, 'Removed from class')} disabled={enrollments.busy} className={dangerBtn} aria-label="Remove from class"><X size={14} /></button>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </Modal>
     </div>
   )
 }

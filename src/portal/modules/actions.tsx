@@ -1,16 +1,20 @@
 import { useMemo, useState } from 'react'
-import { Award, CheckCheck, ChevronDown, CloudUpload, Download, FileText, Plus, ShieldCheck, Users } from 'lucide-react'
+import {
+  AlertTriangle, Award, CheckCheck, ChevronDown, CloudUpload, Download, FileText, PillBottle, Plus, ShieldCheck, Syringe, Users,
+} from 'lucide-react'
 import { useAcademic, useStore } from '@/lib/store'
 import { isStaffOrAdmin } from '@/lib/access'
 import { api, downloadFile, errorMessage, uploadFile } from '@/lib/api'
-import type { AchievementCategory, HealthKind, HomeworkRec, LeaveRequest, PermissionSlipRec, SlipDecision, User } from '@/lib/data'
+import type { AchievementCategory, HealthKind, HomeworkRec, LeaveRequest, MedicationSchedule, PermissionSlipRec, SlipDecision, User } from '@/lib/data'
 import { fmtDate, homeworkStatus, hwTone, isOpen, useHomework } from '@/lib/hooks/useAcademics'
 import { isoDate } from '@/lib/hooks/useTimetable'
 import { countLeaveDays, leaveTone, leaveTypeName, useLeaveBalance, useLeaveRequests, useLeaveTypes } from '@/lib/hooks/useHr'
 import {
-  ACHIEVEMENT_CATEGORIES, HEALTH_KINDS, slipDecisionTone, useAchievements, useHealthRecords, useSlipResponses, useSlips,
+  ACHIEVEMENT_CATEGORIES, HEALTH_KINDS, hasAllergyRecord, slipDecisionTone, useAchievements, useHealthRecords,
+  useMedicationLogs, useMedicationSchedules, useSlipResponses, useSlips,
 } from '@/lib/hooks/useWelfare'
 import { Card, Empty, Field, Modal, PageHead, Pill, TermTabs, UploadField, VerifyButton, inputCls, type UploadedFile } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
 import { WardPicker } from './academics'
 import { MyPayslipsMod, StudentInvoiceList } from './finance'
 import { firstName, useActiveTerm, useViewedStudents, useWard } from './viewer'
@@ -415,22 +419,23 @@ export function HealthMod() {
   const canAdd = isSelfMode
   const canVerify = user ? isStaffOrAdmin(user) : false
 
-  const staffStudents = useMemo(() => {
-    if (!user) return []
-    if (user.role === 'teacher') {
-      const classIds = new Set(classesTaughtBy(user.id).map(c => c.id))
-      const ids = new Set(enrollments.filter(e => classIds.has(e.classId) && e.status === 'active').map(e => e.studentId))
-      return db.users.filter(u => u.role === 'student' && ids.has(u.id))
-    }
-    if (isStaffOrAdmin(user)) return db.users.filter(u => u.role === 'student')
-    return []
+  // Teacher's picks are bounded to their own classes' students (a genuine scoped list, kept as a flat
+  // select); staff/admin can pick any student in the school, so that side uses the async search picker.
+  const isTeacher = user?.role === 'teacher'
+  const teacherStudents = useMemo(() => {
+    if (!user || user.role !== 'teacher') return []
+    const classIds = new Set(classesTaughtBy(user.id).map(c => c.id))
+    const ids = new Set(enrollments.filter(e => classIds.has(e.classId) && e.status === 'active').map(e => e.studentId))
+    return db.users.filter(u => u.role === 'student' && ids.has(u.id))
   }, [user, db.users, classesTaughtBy, enrollments])
 
   const { ward, wardId, setWardId } = useWard()
   const [pickedStaff, setPickedStaff] = useState('')
-  const staffStudentId = staffStudents.some(s => s.id === pickedStaff) ? pickedStaff : (staffStudents[0]?.id ?? '')
-  const studentId = isSelfMode ? wardId : staffStudentId
-  const viewedStudent = isSelfMode ? ward : staffStudents.find(s => s.id === studentId)
+  const teacherStudentId = teacherStudents.some(s => s.id === pickedStaff) ? pickedStaff : (teacherStudents[0]?.id ?? '')
+  const [staffStudentId, setStaffStudentId] = useState('')
+  const [staffStudentLabel, setStaffStudentLabel] = useState('')
+  const studentId = isSelfMode ? wardId : isTeacher ? teacherStudentId : staffStudentId
+  const viewedStudent = isSelfMode ? ward : isTeacher ? teacherStudents.find(s => s.id === studentId) : (staffStudentId ? { name: staffStudentLabel } : undefined)
 
   const { items, loading, error, reload } = useHealthRecords(studentId, !!studentId)
   const sorted = useMemo(() => [...(items ?? [])].sort((a, b) => b.date.localeCompare(a.date)), [items])
@@ -463,16 +468,30 @@ export function HealthMod() {
       <PageHead title="Health Records" sub={viewedStudent ? `${isSelfMode ? '' : 'Viewing '}${firstName(viewedStudent.name)}’s health record` : 'Vaccinations, allergies and checkups'}>
         <div className="flex flex-wrap items-center gap-2">
           {isSelfMode && wards.length > 1 && <WardPicker students={wards} value={wardId} onChange={setWardId} />}
-          {!isSelfMode && staffStudents.length > 0 && (
-            <select value={staffStudentId} onChange={e => setPickedStaff(e.target.value)} className={`${inputCls} w-auto min-w-[180px] py-2 text-[13.5px]`}>
-              {staffStudents.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
+          {!isSelfMode && isTeacher && teacherStudents.length > 0 && (
+            <select value={teacherStudentId} onChange={e => setPickedStaff(e.target.value)} className={`${inputCls} w-auto min-w-[180px] py-2 text-[13.5px]`}>
+              {teacherStudents.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
             </select>
+          )}
+          {!isSelfMode && !isTeacher && (
+            <div className="w-64"><AsyncEntityPicker role="student" value={staffStudentId} onChange={(id, label) => { setStaffStudentId(id); setStaffStudentLabel(label) }} placeholder="Search student…" /></div>
           )}
           {canAdd && studentId && (
             <button onClick={() => setOpen(true)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><Plus size={15} /> Add record</button>
           )}
         </div>
       </PageHead>
+      {studentId && !loading && hasAllergyRecord(sorted) && (
+        <div className="mb-5 flex items-start gap-3 rounded-2xl border border-rose-200 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 p-4">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-rose-500" />
+          <div>
+            <p className="text-[13.5px] font-semibold text-rose-700 dark:text-rose-400">Allergy on file</p>
+            <p className="mt-0.5 text-[12.5px] text-rose-700/80 dark:text-rose-300/80">
+              {sorted.filter(h => h.kind === 'Allergy').map(h => h.title).join(' · ')}
+            </p>
+          </div>
+        </div>
+      )}
       {!studentId ? (
         <Empty text={isSelfMode ? 'No student is linked to your account yet.' : 'No students to show — pick a class with students enrolled.'} />
       ) : (
@@ -481,10 +500,10 @@ export function HealthMod() {
           {error && <div className="md:col-span-2"><Empty text={error} /></div>}
           {!loading && !error && sorted.length === 0 && <div className="md:col-span-2"><Empty text="No health records yet." /></div>}
           {sorted.map(h => (
-            <Card key={h.id}>
+            <Card key={h.id} className={h.kind === 'Allergy' ? 'border-rose-200 dark:border-rose-500/30' : undefined}>
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <Pill tone="indigo">{h.kind}</Pill>
+                  <Pill tone={h.kind === 'Allergy' ? 'rose' : 'indigo'}>{h.kind}</Pill>
                   <p className="font-display mt-2 text-[16.5px] font-medium">{h.title}</p>
                 </div>
                 {h.verifiedAt ? <Pill tone="green"><ShieldCheck size={11} /> verified</Pill> : <Pill tone="amber">unverified</Pill>}
@@ -522,6 +541,179 @@ export function HealthMod() {
         </div>
       </Modal>
     </div>
+  )
+}
+
+/* ── Medication schedule + administration log (Phase 22 item 4) ── */
+// Same visibility as Health Records (student/guardians/class-teacher/staff/admin); only staff/admin log doses.
+// See phase-22-campus-safety.md
+
+export function MedicationMod() {
+  const { db, user } = useStore()
+  const { classOf, classesTaughtBy, enrollments } = useAcademic()
+  const wards = useViewedStudents()
+  const isSelfMode = user?.role === 'student' || user?.role === 'parent'
+  const canManage = user ? isStaffOrAdmin(user) : false
+
+  // Same split as HealthMod: teacher stays bounded to their own classes (flat select); staff/admin get the
+  // async search picker over the whole school roster.
+  const isTeacher = user?.role === 'teacher'
+  const teacherStudents = useMemo(() => {
+    if (!user || user.role !== 'teacher') return []
+    const classIds = new Set(classesTaughtBy(user.id).map(c => c.id))
+    const ids = new Set(enrollments.filter(e => classIds.has(e.classId) && e.status === 'active').map(e => e.studentId))
+    return db.users.filter(u => u.role === 'student' && ids.has(u.id))
+  }, [user, db.users, classesTaughtBy, enrollments])
+
+  const { ward, wardId, setWardId } = useWard()
+  const [pickedStaff, setPickedStaff] = useState('')
+  const teacherStudentId = teacherStudents.some(s => s.id === pickedStaff) ? pickedStaff : (teacherStudents[0]?.id ?? '')
+  const [staffStudentId, setStaffStudentId] = useState('')
+  const [staffStudentLabel, setStaffStudentLabel] = useState('')
+  const studentId = isSelfMode ? wardId : isTeacher ? teacherStudentId : staffStudentId
+  const viewedStudent = isSelfMode ? ward : isTeacher ? teacherStudents.find(s => s.id === studentId) : (staffStudentId ? { name: staffStudentLabel } : undefined)
+
+  const { items: healthItems } = useHealthRecords(studentId, !!studentId)
+  const hasAllergy = hasAllergyRecord(healthItems)
+
+  const { items, loading, error, reload } = useMedicationSchedules(studentId, !!studentId)
+  const schedules = useMemo(() => [...(items ?? [])].sort((a, b) => b.startDate.localeCompare(a.startDate)), [items])
+
+  const [open, setOpen] = useState(false)
+  const [medName, setMedName] = useState('')
+  const [dosage, setDosage] = useState('')
+  const [timesText, setTimesText] = useState('08:00')
+  const [startDate, setStartDate] = useState(() => isoDate(new Date()))
+  const [endDate, setEndDate] = useState('')
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const parsedTimes = useMemo(
+    () => Array.from(new Set(timesText.split(',').map(t => t.trim()).filter(t => /^\d{2}:\d{2}$/.test(t)))),
+    [timesText],
+  )
+  const resetForm = () => { setMedName(''); setDosage(''); setTimesText('08:00'); setStartDate(isoDate(new Date())); setEndDate(''); setNotes('') }
+  const save = async () => {
+    if (!studentId || !medName.trim() || !dosage.trim() || parsedTimes.length === 0) return
+    setBusy(true)
+    try {
+      await api.post('/health/medication-schedules', {
+        studentId, medicationName: medName.trim(), dosage: dosage.trim(), times: parsedTimes,
+        startDate, endDate: endDate || undefined, notes: notes.trim() || undefined,
+      })
+      setOpen(false); resetForm(); reload(); toast.success('Medication schedule added')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <div>
+      <PageHead title="Medication Log" sub={viewedStudent ? `${isSelfMode ? '' : 'Viewing '}${firstName(viewedStudent.name)}'s medication schedule` : 'Scheduled medication and dose administration'}>
+        <div className="flex flex-wrap items-center gap-2">
+          {isSelfMode && wards.length > 1 && <WardPicker students={wards} value={wardId} onChange={setWardId} />}
+          {!isSelfMode && isTeacher && teacherStudents.length > 0 && (
+            <select value={teacherStudentId} onChange={e => setPickedStaff(e.target.value)} className={`${inputCls} w-auto min-w-[180px] py-2 text-[13.5px]`}>
+              {teacherStudents.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
+            </select>
+          )}
+          {!isSelfMode && !isTeacher && (
+            <div className="w-64"><AsyncEntityPicker role="student" value={staffStudentId} onChange={(id, label) => { setStaffStudentId(id); setStaffStudentLabel(label) }} placeholder="Search student…" /></div>
+          )}
+          {canManage && studentId && (
+            <button onClick={() => setOpen(true)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><Plus size={15} /> Add schedule</button>
+          )}
+        </div>
+      </PageHead>
+      {studentId && hasAllergy && (
+        <div className="mb-5 flex items-center gap-2.5 rounded-2xl border border-rose-200 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 px-4 py-3">
+          <AlertTriangle size={16} className="shrink-0 text-rose-500" />
+          <p className="text-[12.5px] font-semibold text-rose-700 dark:text-rose-400">This student has an allergy on file — check Health Records before administering any medication.</p>
+        </div>
+      )}
+      {!studentId ? (
+        <Empty text={isSelfMode ? 'No student is linked to your account yet.' : 'No students to show.'} />
+      ) : (
+        <div className="grid gap-4">
+          {loading && <div className="py-10 text-center text-[14px] text-black/40 dark:text-white/40">Loading schedules…</div>}
+          {error && <Empty text={error} />}
+          {!loading && !error && schedules.length === 0 && <Empty text="No medication schedules on file." />}
+          {schedules.map(s => <MedicationScheduleCard key={s.id} schedule={s} canLog={canManage} />)}
+        </div>
+      )}
+      <Modal open={open} onClose={() => { setOpen(false); resetForm() }} title={`Add medication schedule${viewedStudent ? ` — ${viewedStudent.name}` : ''}`}>
+        <div className="space-y-4">
+          <Field label="Medication name"><input value={medName} onChange={e => setMedName(e.target.value)} placeholder="e.g. Cetirizine" className={inputCls} /></Field>
+          <Field label="Dosage"><input value={dosage} onChange={e => setDosage(e.target.value)} placeholder="e.g. 5mg tablet" className={inputCls} /></Field>
+          <Field label="Administration times">
+            <input value={timesText} onChange={e => setTimesText(e.target.value)} placeholder="e.g. 08:00, 14:00, 20:00" className={inputCls} />
+          </Field>
+          <p className="-mt-2 text-[12px] text-black/40 dark:text-white/40">24-hour HH:MM, comma-separated{parsedTimes.length > 0 ? ` · parsed: ${parsedTimes.join(', ')}` : ''}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Start date"><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className={inputCls} /></Field>
+            <Field label="End date (optional)"><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className={inputCls} /></Field>
+          </div>
+          <Field label="Notes (optional)"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className={inputCls} /></Field>
+          <button onClick={save} disabled={!medName.trim() || !dosage.trim() || parsedTimes.length === 0 || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Saving…' : 'Save schedule'}</button>
+        </div>
+      </Modal>
+    </div>
+  )
+}
+
+function MedicationScheduleCard({ schedule, canLog }: { schedule: MedicationSchedule; canLog: boolean }) {
+  const { db } = useStore()
+  const { items, reload } = useMedicationLogs(schedule.id)
+  const logs = useMemo(() => [...(items ?? [])].sort((a, b) => b.administeredAt.localeCompare(a.administeredAt)), [items])
+  const [logging, setLogging] = useState(false)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const nameOf = (id: string) => db.users.find(u => u.id === id)?.name ?? 'Staff'
+
+  const logDose = async () => {
+    setBusy(true)
+    try {
+      await api.post('/health/medication-logs', { scheduleId: schedule.id, notes: note.trim() || undefined })
+      setLogging(false); setNote(''); reload(); toast.success('Dose logged')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <Card>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2"><PillBottle size={15} className="text-indigo-500" /><p className="font-display text-[16.5px] font-medium">{schedule.medicationName}</p></div>
+          <p className="mt-1 text-[13px] text-black/55 dark:text-white/55">{schedule.dosage} · {schedule.times.join(', ')}</p>
+        </div>
+        <Pill tone={!schedule.endDate || schedule.endDate >= isoDate(new Date()) ? 'green' : 'slate'}>{!schedule.endDate || schedule.endDate >= isoDate(new Date()) ? 'Active' : 'Ended'}</Pill>
+      </div>
+      {schedule.notes && <p className="mt-2 text-[12.5px] text-black/50 dark:text-white/50">{schedule.notes}</p>}
+      <p className="mt-2 text-[12px] text-black/40 dark:text-white/40">{fmtDate(schedule.startDate)} → {schedule.endDate ? fmtDate(schedule.endDate) : 'ongoing'}</p>
+
+      <div className="mt-4 border-t border-black/[.06] dark:border-white/[.08] pt-3">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><Syringe size={13} /> Administration log</p>
+          {canLog && <button onClick={() => setLogging(true)} className="rounded-full bg-emerald-600 px-3.5 py-1.5 text-[12px] font-semibold text-white hover:bg-emerald-700">Log dose</button>}
+        </div>
+        {logs.length === 0 ? (
+          <p className="text-[12.5px] text-black/40 dark:text-white/40">No doses logged yet.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {logs.slice(0, 5).map(l => (
+              <div key={l.id} className="flex items-center justify-between text-[12.5px]">
+                <span className="text-black/60 dark:text-white/60">{new Date(l.administeredAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · {nameOf(l.administeredById)}</span>
+                {l.notes && <span className="text-black/40 dark:text-white/40">{l.notes}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <Modal open={logging} onClose={() => setLogging(false)} title={`Log dose — ${schedule.medicationName}`}>
+        <div className="space-y-4">
+          <p className="text-[13px] text-black/55 dark:text-white/55">Logs the dose as administered now, by you.</p>
+          <Field label="Notes (optional)"><textarea value={note} onChange={e => setNote(e.target.value)} rows={2} className={inputCls} /></Field>
+          <button onClick={logDose} disabled={busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Logging…' : 'Confirm dose given'}</button>
+        </div>
+      </Modal>
+    </Card>
   )
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Bell, BrainCircuit, Check, CheckCheck, ChevronLeft, ExternalLink, Film, Heart, MessageCircle, MessageSquare,
+  Bell, BrainCircuit, Check, CheckCheck, ChevronLeft, ExternalLink, Film, Heart, Languages, MessageCircle, MessageSquare,
   Pencil, Pin, Plus, Search, Send, Sparkles, Trash2, Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -14,6 +14,7 @@ import {
 } from '@/lib/hooks/useComms'
 import { useAiConversations, useHighlights } from '@/lib/hooks/useIntegrations'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
+import { TranslateInline } from './aiTools'
 
 /* ── School feed ────────────────────────────────────────── */
 
@@ -70,6 +71,12 @@ function ComposeModal({ open, onClose, editing, onSaved }: { open: boolean; onCl
       <div className="space-y-4">
         <Field label="Title (optional)"><input value={title} onChange={e => setTitle(e.target.value)} className={inputCls} placeholder="e.g. Annual Sports Day" /></Field>
         <Field label="Message"><textarea value={body} onChange={e => setBody(e.target.value)} rows={4} className={inputCls} placeholder="What's happening?" /></Field>
+        {body.trim() && (
+          <div>
+            <p className="mb-1.5 text-[11.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Preview a translation</p>
+            <TranslateInline text={body} />
+          </div>
+        )}
         <Field label="Audience">
           <div className="inline-flex rounded-full border border-black/[.08] dark:border-white/[.1] bg-white dark:bg-[#14141f] p-1">
             {(['School', 'Class', ...(isTeacher ? [] : ['Role'])] as ('School' | 'Class' | 'Role')[]).map(a => (
@@ -118,6 +125,7 @@ function PostCard({ post, onPin, onEdit, onDelete }: {
   const [count, setCount] = useState(post.likes)
   const [busyReact, setBusyReact] = useState(false)
   const [commentsOpen, setCommentsOpen] = useState(false)
+  const [translateOpen, setTranslateOpen] = useState(false)
   // Comments arrive embedded in the post; kept in local state so add/delete can update without a refetch.
   const [comments, setComments] = useState<PostComment[]>(post.comments ?? [])
   const [draft, setDraft] = useState('')
@@ -199,7 +207,11 @@ function PostCard({ post, onPin, onEdit, onDelete }: {
           <button onClick={() => setCommentsOpen(o => !o)} className="flex items-center gap-1.5 text-[14px] font-semibold text-black/50 dark:text-white/50 hover:text-indigo-600">
             <MessageCircle size={18} /> {comments.length}
           </button>
+          <button onClick={() => setTranslateOpen(o => !o)} className="flex items-center gap-1.5 text-[14px] font-semibold text-black/50 dark:text-white/50 hover:text-indigo-600">
+            <Languages size={18} /> Translate
+          </button>
         </div>
+        {translateOpen && <TranslateInline text={post.body} className="mt-3" />}
         {commentsOpen && (
           <div className="mt-4 space-y-3">
             {comments.map(c => (
@@ -377,6 +389,7 @@ export function MessagesMod() {
   const [mobileChat, setMobileChat] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [localMessages, setLocalMessages] = useState<MessageRec[]>([])
+  const [translateOpenId, setTranslateOpenId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const list = useMemo(() => conversations ?? [], [conversations])
@@ -510,14 +523,21 @@ export function MessagesMod() {
                   {!sameAsPrev && <Avatar name={m.sender.name} hue={200} size={28} />}
                 </span>
               )}
-              <div className={`max-w-[75%] px-4 py-2.5 text-[13.5px] leading-relaxed sm:max-w-[65%] ${mine
-                ? `chat-me ${sameAsPrev ? 'rounded-2xl rounded-br-md' : 'rounded-2xl rounded-br-sm'}`
-                : `chat-them ${sameAsPrev ? 'rounded-2xl rounded-bl-md' : 'rounded-2xl rounded-bl-sm'}`}`}>
-                {active.kind === 'Group' && !mine && !sameAsPrev && <p className="mb-0.5 text-[11px] font-semibold text-indigo-500">{m.sender.name}</p>}
-                {m.body}
-                <span className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${mine ? 'text-white/70' : 'text-black/35 dark:text-white/35'}`}>
-                  {fmtDayTime(m.sentAt)}{mine && <CheckCheck size={12} />}
-                </span>
+              <div className={`max-w-[75%] sm:max-w-[65%] ${mine ? 'flex flex-col items-end' : 'flex flex-col items-start'}`}>
+                <div className={`px-4 py-2.5 text-[13.5px] leading-relaxed ${mine
+                  ? `chat-me ${sameAsPrev ? 'rounded-2xl rounded-br-md' : 'rounded-2xl rounded-br-sm'}`
+                  : `chat-them ${sameAsPrev ? 'rounded-2xl rounded-bl-md' : 'rounded-2xl rounded-bl-sm'}`}`}>
+                  {active.kind === 'Group' && !mine && !sameAsPrev && <p className="mb-0.5 text-[11px] font-semibold text-indigo-500">{m.sender.name}</p>}
+                  {m.body}
+                  <span className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${mine ? 'text-white/70' : 'text-black/35 dark:text-white/35'}`}>
+                    {fmtDayTime(m.sentAt)}{mine && <CheckCheck size={12} />}
+                  </span>
+                </div>
+                <button onClick={() => setTranslateOpenId(id => id === m.id ? null : m.id)}
+                  className="mt-0.5 flex items-center gap-1 px-1 text-[10.5px] font-medium text-black/35 hover:text-indigo-600 dark:text-white/35 dark:hover:text-indigo-300">
+                  <Languages size={11} /> Translate
+                </button>
+                {translateOpenId === m.id && <TranslateInline text={m.body} className="mt-1 w-64 max-w-full" />}
               </div>
             </div>
           )

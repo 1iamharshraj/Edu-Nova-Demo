@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Banknote, Check, Download, FileText, Pencil, Play, Plus, Receipt, Search, Trash2, Wallet, X } from 'lucide-react'
+import { useNavigate } from 'react-router'
+import { Banknote, Check, Download, FileText, Layers, Pencil, Play, Plus, Receipt, Search, Trash2, Wallet, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
 import { api, downloadPath, errorMessage } from '@/lib/api'
 import { isAdmin } from '@/lib/access'
-import { compareClasses, fmtINR, type FeeHead, type FeeInvoice, type FeeStructure, type FeeStructureLine, type InvoiceStatus, type Payment, type PaymentMethod, type Payslip, type SalaryComponent, type SalaryStructure, type User } from '@/lib/data'
+import {
+  compareClasses, fmtINR, type FeeHead, type FeeInstallmentPlan, type FeeInvoice, type FeeStructureLine,
+  type InstallmentSpec, type InvoiceStatus, type Payment, type PaymentMethod, type Payslip, type SalaryComponent, type SalaryStructure, type User,
+} from '@/lib/data'
 import { fmtDate } from '@/lib/hooks/useAcademics'
 import { isoDate } from '@/lib/hooks/useTimetable'
 import {
-  INVOICE_STATUSES, METHOD_LABEL, PAYMENT_METHODS, STATUS_TEXT, fmtMonth, invoiceLabel, invoiceTone, isOutstanding, linesTotal, monthKey, netOf, outstandingOf, paidOf,
-  payableOf, sumComponents, useEmployees, useFeeHeads, useFeeStructures, useInvoices, usePayments, usePayslips, useSalaryStructures,
+  INVOICE_STATUSES, METHOD_LABEL, PAYMENT_METHODS, STATUS_TEXT, fmtMonth, invoiceLabel, invoiceTone, isOutstanding, linesTotal, monthKey, netOf, num, outstandingOf, paidOf,
+  payableOf, sumComponents, useEmployees, useFeeHeads, useFeeStructures, useInstallmentPlans, useInvoices, usePayments, usePayslips, useSalaryStructures,
 } from '@/lib/hooks/useFinance'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
 
 // Phase 5 finance screens: fee setup (heads · structures · invoices), staff collections, payroll and payslips.
 // Parent/student payments live in paymentGateway.tsx; defaulters in feeDefaulters.tsx. See .agents/edunova/phase-5-finance.md
@@ -24,7 +29,6 @@ const primaryBtn = 'flex items-center gap-1.5 rounded-full bg-indigo-600 px-4 py
 const loadingRow = (text: string) => <div className="py-10 text-center text-[14px] text-black/40 dark:text-white/40">{text}</div>
 const sectionHead = 'border-b border-black/[.06] dark:border-white/[.08] px-6 py-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40'
 const rowCls = 'flex flex-wrap items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3.5 last:border-0'
-const num = (v: string) => Math.max(0, Number(v) || 0)
 
 function SegTabs<T extends string>({ value, options, onChange }: { value: T; options: { id: T; label: string }[]; onChange: (t: T) => void }) {
   return (
@@ -56,8 +60,9 @@ const invoiceReceipt = (inv: FeeInvoice) => pdf(`/fees/invoices/${inv.id}/receip
 const paymentReceipt = (p: Payment) => pdf(`/fees/payments/${p.id}/receipt.pdf`, `${p.receiptNo.replace(/\W+/g, '_')}.pdf`)
 const payslipPdf = (s: Payslip) => pdf(`/payroll/payslips/${s.id}.pdf`, `${s.slipNo.replace(/\W+/g, '_')}.pdf`)
 
-/** Editable `{ feeHeadId, amount }` list used by the structure editor and the ad-hoc invoice form. */
-function LinesEditor({ lines, heads, onChange }: { lines: FeeStructureLine[]; heads: FeeHead[]; onChange: (l: FeeStructureLine[]) => void }) {
+/** Editable `{ feeHeadId, amount }` list used by the structure editor and the ad-hoc invoice form.
+ * Exported: also used by `/portal/finance/fee-structures/:classId/:termId` (FeeStructureDetail.tsx). */
+export function LinesEditor({ lines, heads, onChange }: { lines: FeeStructureLine[]; heads: FeeHead[]; onChange: (l: FeeStructureLine[]) => void }) {
   const used = new Set(lines.map(l => l.feeHeadId))
   const free = heads.filter(h => !used.has(h.id))
   const headName = (id: string) => heads.find(h => h.id === id)?.name ?? 'Fee head'
@@ -185,102 +190,174 @@ function HeadsTab() {
   )
 }
 
+/* ── Phase 21 item 5: installment plans per fee structure ── */
+
+type InstallmentMode = 'Percentage' | 'FixedAmount'
+interface InstallmentRow { label: string; value: string; dueDateOffsetDays: string }
+const emptyInstallmentRow = (label = ''): InstallmentRow => ({ label, value: '', dueDateOffsetDays: '0' })
+
+function InstallmentPlanFormModal({ open, feeStructureId, onClose, onSaved }: { open: boolean; feeStructureId: string; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState('')
+  const [mode, setMode] = useState<InstallmentMode>('Percentage')
+  const [rows, setRows] = useState<InstallmentRow[]>([emptyInstallmentRow('Q1'), emptyInstallmentRow('Q2')])
+  const [busy, setBusy] = useState(false)
+  const [wasOpen, setWasOpen] = useState(false)
+  if (open && !wasOpen) {
+    setWasOpen(true)
+    setName(''); setMode('Percentage'); setRows([emptyInstallmentRow('Q1'), emptyInstallmentRow('Q2')])
+  } else if (!open && wasOpen) setWasOpen(false)
+
+  const percentSum = rows.reduce((a, r) => a + (Number(r.value) || 0), 0)
+  const valid = name.trim() && rows.length >= 2 && rows.every(r => r.label.trim() && Number(r.value) > 0)
+    && new Set(rows.map(r => r.label.trim())).size === rows.length && (mode !== 'Percentage' || Math.round(percentSum) === 100)
+
+  const save = async () => {
+    setBusy(true)
+    try {
+      const installments = rows.map(r => ({
+        label: r.label.trim(), dueDateOffsetDays: Math.round(Number(r.dueDateOffsetDays) || 0),
+        ...(mode === 'Percentage' ? { percentage: Number(r.value) } : { amount: Number(r.value) }),
+      }))
+      await api.post('/fees/installment-plans', { feeStructureId, name: name.trim(), installments })
+      onSaved(); toast.success(`Installment plan "${name.trim()}" added`)
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="New installment plan">
+      <div className="space-y-4">
+        <Field label="Name"><input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Quarterly" className={inputCls} autoFocus /></Field>
+        <Field label="Split by">
+          <div className="flex gap-2">
+            {(['Percentage', 'FixedAmount'] as InstallmentMode[]).map(m => (
+              <button key={m} onClick={() => setMode(m)}
+                className={`flex-1 rounded-xl py-2.5 text-[13px] font-semibold transition-colors ${mode === m ? 'bg-black text-white' : 'bg-black/[.05] dark:bg-white/[.07] text-black/60 dark:text-white/60 hover:bg-black/10 dark:hover:bg-white/15'}`}>
+                {m === 'Percentage' ? 'Percentage (of total)' : 'Fixed amount (₹)'}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <div className="space-y-2">
+          {rows.map((r, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input value={r.label} onChange={e => setRows(rs => rs.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} placeholder="Label" className={`${inputCls} w-24 py-2`} />
+              <input type="number" min={0} value={r.value} onChange={e => setRows(rs => rs.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
+                placeholder={mode === 'Percentage' ? '%' : '₹'} className={`${inputCls} flex-1 py-2`} />
+              <input type="number" value={r.dueDateOffsetDays} onChange={e => setRows(rs => rs.map((x, j) => (j === i ? { ...x, dueDateOffsetDays: e.target.value } : x)))}
+                placeholder="Days after due date" title="Days added to the structure's due date" className={`${inputCls} w-40 py-2`} />
+              {rows.length > 2 && <button onClick={() => setRows(rs => rs.filter((_, j) => j !== i))} className="rounded-full p-2 text-black/40 hover:bg-rose-50 hover:text-rose-500 dark:text-white/40" aria-label="Remove installment"><X size={14} /></button>}
+            </div>
+          ))}
+          <button onClick={() => setRows(rs => [...rs, emptyInstallmentRow(`Q${rs.length + 1}`)])} className="flex items-center gap-1.5 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3 py-1.5 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
+            <Plus size={13} /> Add installment
+          </button>
+        </div>
+        {mode === 'Percentage' && <p className={`text-[12.5px] ${Math.round(percentSum) === 100 ? 'text-emerald-600' : 'text-amber-600'}`}>Total {Math.round(percentSum)}% {Math.round(percentSum) === 100 ? '— balanced' : '(must sum to 100%)'}</p>}
+        <p className="text-[12px] text-black/40 dark:text-white/40">"Days after due date" is added to the fee structure's own due date to get each installment's due date (0 = same day).</p>
+        <button onClick={save} disabled={!valid || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Saving…' : 'Save installment plan'}</button>
+      </div>
+    </Modal>
+  )
+}
+
+/** Lists/creates/deletes the installment plans defined for one fee structure, and lets the admin pick one
+ * (or "Full amount") before generating invoices.
+ * Exported: also used by `/portal/finance/fee-structures/:classId/:termId` (FeeStructureDetail.tsx). */
+export function InstallmentPlansSection({ feeStructureId, planId, onPlanChange }: { feeStructureId: string; planId: string; onPlanChange: (id: string) => void }) {
+  const plans = useInstallmentPlans(feeStructureId)
+  const [formOpen, setFormOpen] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const removePlan = async (p: FeeInstallmentPlan) => {
+    if (!confirm(`Delete installment plan "${p.name}"?`)) return
+    setBusy(p.id)
+    try {
+      await api.del(`/fees/installment-plans/${p.id}`)
+      if (planId === p.id) onPlanChange('')
+      plans.reload(); toast.success('Installment plan deleted')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+  }
+  const summarize = (p: FeeInstallmentPlan) => (p.installments as InstallmentSpec[])
+    .map(i => `${i.label} ${i.percentage !== undefined ? `${i.percentage}%` : fmtINR(i.amount ?? 0)}`).join(' · ')
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Installment plans</p>
+        <button onClick={() => setFormOpen(true)} className="flex items-center gap-1.5 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3 py-1.5 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
+          <Plus size={13} /> New plan
+        </button>
+      </div>
+      {plans.loading ? <p className="text-[13px] text-black/40 dark:text-white/40">Loading plans…</p> : (plans.items ?? []).length === 0 ? (
+        <p className="text-[13px] text-black/45 dark:text-white/45">No installment plans yet — students pay the full amount in one invoice unless you add one.</p>
+      ) : (
+        <div className="space-y-2">
+          {(plans.items ?? []).map(p => (
+            <div key={p.id} className="flex items-center gap-2 rounded-2xl border border-black/[.06] dark:border-white/[.08] p-3">
+              <Layers size={15} className="shrink-0 text-indigo-500" />
+              <div className="min-w-0 flex-1">
+                <p className="text-[13.5px] font-semibold">{p.name}</p>
+                <p className="truncate text-[12px] text-black/45 dark:text-white/45">{summarize(p)}</p>
+              </div>
+              <button onClick={() => removePlan(p)} disabled={busy === p.id} className="rounded-full p-2 text-black/40 hover:bg-rose-50 hover:text-rose-500 dark:text-white/40" aria-label={`Delete ${p.name}`}><Trash2 size={13} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="mt-3">
+        <Field label="Generate using">
+          <select value={planId} onChange={e => onPlanChange(e.target.value)} className={inputCls}>
+            <option value="">Full amount (one invoice)</option>
+            {(plans.items ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </Field>
+      </div>
+      <InstallmentPlanFormModal open={formOpen} feeStructureId={feeStructureId} onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); plans.reload() }} />
+    </div>
+  )
+}
+
 function StructuresTab() {
+  const navigate = useNavigate()
   const { classes, terms, currentYear, gradeById } = useAcademic()
   const classList = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort(compareClasses(gradeById)), [classes, currentYear, gradeById])
   const termList = useMemo(() => terms.filter(t => !currentYear || t.academicYearId === currentYear.id).sort((a, b) => a.startDate.localeCompare(b.startDate)), [terms, currentYear])
   const structures = useFeeStructures()
-  const heads = useFeeHeads()
   const byCell = useMemo(() => new Map((structures.items ?? []).map(s => [`${s.classId}|${s.termId}`, s])), [structures.items])
-
-  const [editor, setEditor] = useState<{ classId: string; termId: string; existing?: FeeStructure } | null>(null)
-  const [dueDate, setDueDate] = useState('')
-  const [lines, setLines] = useState<FeeStructureLine[]>([])
-  const [busy, setBusy] = useState<string | null>(null)
-  const open = (classId: string, termId: string) => {
-    const existing = byCell.get(`${classId}|${termId}`)
-    const term = termList.find(t => t.id === termId)
-    setDueDate(existing?.dueDate ?? term?.startDate ?? isoDate(new Date()))
-    setLines(existing?.lines.map(l => ({ ...l })) ?? [])
-    setEditor({ classId, termId, existing })
-  }
-  const cls = editor ? classList.find(c => c.id === editor.classId) : undefined
-  const term = editor ? termList.find(t => t.id === editor.termId) : undefined
-
-  const save = async () => {
-    if (!editor) return
-    setBusy('save')
-    try {
-      const body = { classId: editor.classId, termId: editor.termId, dueDate, lines: lines.filter(l => l.amount > 0) }
-      if (editor.existing) await api.patch(`/fees/structures/${editor.existing.id}`, body)
-      else await api.post('/fees/structures', body)
-      structures.reload(); setEditor(null)
-      toast.success(`Fee structure saved for ${cls?.label} · ${term?.name}`)
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
-  }
-  const remove = async () => {
-    if (!editor?.existing || !confirm('Delete this fee structure? Invoices already generated are kept.')) return
-    setBusy('delete')
-    try { await api.del(`/fees/structures/${editor.existing.id}`); structures.reload(); setEditor(null); toast.success('Fee structure deleted') }
-    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
-  }
-  const generate = async () => {
-    if (!editor?.existing) return
-    setBusy('generate')
-    try {
-      const res = await api.post<{ created?: number; skipped?: number }>(`/fees/structures/${editor.existing.id}/generate`)
-      const created = res?.created ?? 0, skipped = res?.skipped ?? 0
-      toast.success(`${created} invoice${created === 1 ? '' : 's'} created · ${skipped} skipped (already invoiced)`)
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
-  }
 
   if (classList.length === 0 || termList.length === 0) return <Card><Empty text="Create classes and terms in Academic Setup first." /></Card>
   return (
-    <>
-      <Card className="p-0">
-        {structures.loading ? loadingRow('Loading fee structures…') : structures.error ? <div className="p-6"><Empty text={structures.error} /></div> : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[520px] text-[13.5px]">
-              <thead>
-                <tr className="border-b border-black/[.06] dark:border-white/[.08] text-left text-[12px] uppercase tracking-wider text-black/40 dark:text-white/40">
-                  <th className="px-6 py-3.5 font-semibold">Class</th>
-                  {termList.map(t => <th key={t.id} className="px-4 py-3.5 font-semibold">{t.name}</th>)}
+    <Card className="p-0">
+      {structures.loading ? loadingRow('Loading fee structures…') : structures.error ? <div className="p-6"><Empty text={structures.error} /></div> : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] text-[13.5px]">
+            <thead>
+              <tr className="border-b border-black/[.06] dark:border-white/[.08] text-left text-[12px] uppercase tracking-wider text-black/40 dark:text-white/40">
+                <th className="px-6 py-3.5 font-semibold">Class</th>
+                {termList.map(t => <th key={t.id} className="px-4 py-3.5 font-semibold">{t.name}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {classList.map(c => (
+                <tr key={c.id} className="border-b border-black/[.05] dark:border-white/[.07] last:border-0">
+                  <td className="px-6 py-3 font-semibold">{c.label} <span className="font-normal text-black/40 dark:text-white/40">· {c.boardCode}</span></td>
+                  {termList.map(t => {
+                    const s = byCell.get(`${c.id}|${t.id}`)
+                    return (
+                      <td key={t.id} className="px-4 py-3">
+                        <button onClick={() => navigate(`/portal/finance/fee-structures/${c.id}/${t.id}`)} className={`rounded-xl px-3 py-1.5 text-left transition-colors ${s ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:text-indigo-200' : 'text-black/35 hover:bg-black/[.04] dark:text-white/35 dark:hover:bg-white/[.06]'}`}>
+                          {s ? <><span className="font-semibold">{fmtINR(linesTotal(s.lines))}</span><span className="block text-[11.5px] opacity-70">{s.lines.length} line{s.lines.length === 1 ? '' : 's'} · due {fmtDate(s.dueDate)}</span></> : '+ Set'}
+                        </button>
+                      </td>
+                    )
+                  })}
                 </tr>
-              </thead>
-              <tbody>
-                {classList.map(c => (
-                  <tr key={c.id} className="border-b border-black/[.05] dark:border-white/[.07] last:border-0">
-                    <td className="px-6 py-3 font-semibold">{c.label} <span className="font-normal text-black/40 dark:text-white/40">· {c.boardCode}</span></td>
-                    {termList.map(t => {
-                      const s = byCell.get(`${c.id}|${t.id}`)
-                      return (
-                        <td key={t.id} className="px-4 py-3">
-                          <button onClick={() => open(c.id, t.id)} className={`rounded-xl px-3 py-1.5 text-left transition-colors ${s ? 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:text-indigo-200' : 'text-black/35 hover:bg-black/[.04] dark:text-white/35 dark:hover:bg-white/[.06]'}`}>
-                            {s ? <><span className="font-semibold">{fmtINR(linesTotal(s.lines))}</span><span className="block text-[11.5px] opacity-70">{s.lines.length} line{s.lines.length === 1 ? '' : 's'} · due {fmtDate(s.dueDate)}</span></> : '+ Set'}
-                          </button>
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-      <Modal open={!!editor} onClose={() => setEditor(null)} title={`${cls?.label ?? ''} · ${term?.name ?? ''}`}>
-        <div className="space-y-4">
-          <Field label="Due date"><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className={inputCls} /></Field>
-          <Field label="Lines"><LinesEditor lines={lines} heads={heads.items ?? []} onChange={setLines} /></Field>
-          <div className="flex flex-wrap gap-2 pt-2">
-            <button onClick={save} disabled={!!busy || !dueDate || lines.length === 0} className="btn-ink flex flex-1 items-center justify-center gap-2 py-3 text-[14px] font-semibold disabled:opacity-40">{busy === 'save' ? 'Saving…' : 'Save structure'}</button>
-            {editor?.existing && <button onClick={generate} disabled={!!busy} className={primaryBtn}><Play size={13} /> {busy === 'generate' ? 'Generating…' : 'Generate invoices'}</button>}
-            {editor?.existing && <button onClick={remove} disabled={!!busy} className={dangerBtn}><Trash2 size={13} /></button>}
-          </div>
-          {editor?.existing && <p className="text-[12.5px] text-black/45 dark:text-white/45">Generate raises one invoice per active student in {cls?.label}; students who already have one for this structure are skipped.</p>}
+              ))}
+            </tbody>
+          </table>
         </div>
-      </Modal>
-    </>
+      )}
+    </Card>
   )
 }
 
@@ -319,7 +396,7 @@ function InvoicesTab() {
   const [adTerm, setAdTerm] = useState('')
   const [adDue, setAdDue] = useState(() => isoDate(new Date()))
   const [adLines, setAdLines] = useState<FeeStructureLine[]>([])
-  const openAdhoc = () => { setStudentId(students[0]?.id ?? ''); setAdTerm(termId); setAdDue(isoDate(new Date())); setAdLines([]); setAdhoc(true) }
+  const openAdhoc = () => { setStudentId(''); setAdTerm(termId); setAdDue(isoDate(new Date())); setAdLines([]); setAdhoc(true) }
   const createAdhoc = async () => {
     setBusy('adhoc')
     try {
@@ -393,11 +470,7 @@ function InvoicesTab() {
 
       <Modal open={adhoc} onClose={() => setAdhoc(false)} title="Ad-hoc invoice">
         <div className="space-y-4">
-          <Field label="Student">
-            <select value={studentId} onChange={e => setStudentId(e.target.value)} className={inputCls}>
-              {students.map(s => <option key={s.id} value={s.id}>{s.name} · {classLabel(s.id)}</option>)}
-            </select>
-          </Field>
+          <AsyncEntityPicker label="Student" role="student" value={studentId} onChange={id => setStudentId(id)} placeholder="Search students by name or email…" />
           <div className="grid grid-cols-2 gap-3">
             <Field label="Term">
               <select value={adTerm} onChange={e => setAdTerm(e.target.value)} className={inputCls}>

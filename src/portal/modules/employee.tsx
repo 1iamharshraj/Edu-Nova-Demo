@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from 'react'
-import { Check, CheckCircle2, CloudUpload, FileText, IdCard, Pencil, Plus, Share2, Star, Trash2 } from 'lucide-react'
+import { useNavigate } from 'react-router'
+import { Check, CloudUpload, FileText, IdCard, Pencil, Plus, Share2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useStore } from '@/lib/store'
 import { api, downloadFile, downloadPath, errorMessage, uploadFile } from '@/lib/api'
@@ -8,9 +9,11 @@ import type { EmploymentChangeType, PerformanceReviewRec, StaffConductCategory, 
 import { fmtDate } from '@/lib/hooks/useAcademics'
 import { useEmployees } from '@/lib/hooks/useFinance'
 import {
-  STAFF_CONDUCT_CATEGORIES, reviewTone, staffConductTone, useEmployeeDocuments, useEmploymentHistory, useReviews, useStaffConduct,
+  RATING_LABEL, STAFF_CONDUCT_CATEGORIES, reviewTone, staffConductTone, useEmployeeDocuments, useEmploymentHistory, useReviews, useStaffConduct,
 } from '@/lib/hooks/useEmployee'
 import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, UploadField, inputCls, type UploadedFile } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
+import { RatingStars } from '../components/RatingStars'
 
 // Phase 11 — Employee management: reporting line (My Team), performance reviews (My Reviews / Team Reviews),
 // employment history timeline, staff conduct (admin/superadmin only) and employee documents/ID card.
@@ -166,86 +169,16 @@ export function IdCardButton({ userId, label = 'Download ID card' }: { userId: s
   )
 }
 
-/* ── employee detail view (People & Roles detail, and My Team) ─ */
-
-type DetailTab = 'overview' | 'history' | 'documents'
-
-/** Read-focused detail: employeeId, reports-to, direct reports, History tab, Documents tab (HR/admin only),
- * ID card download (HR/admin only — self downloads their own from Profile instead). Reused from PeopleMod
- * (office.tsx) and from MyTeamMod below. */
-export function EmployeeDetailModal({ user, onClose }: { user: User | null; onClose: () => void }) {
-  const { user: viewer, db } = useStore()
-  const canSeeDocuments = isAdmin(viewer)
-  const [tab, setTab] = useState<DetailTab>('overview')
-  // Reset to the Overview tab whenever a different person is opened — render-time adjustment (see
-  // SearchableUserPicker above) rather than an effect.
-  const [openedFor, setOpenedFor] = useState(user?.id)
-  if (user && user.id !== openedFor) {
-    setOpenedFor(user.id)
-    setTab('overview')
-  }
-
-  const managerName = user?.reportsTo ? (db.users.find(u => u.id === user.reportsTo)?.name ?? user.reportsTo) : undefined
-  const reports = useMemo(() => (user ? db.users.filter(u => u.reportsTo === user.id).sort(byName) : []), [db.users, user])
-
-  if (!user) return null
-  const tabs: { id: DetailTab; label: string }[] = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'history', label: 'History' },
-    ...(canSeeDocuments ? [{ id: 'documents' as const, label: 'Documents' }] : []),
-  ]
-
-  return (
-    <Modal open={!!user} onClose={onClose} title={user.name} wide>
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <Pill tone="indigo"><span className="capitalize">{user.role}</span></Pill>
-          {user.employeeId && <Pill tone="slate">{user.employeeId}</Pill>}
-          {(user.designation || user.title) && <span className="text-[13.5px] text-black/60 dark:text-white/60">{user.designation || user.title}</span>}
-        </div>
-
-        <div className="inline-flex rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] p-1">
-          {tabs.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`rounded-full px-4 py-1.5 text-[13px] font-semibold transition-all ${tab === t.id ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {tab === 'overview' && (
-          <div className="space-y-4">
-            <div className="grid gap-4 text-[13.5px] sm:grid-cols-2">
-              <div><p className="text-black/50 dark:text-white/50">Email</p><p className="font-medium">{user.email}</p></div>
-              <div><p className="text-black/50 dark:text-white/50">Phone</p><p className="font-medium">{user.phone || '—'}</p></div>
-              <div><p className="text-black/50 dark:text-white/50">Department</p><p className="font-medium">{user.department || '—'}</p></div>
-              <div><p className="text-black/50 dark:text-white/50">Reports to</p><p className="font-medium">{managerName || '—'}</p></div>
-            </div>
-            {reports.length > 0 && (
-              <div>
-                <p className="mb-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Direct reports</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {reports.map(r => <Pill key={r.id} tone="slate">{r.name}</Pill>)}
-                </div>
-              </div>
-            )}
-            {canSeeDocuments && <IdCardButton userId={user.id} />}
-          </div>
-        )}
-        {tab === 'history' && <EmploymentHistoryTimeline userId={user.id} />}
-        {tab === 'documents' && canSeeDocuments && <EmployeeDocumentsSection userId={user.id} />}
-      </div>
-    </Modal>
-  )
-}
-
 /* ── My Team (A2) ───────────────────────────────────────── */
+// The employee detail view (People & Roles detail, and My Team) used to be `EmployeeDetailModal` here — a
+// modal with its own internal tab state (Overview/History/Documents). Converted to a real routed page,
+// `/portal/employees/:id` (src/pages/portal/EmployeeDetail.tsx) — see .agents/edunova/ui-architecture-fix.md.
 
 export function MyTeamMod() {
   const { user, db } = useStore()
+  const navigate = useNavigate()
   const reports = useMemo(() => (user ? db.users.filter(u => u.reportsTo === user.id).sort(byName) : []), [db.users, user])
   const managerName = user?.reportsTo ? (db.users.find(u => u.id === user.reportsTo)?.name ?? user.reportsTo) : undefined
-  const [viewing, setViewing] = useState<User | null>(null)
 
   return (
     <div>
@@ -259,62 +192,24 @@ export function MyTeamMod() {
                 <p className="truncate font-semibold">{r.name}</p>
                 <p className="truncate text-[12.5px] text-black/50 dark:text-white/50">{r.designation || r.title}{r.department ? ` · ${r.department}` : ''}</p>
               </div>
-              <button onClick={() => setViewing(r)} className="shrink-0 rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">View profile</button>
+              <button onClick={() => navigate(`/portal/employees/${r.id}`)} className="shrink-0 rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">View profile</button>
             </Card>
           ))}
         </div>
       )}
-      <EmployeeDetailModal user={viewing} onClose={() => setViewing(null)} />
     </div>
   )
 }
 
 /* ── Performance reviews (A3) ───────────────────────────── */
 
-const RATING_LABEL = ['', 'Needs improvement', 'Below expectations', 'Meets expectations', 'Exceeds expectations', 'Outstanding']
-
-function RatingStars({ value }: { value: number }) {
-  return (
-    <span className="inline-flex items-center gap-0.5">
-      {Array.from({ length: 5 }, (_, i) => (
-        <Star key={i} size={14} className={i < value ? 'fill-amber-400 text-amber-400' : 'text-black/15 dark:text-white/15'} />
-      ))}
-    </span>
-  )
-}
-
 /** Self, any reviewable employee role. Past reviews read-only once Acknowledged; while Shared, the employee
  * can add/edit their own comments before acknowledging (which locks the review from further edits). */
 export function MyReviewsMod() {
   const { user } = useStore()
-  const { items, loading, error, reload } = useReviews(user?.id, !!user)
+  const navigate = useNavigate()
+  const { items, loading, error } = useReviews(user?.id, !!user)
   const list = useMemo(() => [...(items ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [items])
-  const [viewing, setViewing] = useState<PerformanceReviewRec | null>(null)
-  const [comments, setComments] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const open = (r: PerformanceReviewRec) => { setViewing(r); setComments(r.employeeComments ?? '') }
-  const saveComments = async () => {
-    if (!viewing || !comments.trim()) return
-    setBusy(true)
-    try {
-      // A dedicated endpoint, not a general PATCH — the server validates employeeComments as required/non-empty here.
-      await api.patch(`/reviews/${viewing.id}/comments`, { employeeComments: comments.trim() })
-      toast.success('Comments saved')
-      setViewing(v => (v ? { ...v, employeeComments: comments.trim() } : v))
-      reload()
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
-  }
-  const acknowledge = async () => {
-    if (!viewing) return
-    setBusy(true)
-    try {
-      await api.post(`/reviews/${viewing.id}/acknowledge`, { employeeComments: comments.trim() || undefined })
-      toast.success('Review acknowledged')
-      setViewing(null)
-      reload()
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
-  }
 
   return (
     <div>
@@ -331,55 +226,17 @@ export function MyReviewsMod() {
             </div>
             <RatingStars value={r.overallRating} />
             <Pill tone={reviewTone(r.status)}>{r.status}</Pill>
-            <button onClick={() => open(r)} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">View</button>
+            <button onClick={() => navigate(`/portal/reviews/${r.id}`)} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">View</button>
           </Card>
         ))}
       </div>
-
-      <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing ? `${viewing.cycle} review` : ''} wide>
-        {viewing && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Pill tone={reviewTone(viewing.status)}>{viewing.status}</Pill>
-              <RatingStars value={viewing.overallRating} />
-              <span className="text-[12.5px] text-black/50 dark:text-white/50">{RATING_LABEL[viewing.overallRating] ?? ''}</span>
-            </div>
-            {([['Strengths', viewing.strengths], ['Areas for improvement', viewing.areasForImprovement], ['Goals', viewing.goals]] as const).map(([label, val]) => (
-              <div key={label}>
-                <p className="text-[13px] font-semibold text-black/60 dark:text-white/60">{label}</p>
-                <p className="mt-1 whitespace-pre-line text-[14px] leading-relaxed text-black/80 dark:text-white/80">{val}</p>
-              </div>
-            ))}
-            <div>
-              <p className="text-[13px] font-semibold text-black/60 dark:text-white/60">Your comments</p>
-              {viewing.status === 'Acknowledged' ? (
-                <p className="mt-1 whitespace-pre-line text-[14px] leading-relaxed text-black/80 dark:text-white/80">{viewing.employeeComments || 'No comments added.'}</p>
-              ) : viewing.status === 'Shared' ? (
-                <>
-                  <textarea value={comments} onChange={e => setComments(e.target.value)} rows={3} placeholder="Add your comments…" className={`${inputCls} mt-1.5`} />
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button onClick={saveComments} disabled={busy || !comments.trim()} className={ghostBtn}>Save comments</button>
-                    <button onClick={acknowledge} disabled={busy} className="btn-ink flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold disabled:opacity-40"><CheckCircle2 size={14} /> Acknowledge</button>
-                  </div>
-                </>
-              ) : (
-                <p className="mt-1 text-[13.5px] text-black/45 dark:text-white/45">Not shared with you yet.</p>
-              )}
-            </div>
-            {viewing.sharedAt && (
-              <p className="text-[12px] text-black/40 dark:text-white/40">
-                Shared {fmtDate(viewing.sharedAt)}{viewing.acknowledgedAt ? ` · Acknowledged ${fmtDate(viewing.acknowledgedAt)}` : ''}
-              </p>
-            )}
-          </div>
-        )}
-      </Modal>
     </div>
   )
 }
 
-function ReviewForm({ employees, onDone }: { employees: User[]; onDone: () => void }) {
-  const [f, setF] = useState({ employeeId: employees[0]?.id ?? '', cycle: '', periodStart: '', periodEnd: '', overallRating: 3, strengths: '', areasForImprovement: '', goals: '' })
+/** Exported: also used by `/portal/reviews/new` (src/pages/portal/ReviewNew.tsx). */
+export function ReviewForm({ employees, wholeSchool, onDone }: { employees: User[]; wholeSchool?: boolean; onDone: () => void }) {
+  const [f, setF] = useState({ employeeId: wholeSchool ? '' : (employees[0]?.id ?? ''), cycle: '', periodStart: '', periodEnd: '', overallRating: 3, strengths: '', areasForImprovement: '', goals: '' })
   const [busy, setBusy] = useState(false)
   const valid = !!f.employeeId && !!f.cycle.trim() && !!f.periodStart && !!f.periodEnd && !!f.strengths.trim() && !!f.areasForImprovement.trim() && !!f.goals.trim()
   const submit = async () => {
@@ -398,9 +255,14 @@ function ReviewForm({ employees, onDone }: { employees: User[]; onDone: () => vo
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Employee">
-          <select value={f.employeeId} onChange={e => setF(x => ({ ...x, employeeId: e.target.value }))} className={inputCls}>
-            {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+          {wholeSchool ? (
+            <AsyncEntityPicker role={['teacher', 'staff', 'admin', 'superadmin']} value={f.employeeId}
+              onChange={id => setF(x => ({ ...x, employeeId: id }))} placeholder="Search employees…" />
+          ) : (
+            <select value={f.employeeId} onChange={e => setF(x => ({ ...x, employeeId: e.target.value }))} className={inputCls}>
+              {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          )}
         </Field>
         <Field label="Cycle"><input value={f.cycle} onChange={e => setF(x => ({ ...x, cycle: e.target.value }))} placeholder="e.g. 2026 Annual" className={inputCls} /></Field>
         <Field label="Period start"><input type="date" value={f.periodStart} onChange={e => setF(x => ({ ...x, periodStart: e.target.value }))} className={inputCls} /></Field>
@@ -419,7 +281,9 @@ function ReviewForm({ employees, onDone }: { employees: User[]; onDone: () => vo
   )
 }
 
-function ReviewDetail({ review, readOnly, onSaved }: { review: PerformanceReviewRec; readOnly: boolean; onSaved: () => void }) {
+/** Exported: also used by `/portal/reviews/:id` (src/pages/portal/ReviewDetail.tsx) for the manager/HR
+ * (non-self) view — editable while the review is Draft, read-only once Shared/Acknowledged. */
+export function ReviewDetail({ review, readOnly, onSaved }: { review: PerformanceReviewRec; readOnly: boolean; onSaved: () => void }) {
   const [f, setF] = useState({
     cycle: review.cycle, periodStart: review.periodStart, periodEnd: review.periodEnd, overallRating: review.overallRating,
     strengths: review.strengths, areasForImprovement: review.areasForImprovement, goals: review.goals,
@@ -483,6 +347,7 @@ function ReviewDetail({ review, readOnly, onSaved }: { review: PerformanceReview
 /** Manager (direct reports) / HR-admin (anyone) — create, edit-while-Draft, Share, view acknowledgement status. */
 export function TeamReviewsMod() {
   const { user } = useStore()
+  const navigate = useNavigate()
   const employees = useEmployees()
   const hr = isAdmin(user)
   const manageable = useMemo(() => (hr ? employees.filter(e => e.id !== user?.id) : employees.filter(e => e.reportsTo === user?.id)), [employees, hr, user])
@@ -491,8 +356,6 @@ export function TeamReviewsMod() {
   const list = useMemo(() => [...(items ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [items])
   const nameOf = (id: string, fallback?: string) => fallback ?? employees.find(e => e.id === id)?.name ?? id
 
-  const [createOpen, setCreateOpen] = useState(false)
-  const [editing, setEditing] = useState<PerformanceReviewRec | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
   const share = async (r: PerformanceReviewRec) => {
@@ -504,7 +367,7 @@ export function TeamReviewsMod() {
   return (
     <div>
       <PageHead title="Team Reviews" sub={hr ? 'Create and manage performance reviews for anyone' : 'Create and manage performance reviews for your direct reports'}>
-        <button onClick={() => setCreateOpen(true)} disabled={manageable.length === 0} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold disabled:opacity-40"><Plus size={15} /> New review</button>
+        <button onClick={() => navigate('/portal/reviews/new')} disabled={manageable.length === 0} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold disabled:opacity-40"><Plus size={15} /> New review</button>
       </PageHead>
 
       {manageable.length === 0 && (
@@ -512,11 +375,16 @@ export function TeamReviewsMod() {
       )}
 
       {manageable.length > 0 && (
-        <div className="mb-4">
-          <select value={employeeFilter} onChange={e => setEmployeeFilter(e.target.value)} className={`${inputCls} w-auto`}>
-            <option value="">All {hr ? 'employees' : 'direct reports'}</option>
-            {manageable.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+        <div className="mb-4 max-w-xs">
+          {hr ? (
+            <AsyncEntityPicker role={['teacher', 'staff', 'admin', 'superadmin']} value={employeeFilter}
+              onChange={id => setEmployeeFilter(id)} placeholder="All employees" />
+          ) : (
+            <select value={employeeFilter} onChange={e => setEmployeeFilter(e.target.value)} className={`${inputCls} w-auto`}>
+              <option value="">All direct reports</option>
+              {manageable.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          )}
         </div>
       )}
 
@@ -533,22 +401,15 @@ export function TeamReviewsMod() {
             <Pill tone={reviewTone(r.status)}>{r.status}</Pill>
             {r.status === 'Draft' ? (
               <>
-                <button onClick={() => setEditing(r)} disabled={busy === r.id} className={ghostBtn}><Pencil size={12} /> Edit</button>
+                <button onClick={() => navigate(`/portal/reviews/${r.id}`)} disabled={busy === r.id} className={ghostBtn}><Pencil size={12} /> Edit</button>
                 <button onClick={() => share(r)} disabled={busy === r.id} className={primaryBtn}><Share2 size={12} /> Share</button>
               </>
             ) : (
-              <button onClick={() => setEditing(r)} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-3.5 py-1.5 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">View</button>
+              <button onClick={() => navigate(`/portal/reviews/${r.id}`)} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-3.5 py-1.5 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">View</button>
             )}
           </Card>
         ))}
       </div>
-
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New performance review" wide>
-        {createOpen && <ReviewForm employees={manageable} onDone={() => { setCreateOpen(false); reload() }} />}
-      </Modal>
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing ? `${editing.employeeName ?? nameOf(editing.employeeId)} · ${editing.cycle}` : ''} wide>
-        {editing && <ReviewDetail review={editing} readOnly={editing.status !== 'Draft'} onSaved={() => { setEditing(null); reload() }} />}
-      </Modal>
     </div>
   )
 }
@@ -568,7 +429,7 @@ export function StaffConductMod() {
   const [files, setFiles] = useState<UploadedFile[]>([])
   const [busy, setBusy] = useState(false)
 
-  const openCreate = () => { setForm({ employeeId: employees[0]?.id ?? '', title: '', description: '', category: 'Conduct' }); setFiles([]); setCreateOpen(true) }
+  const openCreate = () => { setForm({ employeeId: '', title: '', description: '', category: 'Conduct' }); setFiles([]); setCreateOpen(true) }
   const create = async () => {
     if (!form.employeeId || !form.title.trim() || !form.description.trim()) return
     setBusy(true)
@@ -597,11 +458,9 @@ export function StaffConductMod() {
       </PageHead>
 
       {employees.length > 0 && (
-        <div className="mb-4">
-          <select value={employeeFilter} onChange={e => setEmployeeFilter(e.target.value)} className={`${inputCls} w-auto`}>
-            <option value="">All employees</option>
-            {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-          </select>
+        <div className="mb-4 max-w-xs">
+          <AsyncEntityPicker role={['teacher', 'staff', 'admin', 'superadmin']} value={employeeFilter}
+            onChange={id => setEmployeeFilter(id)} placeholder="All employees" />
         </div>
       )}
 
@@ -625,9 +484,8 @@ export function StaffConductMod() {
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New staff conduct record">
         <div className="space-y-4">
           <Field label="Employee">
-            <select value={form.employeeId} onChange={e => setForm(f => ({ ...f, employeeId: e.target.value }))} className={inputCls}>
-              {employees.map(e => <option key={e.id} value={e.id}>{e.name} · {e.role}</option>)}
-            </select>
+            <AsyncEntityPicker role={['teacher', 'staff', 'admin', 'superadmin']} value={form.employeeId}
+              onChange={id => setForm(f => ({ ...f, employeeId: id }))} placeholder="Search employees…" />
           </Field>
           <Field label="Category">
             <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as StaffConductCategory }))} className={inputCls}>

@@ -1,10 +1,10 @@
 import React, { createContext, useContext, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
-  Award, Banknote, BedDouble, BookMarked, BookOpen, Boxes, BrainCircuit, Bus, Calculator, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock3,
-  CloudUpload, CreditCard, DoorOpen, FileBadge, FileBarChart2, Gavel, GraduationCap, Handshake, HeartPulse, Home, Landmark, LayoutGrid, Layers,
-  LogOut, Megaphone, MessagesSquare, NotebookPen, PartyPopper, PencilLine, Play, School, ScrollText, Settings, ShoppingCart,
-  ShieldAlert, ShieldCheck, Sparkles, Star, Trophy, Truck, UserCircle2, Umbrella, Undo2, Users, Video, Wallet, type LucideIcon,
+  AlertTriangle, Award, Banknote, BedDouble, BookMarked, BookOpen, Boxes, BrainCircuit, Bus, Calculator, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock3,
+  CloudUpload, CreditCard, DoorOpen, FileBadge, FileBarChart2, Gavel, GraduationCap, Handshake, HeartHandshake, HeartPulse, Home, IdCard, KeyRound, Landmark, LayoutGrid, Layers,
+  LogOut, Megaphone, MessageCircleWarning, MessageSquare, MessagesSquare, Network, NotebookPen, PartyPopper, PencilLine, PillBottle, Play, School, ScrollText, Settings, ShoppingCart,
+  Scale, ShieldAlert, ShieldCheck, Sparkles, Star, Trophy, Truck, UserCheck, UserCircle2, Umbrella, Undo2, Users, Users2, Video, Wallet, Wand2, type LucideIcon,
 } from 'lucide-react'
 import { Logo } from '@/components/Logo'
 import { api, errorMessage } from '@/lib/api'
@@ -22,7 +22,7 @@ import { homeworkStatus, isOpen, useAttendanceSummary, useHomework, useReportCar
 import { TimetableMod } from './modules/timetable'
 import { TimetableBuilderMod } from './modules/timetableBuilder'
 import { AIDoubtsMod, FeedMod, HighlightsMod, MessagesMod, NotificationBell } from './modules/social'
-import { AchievementsMod, HealthMod, HomeworkMod, LeaveMod, SlipsMod, WorkUploadMod } from './modules/actions'
+import { AchievementsMod, HealthMod, HomeworkMod, LeaveMod, MedicationMod, SlipsMod, WorkUploadMod } from './modules/actions'
 import {
   ActivitiesAdminMod, ApplicationsMod, AttendanceMgmtMod, CalendarAdminMod, CreateAssignmentMod,
   BoardRegistrationMod, GradebookMod, PeopleMod, RegistrationsMod, TakeAttendanceMod, VerificationsMod,
@@ -45,9 +45,23 @@ import { MyTeamMod, MyReviewsMod, TeamReviewsMod, StaffConductMod } from './modu
 import { MyBusMod, TransportMod } from './modules/transport'
 import { AlumniMod } from './modules/alumni'
 import { HostelMod, MyHostelMod } from './modules/hostel'
+import { HostelOutpassMod, HostelRollCallMod, MessMenuMod, MyMessMod, MyOutpassMod } from './modules/hostelExtras'
 import { LibraryCatalogMod, LibraryIssueReturnsMod, LibrarySettingsMod, MyLoansMod } from './modules/library'
 import { InventoryCatalogMod, PurchaseOrdersMod, VendorsMod } from './modules/inventory'
 import { AccountingReportsMod, ChartOfAccountsMod, JournalMod } from './modules/accounting'
+import { TeachingProgressMod, SyllabusOverviewMod } from './modules/syllabus'
+import { StudentsAtRiskMod, LostInstructionalTimeMod } from './modules/analytics'
+import { ScholarshipsMod } from './modules/scholarships'
+import { ReportCardRemarksMod, WorksheetGeneratorMod } from './modules/aiTools'
+import { AuthorizedPickupMod, PickupDeskMod, VisitorDeskMod } from './modules/safety'
+import { CounselingRecordsMod, ConcernReviewQueueMod, ReportConcernMod } from './modules/counseling'
+import { FamilyOverviewMod } from './modules/familyOverview'
+import { SeatingPlanMod, InvigilationRosterMod } from './modules/exams'
+import { LeaderboardMod, PortfolioMod } from './modules/culture'
+import { GroupMod } from './modules/group'
+import { useGroupMemberships } from '@/lib/hooks/useGroup'
+import { UdiseExportMod } from './modules/compliance'
+import { CanteenPOSMod, CanteenReconciliationMod, CanteenWalletMod, MyWalletMod } from './modules/canteen'
 import { toast } from 'sonner'
 
 /* ── term context ──────────────────────────────────────── */
@@ -60,11 +74,12 @@ export const useTerm = () => useContext(TermCtx)
 
 interface Mod { id: string; label: string; icon: LucideIcon; el: React.ReactNode; group: string }
 
-function modulesFor(role: Role): Mod[] {
+function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
   const M = (id: string, label: string, icon: LucideIcon, el: React.ReactNode, group: string): Mod => ({ id, label, icon, el, group })
   switch (role) {
     case 'parent': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
+      M('family', 'Family Overview', Users2, <FamilyOverviewMod onNavigate={onNavigate} />, 'Main'),
       M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Academics'),
       M('att', 'Attendance', ClipboardCheck, <AttendanceMod />, 'Academics'),
       M('marks', 'Marks & Grades', PencilLine, <MarksMod />, 'Academics'),
@@ -76,20 +91,28 @@ function modulesFor(role: Role): Mod[] {
       M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Community'),
       M('meet', 'Meetings', Video, <MeetingsMod />, 'Community'),
       M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Community'),
+      M('leaderboard', 'House Leaderboard', Trophy, <LeaderboardMod />, 'Community'),
+      M('portfolio', 'My Portfolio', IdCard, <PortfolioMod />, 'Community'),
       M('hw', 'Homework Status', BookOpen, <HomeworkMod />, 'Actions'),
       M('work', 'Work Upload', CloudUpload, <WorkUploadMod />, 'Actions'),
       M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Actions'),
       M('leave', 'Holiday Requests', Umbrella, <LeaveMod />, 'Actions'),
       M('health', 'Health Records', HeartPulse, <HealthMod />, 'Actions'),
+      M('meds', 'Medication Log', PillBottle, <MedicationMod />, 'Actions'),
       M('ach', 'Achievements', Award, <AchievementsMod />, 'Actions'),
       M('bus', 'My Bus', Bus, <MyBusMod />, 'Actions'),
       M('myhostel', 'My Hostel', BedDouble, <MyHostelMod />, 'Actions'),
+      M('myoutpass', 'My Outpass', DoorOpen, <MyOutpassMod />, 'Actions'),
+      M('mymess', 'My Mess', ClipboardList, <MyMessMod />, 'Actions'),
       M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Actions'),
       M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Actions'),
+      M('pickups', 'Authorized Pickup', KeyRound, <AuthorizedPickupMod />, 'Actions'),
       M('pay', 'Payments', CreditCard, <PaymentGatewayMod />, 'Office'),
+      M('canteen', 'Canteen Wallet', Wallet, <CanteenWalletMod />, 'Office'),
       M('apps', 'TC & Bonafide', FileBadge, <ApplicationsMod approver={false} />, 'Office'),
       M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Office'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Office'),
+      M('concern', 'Report a Concern', MessageCircleWarning, <ReportConcernMod />, 'Office'),
       M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
     case 'student': return [
@@ -107,19 +130,26 @@ function modulesFor(role: Role): Mod[] {
       M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Community'),
       M('meet', 'Meetings', Video, <MeetingsMod />, 'Community'),
       M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Community'),
+      M('leaderboard', 'House Leaderboard', Trophy, <LeaderboardMod />, 'Community'),
+      M('portfolio', 'My Portfolio', IdCard, <PortfolioMod />, 'Community'),
       M('ffcs', 'Clubs & Chapters', Users, <RegistrationsMod kind="club" title="Clubs & Chapters (FFCS)" sub="Fully flexible club selection — pick what moves you" />, 'Activities'),
       M('iha', 'Inter-House (IHA)', PartyPopper, <RegistrationsMod kind="house" title="Inter-House Activities" sub="Represent your house this term" />, 'Activities'),
       M('exc', 'Extra-Curricular (EXC)', Sparkles, <RegistrationsMod kind="exc" title="EXC Registrations" sub="Weekend extra-curricular coaching" />, 'Activities'),
       M('events', 'Event Registration', Play, <RegistrationsMod kind="event" title="Event Registration" sub="Sign up for upcoming school events" />, 'Activities'),
       M('health', 'Health Records', HeartPulse, <HealthMod />, 'Actions'),
+      M('meds', 'Medication Log', PillBottle, <MedicationMod />, 'Actions'),
       M('ach', 'Achievements', Award, <AchievementsMod />, 'Actions'),
       M('bus', 'My Bus', Bus, <MyBusMod />, 'Actions'),
       M('myhostel', 'My Hostel', BedDouble, <MyHostelMod />, 'Actions'),
+      M('myoutpass', 'My Outpass', DoorOpen, <MyOutpassMod />, 'Actions'),
+      M('mymess', 'My Mess', ClipboardList, <MyMessMod />, 'Actions'),
       M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Actions'),
       M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Actions'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Office'),
       M('pay', 'Fee Payments', CreditCard, <PaymentGatewayMod />, 'Office'),
+      M('canteen', 'Canteen Wallet', Wallet, <MyWalletMod />, 'Office'),
       M('apps', 'Applications', FileBadge, <ApplicationsMod approver={false} />, 'Office'),
+      M('concern', 'Report a Concern', MessageCircleWarning, <ReportConcernMod />, 'Office'),
       M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
     case 'teacher': return [
@@ -127,6 +157,11 @@ function modulesFor(role: Role): Mod[] {
       M('take', 'Take Attendance', ClipboardCheck, <TakeAttendanceMod />, 'Classroom'),
       M('assign', 'Create Assignment', BookOpen, <CreateAssignmentMod />, 'Classroom'),
       M('grades', 'Gradebook', PencilLine, <GradebookMod />, 'Classroom'),
+      M('leaderboard', 'House Leaderboard', Trophy, <LeaderboardMod />, 'Classroom'),
+      M('syllabus', 'Teaching Progress', BookMarked, <TeachingProgressMod />, 'Classroom'),
+      M('atrisk', 'Students at Risk', ShieldAlert, <StudentsAtRiskMod />, 'Classroom'),
+      M('worksheets', 'AI Worksheets', Wand2, <WorksheetGeneratorMod />, 'Classroom'),
+      M('remarks', 'Report Card Remarks', MessageSquare, <ReportCardRemarksMod />, 'Classroom'),
       M('tt', 'My Timetable', CalendarDays, <TimetableMod />, 'Classroom'),
       M('feed', 'School Feed', Megaphone, <FeedMod />, 'Classroom'),
       M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Classroom'),
@@ -156,6 +191,18 @@ function modulesFor(role: Role): Mod[] {
     case 'staff': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
       M('attm', 'Attendance Mgmt', ClipboardCheck, <AttendanceMgmtMod />, 'Operations'),
+      M('syllabusov', 'Syllabus Overview', BookMarked, <SyllabusOverviewMod />, 'Operations'),
+      M('atrisk', 'Students at Risk', ShieldAlert, <StudentsAtRiskMod />, 'Operations'),
+      M('losttime', 'Lost Instructional Time', FileBarChart2, <LostInstructionalTimeMod />, 'Operations'),
+      M('leaderboard', 'House Leaderboard', Trophy, <LeaderboardMod />, 'Operations'),
+      M('seating', 'Exam Seating Plans', ClipboardCheck, <SeatingPlanMod />, 'Operations'),
+      M('invigroster', 'Invigilation Roster', Users2, <InvigilationRosterMod />, 'Operations'),
+      M('worksheets', 'AI Worksheets', Wand2, <WorksheetGeneratorMod />, 'Operations'),
+      M('remarks', 'Report Card Remarks', MessageSquare, <ReportCardRemarksMod />, 'Operations'),
+      M('pickupdesk', 'Pickup Desk', KeyRound, <PickupDeskMod />, 'Operations'),
+      M('visitordesk', 'Visitor Desk', UserCheck, <VisitorDeskMod />, 'Operations'),
+      M('canteenpos', 'Canteen POS', ShoppingCart, <CanteenPOSMod />, 'Operations'),
+      M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Operations'),
       M('people', 'People', Users, <PeopleMod />, 'Operations'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Operations'),
       M('verify', 'Verifications', ShieldCheck, <VerificationsMod />, 'Operations'),
@@ -165,6 +212,9 @@ function modulesFor(role: Role): Mod[] {
       M('actadmin', 'Activities Admin', Sparkles, <ActivitiesAdminMod />, 'Operations'),
       M('transport', 'Transport', Bus, <TransportMod />, 'Operations'),
       M('hostel', 'Hostel', BedDouble, <HostelMod />, 'Operations'),
+      M('hostelout', 'Hostel Outpass', DoorOpen, <HostelOutpassMod />, 'Operations'),
+      M('hostelroll', 'Hostel Roll-call', ClipboardList, <HostelRollCallMod />, 'Operations'),
+      M('hostelmess', 'Mess Menu', ClipboardList, <MessMenuMod />, 'Operations'),
       M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Operations'),
       M('libissue', 'Issue & Returns', Undo2, <LibraryIssueReturnsMod />, 'Operations'),
       M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Operations'),
@@ -176,6 +226,7 @@ function modulesFor(role: Role): Mod[] {
       M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Operations'),
       M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Operations'),
       M('health', 'Health Records', HeartPulse, <HealthMod />, 'Operations'),
+      M('meds', 'Medication Log', PillBottle, <MedicationMod />, 'Operations'),
       M('ach', 'Achievements', Award, <AchievementsMod />, 'Operations'),
       M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Operations'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Operations'),
@@ -184,6 +235,7 @@ function modulesFor(role: Role): Mod[] {
       M('meet', 'Meetings', Video, <MeetingsMod />, 'Operations'),
       M('fees', 'Fee Setup', CreditCard, <FeeSetupMod />, 'Finance'),
       M('collect', 'Collections', Landmark, <CollectionsMod />, 'Finance'),
+      M('scholarships', 'Scholarships', Award, <ScholarshipsMod />, 'Finance'),
       M('salary', 'My Payslips', ScrollText, <MyPayslipsMod />, 'Finance'),
       M('myteam', 'My Team', Users, <MyTeamMod />, 'My HR'),
       M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'My HR'),
@@ -196,14 +248,26 @@ function modulesFor(role: Role): Mod[] {
       M('years', 'Years & Terms', CalendarRange, <AcademicYearsMod />, 'Academic Setup'),
       M('boards', 'Boards & Grades', Layers, <BoardsMod />, 'Academic Setup'),
       M('curriculum', 'Curriculum', BookMarked, <CurriculumMod />, 'Academic Setup'),
+      M('syllabusov', 'Syllabus Overview', BookMarked, <SyllabusOverviewMod />, 'Academic Setup'),
       M('classes', 'Classes & Sections', GraduationCap, <ClassesMod />, 'Academic Setup'),
       M('ttb', 'Timetable Builder', CalendarDays, <TimetableBuilderMod />, 'Academic Setup'),
+      M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Academic Setup'),
       M('rooms', 'Rooms', DoorOpen, <RoomsMod />, 'Academic Setup'),
       M('periods', 'Periods', Clock3, <PeriodsMod />, 'Academic Setup'),
       M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
       M('verify', 'Verifications', ShieldCheck, <VerificationsMod />, 'Manage'),
       M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Manage'),
+      M('pickupdesk', 'Pickup Desk', KeyRound, <PickupDeskMod />, 'Manage'),
+      M('visitordesk', 'Visitor Desk', UserCheck, <VisitorDeskMod />, 'Manage'),
+      M('concernqueue', 'Concern Review', AlertTriangle, <ConcernReviewQueueMod />, 'Manage'),
+      M('atrisk', 'Students at Risk', ShieldAlert, <StudentsAtRiskMod />, 'Manage'),
+      M('losttime', 'Lost Instructional Time', FileBarChart2, <LostInstructionalTimeMod />, 'Manage'),
+      M('leaderboard', 'House Leaderboard', Trophy, <LeaderboardMod />, 'Manage'),
+      M('seating', 'Exam Seating Plans', ClipboardCheck, <SeatingPlanMod />, 'Manage'),
+      M('invigroster', 'Invigilation Roster', Users2, <InvigilationRosterMod />, 'Manage'),
+      M('worksheets', 'AI Worksheets', Wand2, <WorksheetGeneratorMod />, 'Manage'),
+      M('remarks', 'Report Card Remarks', MessageSquare, <ReportCardRemarksMod />, 'Manage'),
       M('leavetypes', 'Leave Types', Umbrella, <LeaveTypesMod />, 'Manage'),
       M('leaves', 'Leave Approvals', Umbrella, <LeaveApprovalsMod />, 'Manage'),
       M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
@@ -211,6 +275,9 @@ function modulesFor(role: Role): Mod[] {
       M('actadmin', 'Activities Admin', Sparkles, <ActivitiesAdminMod />, 'Manage'),
       M('transport', 'Transport', Bus, <TransportMod />, 'Manage'),
       M('hostel', 'Hostel', BedDouble, <HostelMod />, 'Manage'),
+      M('hostelout', 'Hostel Outpass', DoorOpen, <HostelOutpassMod />, 'Manage'),
+      M('hostelroll', 'Hostel Roll-call', ClipboardList, <HostelRollCallMod />, 'Manage'),
+      M('hostelmess', 'Mess Menu', ClipboardList, <MessMenuMod />, 'Manage'),
       M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Manage'),
       M('libissue', 'Issue & Returns', Undo2, <LibraryIssueReturnsMod />, 'Manage'),
       M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Manage'),
@@ -222,6 +289,7 @@ function modulesFor(role: Role): Mod[] {
       M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Manage'),
       M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Manage'),
       M('health', 'Health Records', HeartPulse, <HealthMod />, 'Manage'),
+      M('meds', 'Medication Log', PillBottle, <MedicationMod />, 'Manage'),
       M('ach', 'Achievements', Award, <AchievementsMod />, 'Manage'),
       M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Manage'),
       M('contracts', 'Contracts & Exit', ScrollText, <ContractsResignationsAdminMod />, 'Manage'),
@@ -236,11 +304,14 @@ function modulesFor(role: Role): Mod[] {
       M('meet', 'Meetings', Video, <MeetingsMod />, 'Finance'),
       M('fees', 'Fee Setup', CreditCard, <FeeSetupMod />, 'Finance'),
       M('collect', 'Collections', Landmark, <CollectionsMod />, 'Finance'),
+      M('scholarships', 'Scholarships', Award, <ScholarshipsMod />, 'Finance'),
       M('payroll', 'Payroll', Wallet, <PayrollMod />, 'Finance'),
       M('coa', 'Chart of Accounts', Calculator, <ChartOfAccountsMod />, 'Finance'),
       M('journal', 'Journal', NotebookPen, <JournalMod />, 'Finance'),
       M('acctreports', 'Accounting Reports', FileBarChart2, <AccountingReportsMod />, 'Finance'),
+      M('canteenrecon', 'Canteen Reconciliation', Scale, <CanteenReconciliationMod />, 'Finance'),
       M('libsettings', 'Library Settings', BookMarked, <LibrarySettingsMod />, 'System'),
+      M('udise', 'UDISE+ Export', FileBarChart2, <UdiseExportMod />, 'System'),
       M('settings', 'Settings', Settings, <SettingsMod />, 'System'),
       M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
@@ -249,8 +320,10 @@ function modulesFor(role: Role): Mod[] {
       M('years', 'Years & Terms', CalendarRange, <AcademicYearsMod />, 'Academic Setup'),
       M('boards', 'Boards & Grades', Layers, <BoardsMod />, 'Academic Setup'),
       M('curriculum', 'Curriculum', BookMarked, <CurriculumMod />, 'Academic Setup'),
+      M('syllabusov', 'Syllabus Overview', BookMarked, <SyllabusOverviewMod />, 'Academic Setup'),
       M('classes', 'Classes & Sections', GraduationCap, <ClassesMod />, 'Academic Setup'),
       M('ttb', 'Timetable Builder', CalendarDays, <TimetableBuilderMod />, 'Academic Setup'),
+      M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Academic Setup'),
       M('rooms', 'Rooms', DoorOpen, <RoomsMod />, 'Academic Setup'),
       M('periods', 'Periods', Clock3, <PeriodsMod />, 'Academic Setup'),
       M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
@@ -258,12 +331,25 @@ function modulesFor(role: Role): Mod[] {
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
       M('verify', 'Verifications', ShieldCheck, <VerificationsMod />, 'Manage'),
       M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Manage'),
+      M('pickupdesk', 'Pickup Desk', KeyRound, <PickupDeskMod />, 'Manage'),
+      M('visitordesk', 'Visitor Desk', UserCheck, <VisitorDeskMod />, 'Manage'),
+      M('concernqueue', 'Concern Review', AlertTriangle, <ConcernReviewQueueMod />, 'Manage'),
+      M('atrisk', 'Students at Risk', ShieldAlert, <StudentsAtRiskMod />, 'Manage'),
+      M('losttime', 'Lost Instructional Time', FileBarChart2, <LostInstructionalTimeMod />, 'Manage'),
+      M('leaderboard', 'House Leaderboard', Trophy, <LeaderboardMod />, 'Manage'),
+      M('seating', 'Exam Seating Plans', ClipboardCheck, <SeatingPlanMod />, 'Manage'),
+      M('invigroster', 'Invigilation Roster', Users2, <InvigilationRosterMod />, 'Manage'),
+      M('worksheets', 'AI Worksheets', Wand2, <WorksheetGeneratorMod />, 'Manage'),
+      M('remarks', 'Report Card Remarks', MessageSquare, <ReportCardRemarksMod />, 'Manage'),
       M('leaves', 'Leave Approvals', Umbrella, <LeaveApprovalsMod />, 'Manage'),
       M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
       M('work', 'Work Assignment', PartyPopper, <DutiesMod manage />, 'Manage'),
       M('actadmin', 'Activities Admin', Sparkles, <ActivitiesAdminMod />, 'Manage'),
       M('transport', 'Transport', Bus, <TransportMod />, 'Manage'),
       M('hostel', 'Hostel', BedDouble, <HostelMod />, 'Manage'),
+      M('hostelout', 'Hostel Outpass', DoorOpen, <HostelOutpassMod />, 'Manage'),
+      M('hostelroll', 'Hostel Roll-call', ClipboardList, <HostelRollCallMod />, 'Manage'),
+      M('hostelmess', 'Mess Menu', ClipboardList, <MessMenuMod />, 'Manage'),
       M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Manage'),
       M('libissue', 'Issue & Returns', Undo2, <LibraryIssueReturnsMod />, 'Manage'),
       M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Manage'),
@@ -275,6 +361,7 @@ function modulesFor(role: Role): Mod[] {
       M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Manage'),
       M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Manage'),
       M('health', 'Health Records', HeartPulse, <HealthMod />, 'Manage'),
+      M('meds', 'Medication Log', PillBottle, <MedicationMod />, 'Manage'),
       M('ach', 'Achievements', Award, <AchievementsMod />, 'Manage'),
       M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Manage'),
       M('contracts', 'Contracts & Exit', ScrollText, <ContractsResignationsAdminMod />, 'Manage'),
@@ -289,11 +376,14 @@ function modulesFor(role: Role): Mod[] {
       M('meet', 'Meetings', Video, <MeetingsMod />, 'Finance'),
       M('fees', 'Fee Setup', CreditCard, <FeeSetupMod />, 'Finance'),
       M('collect', 'Collections', Landmark, <CollectionsMod />, 'Finance'),
+      M('scholarships', 'Scholarships', Award, <ScholarshipsMod />, 'Finance'),
       M('payroll', 'Payroll', Wallet, <PayrollMod />, 'Finance'),
       M('coa', 'Chart of Accounts', Calculator, <ChartOfAccountsMod />, 'Finance'),
       M('journal', 'Journal', NotebookPen, <JournalMod />, 'Finance'),
       M('acctreports', 'Accounting Reports', FileBarChart2, <AccountingReportsMod />, 'Finance'),
+      M('canteenrecon', 'Canteen Reconciliation', Scale, <CanteenReconciliationMod />, 'Finance'),
       M('libsettings', 'Library Settings', BookMarked, <LibrarySettingsMod />, 'System'),
+      M('udise', 'UDISE+ Export', FileBarChart2, <UdiseExportMod />, 'System'),
       M('settings', 'Settings', Settings, <SettingsMod />, 'System'),
       M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
@@ -657,8 +747,14 @@ export default function Portal() {
   const { user, logout } = useStore()
   const { currentTerm } = useAcademic()
   const navigate = useNavigate()
-  const mods = useMemo(() => modulesFor(user?.role ?? 'parent'), [user?.role])
   const [active, setActive] = useState('home')
+  const { memberships } = useGroupMemberships()
+  const mods = useMemo(() => {
+    const list = modulesFor(user?.role ?? 'parent', setActive)
+    if (user?.isCounselor) list.push({ id: 'counseling', label: 'Counseling Records', icon: HeartHandshake, el: <CounselingRecordsMod />, group: 'Manage' })
+    if (memberships.length > 0) list.push({ id: 'group', label: 'Group', icon: Network, el: <GroupMod />, group: 'Manage' })
+    return list
+  }, [user?.role, user?.isCounselor, memberships.length])
   // '' means "follow the school's current term" until the user picks one explicitly.
   const [pickedTerm, setTerm] = useState('')
   const term = pickedTerm || currentTerm?.id || ''

@@ -3,7 +3,7 @@ import {
   Bus, ChevronDown, ChevronUp, MapPin, Pencil, Phone, Plus, Radio, Route as RouteIcon, Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { useAcademic, useStore } from '@/lib/store'
+import { useStore } from '@/lib/store'
 import { api, errorMessage } from '@/lib/api'
 import type { BoardingType, MyStopAssignmentRec, RouteRec, StopRec, StudentStopAssignmentRec, VehicleRec } from '@/lib/data'
 import { fmtDate } from '@/lib/hooks/useAcademics'
@@ -12,6 +12,7 @@ import {
   BOARDING_TYPES, boardingTone, haversineKm, isLocationStale, minutesAgo, useAssignments, useMyStop, useRoutes, useStops, useVehicles,
 } from '@/lib/hooks/useTransport'
 import { Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
 import { SearchableUserPicker } from './employee'
 import { WardPicker } from './academics'
 import { firstName, useWard } from './viewer'
@@ -362,11 +363,9 @@ function VehiclesSection() {
 
 function AssignmentsSection() {
   const { db } = useStore()
-  const { classOf } = useAcademic()
   const routes = useRoutes()
   const stops = useStops()
   const assignments = useAssignments({})
-  const students = useMemo(() => db.users.filter(u => u.role === 'student').sort((a, b) => a.name.localeCompare(b.name)), [db.users])
   const nameOf = (id: string) => db.users.find(u => u.id === id)?.name ?? id
   const stopOf = (id: string) => (stops.items ?? []).find(s => s.id === id)
   const routeNameOfStop = (stopId: string) => { const s = stopOf(stopId); return s ? (routes.items ?? []).find(r => r.id === s.routeId)?.name : undefined }
@@ -405,10 +404,7 @@ function AssignmentsSection() {
         <p className={sectionLabel}>Assign a student to a stop</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Student">
-            <select value={studentId} onChange={e => setStudentId(e.target.value)} className={inputCls}>
-              <option value="">Select student</option>
-              {students.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
-            </select>
+            <AsyncEntityPicker role="student" value={studentId} onChange={id => setStudentId(id)} placeholder="Search student…" />
           </Field>
           <Field label="Route">
             <select value={routeId} onChange={e => { setRouteId(e.target.value); setStopId('') }} className={inputCls}>

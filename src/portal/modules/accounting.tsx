@@ -1,16 +1,21 @@
 import { useMemo, useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router'
 import {
-  AlertTriangle, BadgeCheck, Calculator, CheckCircle2, ChevronRight, FileBarChart2, Lock, NotebookPen, Pencil, Plus, Scale, Trash2, X,
+  AlertTriangle, BadgeCheck, Calculator, CheckCircle2, ChevronRight, FileBarChart2, GraduationCap, Info, Lock, NotebookPen, Pencil, Plus,
+  Scale, TrendingDown, TrendingUp, Trash2, Wallet,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api, errorMessage } from '@/lib/api'
-import type { AccountRec, AccountType, JournalEntryRec, JournalSourceType } from '@/lib/data'
+import type { AccountRec, AccountType, JournalSourceType, ScholarshipType } from '@/lib/data'
+import { useAcademic } from '@/lib/store'
 import { fmtDate } from '@/lib/hooks/useAcademics'
 import { isoDate } from '@/lib/hooks/useTimetable'
 import {
-  ACCOUNT_TYPES, DEBIT_NORMAL_TYPES, JOURNAL_SOURCE_TYPES, accountTypeTone, computeBalance, fmtMoney, isSystemSourced,
-  sourceLabel, useAccounts, useBalanceSheet, useJournalEntries, useProfitAndLoss, useTrialBalance,
+  ACCOUNT_TYPES, DEBIT_NORMAL_TYPES, JOURNAL_SOURCE_TYPES, accountTypeTone, fmtMoney, isSystemSourced,
+  sourceLabel, useAccounts, useBalanceSheet, useCashFlowForecast, useConcessionImpact, useJournalEntries, useProfitAndLoss,
+  useProgramProfitability, useTrialBalance,
 } from '@/lib/hooks/useAccounting'
+import { scholarshipTypeLabel } from '@/lib/hooks/useScholarships'
 import { Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
 
 // Phase 17 — Accounting / General Ledger (frontend). Chart of Accounts (list/create/edit/delete, grouped by
@@ -27,7 +32,8 @@ const cardHead = 'flex flex-wrap items-center justify-between gap-3 border-b bor
 const iconBtn = 'rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15 disabled:opacity-30 disabled:hover:bg-black/[.05]'
 const dangerBtn = 'rounded-full bg-rose-50 dark:bg-rose-500/10 p-2 text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-500/20 disabled:opacity-40'
 
-function FormActions({ onCancel, onSave, label, disabled }: { onCancel: () => void; onSave: () => void; label: string; disabled?: boolean }) {
+// Exported: also used by /portal/accounting/journal/new (JournalEntryNew.tsx).
+export function FormActions({ onCancel, onSave, label, disabled }: { onCancel: () => void; onSave: () => void; label: string; disabled?: boolean }) {
   return (
     <div className="flex gap-3 pt-2">
       <button onClick={onSave} disabled={disabled} className="btn-ink flex-1 py-3 text-[14px] font-semibold disabled:opacity-40">{label}</button>
@@ -225,168 +231,22 @@ export function ChartOfAccountsMod() {
 }
 
 /* ── Journal ───────────────────────────────────────────── */
-
-interface LineDraft { accountId: string; debit: string; credit: string }
-const emptyLine = (): LineDraft => ({ accountId: '', debit: '', credit: '' })
-
-/** Live, float-safe balance readout for the line editor — computeBalance() sums in integer paise so this
- * never trusts a naive floating-point `===` on rupee amounts. */
-function BalanceStrip({ lines }: { lines: LineDraft[] }) {
-  const { debitPaise, creditPaise, balanced, diffPaise } = computeBalance(lines)
-  const hasAmounts = debitPaise > 0 || creditPaise > 0
-  const tone = !hasAmounts ? 'slate' : balanced ? 'balanced' : 'unbalanced'
-  return (
-    <div className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl p-4 ${
-      tone === 'balanced' ? 'bg-emerald-50 dark:bg-emerald-500/10' : tone === 'unbalanced' ? 'bg-rose-50 dark:bg-rose-500/10' : 'bg-black/[.04] dark:bg-white/[.06]'
-    }`}>
-      <div className="flex gap-5 text-[13.5px]">
-        <div><span className={muted}>Debit</span> <span className="font-semibold">{fmtMoney(debitPaise / 100)}</span></div>
-        <div><span className={muted}>Credit</span> <span className="font-semibold">{fmtMoney(creditPaise / 100)}</span></div>
-      </div>
-      <div className={`flex items-center gap-1.5 text-[13.5px] font-semibold ${
-        tone === 'balanced' ? 'text-emerald-700 dark:text-emerald-400' : tone === 'unbalanced' ? 'text-rose-600 dark:text-rose-400' : 'text-black/40 dark:text-white/40'
-      }`}>
-        {tone === 'balanced' && <><CheckCircle2 size={15} /> Balanced</>}
-        {tone === 'unbalanced' && <><Scale size={15} /> Out of balance by {fmtMoney(Math.abs(diffPaise) / 100)}</>}
-        {tone === 'slate' && 'Enter debit and credit amounts'}
-      </div>
-    </div>
-  )
-}
-
-function NewEntryModal({ open, accounts, onClose, onCreated }: { open: boolean; accounts: AccountRec[]; onClose: () => void; onCreated: () => void }) {
-  const [date, setDate] = useState(isoDate(new Date()))
-  const [memo, setMemo] = useState('')
-  const [reference, setReference] = useState('')
-  const [lines, setLines] = useState<LineDraft[]>([emptyLine(), emptyLine()])
-  const [busy, setBusy] = useState(false)
-
-  const activeAccounts = useMemo(() => accounts.filter(a => a.active).sort((a, b) => a.code.localeCompare(b.code)), [accounts])
-  const byType = useMemo(() => {
-    const m = new Map<AccountType, AccountRec[]>()
-    for (const a of activeAccounts) { if (!m.has(a.type)) m.set(a.type, []); m.get(a.type)!.push(a) }
-    return m
-  }, [activeAccounts])
-
-  const reset = () => { setDate(isoDate(new Date())); setMemo(''); setReference(''); setLines([emptyLine(), emptyLine()]) }
-  const close = () => { reset(); onClose() }
-
-  const setLine = (idx: number, patch: Partial<LineDraft>) => setLines(ls => ls.map((l, i) => i === idx ? { ...l, ...patch } : l))
-  // A line is a debit XOR a credit — typing into one clears the other so a stray leftover value can never
-  // silently count toward both columns.
-  const setDebit = (idx: number, v: string) => setLine(idx, { debit: v, credit: v.trim() ? '' : lines[idx].credit })
-  const setCredit = (idx: number, v: string) => setLine(idx, { credit: v, debit: v.trim() ? '' : lines[idx].debit })
-  const removeLine = (idx: number) => setLines(ls => ls.filter((_, i) => i !== idx))
-
-  const usableLines = lines.filter(l => l.accountId && (Number(l.debit) > 0 || Number(l.credit) > 0))
-  const { balanced, debitPaise } = computeBalance(usableLines)
-  const canSubmit = !!date && !!memo.trim() && usableLines.length >= 2 && balanced && debitPaise > 0
-
-  const submit = async () => {
-    if (!canSubmit) return
-    setBusy(true)
-    try {
-      await api.post('/accounting/journal-entries', {
-        date, memo: memo.trim(), reference: reference.trim() || undefined,
-        lines: usableLines.map(l => ({ accountId: l.accountId, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0 })),
-      })
-      toast.success('Journal entry posted'); reset(); onClose(); onCreated()
-    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
-  }
-
-  return (
-    <Modal open={open} onClose={close} title="New manual journal entry" wide>
-      <div className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Date"><input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} /></Field>
-          <Field label="Reference"><input value={reference} onChange={e => setReference(e.target.value)} placeholder="Optional — e.g. Invoice INV-2026-042" className={inputCls} /></Field>
-        </div>
-        <Field label="Memo"><input value={memo} onChange={e => setMemo(e.target.value)} placeholder="What is this entry for?" className={inputCls} autoFocus /></Field>
-
-        <div>
-          <div className="mb-2 flex items-center justify-between">
-            <p className={sectionLabel}>Lines</p>
-            <button onClick={() => setLines(ls => [...ls, emptyLine()])} className="flex items-center gap-1.5 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3 py-1.5 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
-              <Plus size={13} /> Add line
-            </button>
-          </div>
-          <div className="space-y-2">
-            {lines.map((l, idx) => (
-              <div key={idx} className="flex flex-wrap items-center gap-2 rounded-2xl border border-black/[.06] dark:border-white/[.08] p-3">
-                <select value={l.accountId} onChange={e => setLine(idx, { accountId: e.target.value })} className={`${inputCls} min-w-[200px] flex-1`}>
-                  <option value="">Select account</option>
-                  {ACCOUNT_TYPES.map(t => (byType.get(t)?.length ? (
-                    <optgroup key={t} label={t}>
-                      {byType.get(t)!.map(a => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
-                    </optgroup>
-                  ) : null))}
-                </select>
-                <input type="number" min={0} step="0.01" value={l.debit} onChange={e => setDebit(idx, e.target.value)} placeholder="Debit" className={`${inputCls} w-32`} />
-                <input type="number" min={0} step="0.01" value={l.credit} onChange={e => setCredit(idx, e.target.value)} placeholder="Credit" className={`${inputCls} w-32`} />
-                {lines.length > 2 && (
-                  <button onClick={() => removeLine(idx)} className="rounded-full p-2 text-black/40 hover:bg-rose-50 hover:text-rose-500 dark:text-white/40 dark:hover:bg-rose-500/10" aria-label="Remove line"><X size={15} /></button>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <BalanceStrip lines={lines} />
-
-        <FormActions onCancel={close} onSave={submit} label="Post entry" disabled={!canSubmit || busy} />
-      </div>
-    </Modal>
-  )
-}
-
-function EntryDetailModal({ entry, accounts, onClose }: { entry: JournalEntryRec | null; accounts: AccountRec[]; onClose: () => void }) {
-  const byId = useMemo(() => new Map(accounts.map(a => [a.id, a])), [accounts])
-  if (!entry) return null
-  const totalDebit = entry.lines.reduce((a, l) => a + (Number(l.debit) || 0), 0)
-  const totalCredit = entry.lines.reduce((a, l) => a + (Number(l.credit) || 0), 0)
-  return (
-    <Modal open={!!entry} onClose={onClose} title={entry.memo} wide>
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center gap-2">
-          {isSystemSourced(entry.sourceType)
-            ? <Pill tone="slate"><Lock size={10} /> System · {sourceLabel(entry.sourceType)}</Pill>
-            : <Pill tone="indigo"><BadgeCheck size={10} /> Manual</Pill>}
-          <span className={muted}>{fmtDate(entry.date, { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-          {entry.reference && <span className={muted}>· {entry.reference}</span>}
-        </div>
-        <Card className="p-0">
-          {entry.lines.map(l => {
-            const acc = byId.get(l.accountId)
-            return (
-              <div key={l.id} className={rowCls}>
-                <div className="min-w-32 flex-1">
-                  <p className="text-[14px] font-semibold">{acc ? `${acc.code} · ${acc.name}` : l.accountId}</p>
-                </div>
-                <span className="w-24 text-right text-[13.5px] font-semibold">{Number(l.debit) > 0 ? fmtMoney(Number(l.debit)) : ''}</span>
-                <span className="w-24 text-right text-[13.5px] font-semibold">{Number(l.credit) > 0 ? fmtMoney(Number(l.credit)) : ''}</span>
-              </div>
-            )
-          })}
-          <div className={`${rowCls} bg-black/[.02] dark:bg-white/[.03] font-semibold`}>
-            <div className="min-w-32 flex-1">Total</div>
-            <span className="w-24 text-right text-[13.5px]">{fmtMoney(totalDebit)}</span>
-            <span className="w-24 text-right text-[13.5px]">{fmtMoney(totalCredit)}</span>
-          </div>
-        </Card>
-      </div>
-    </Modal>
-  )
-}
+// The "New manual journal entry" form and the journal-entry detail view used to be `NewEntryModal` /
+// `EntryDetailModal` here. Both are inherently multi-line debit/credit builders/viewers, so per
+// .agents/edunova/ui-architecture-fix.md Phase D they're now real routed pages:
+// `/portal/accounting/journal/new` (src/pages/portal/JournalEntryNew.tsx) and
+// `/portal/accounting/journal/:id` (src/pages/portal/JournalEntryDetail.tsx). `LineDraft`/`emptyLine`/
+// `BalanceStrip` moved into JournalEntryNew.tsx since nothing else in this module used them; `FormActions`
+// above is exported and reused there.
 
 export function JournalMod() {
+  const navigate = useNavigate()
   const accounts = useAccounts()
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [accountId, setAccountId] = useState('')
   const [sourceType, setSourceType] = useState<JournalSourceType | ''>('')
   const entries = useJournalEntries({ from: from || undefined, to: to || undefined, accountId: accountId || undefined, sourceType: sourceType || undefined })
-  const [selected, setSelected] = useState<JournalEntryRec | null>(null)
-  const [newOpen, setNewOpen] = useState(false)
 
   const sorted = useMemo(() => [...(entries.items ?? [])].sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || '')), [entries.items])
   const activeAccounts = useMemo(() => (accounts.items ?? []).sort((a, b) => a.code.localeCompare(b.code)), [accounts.items])
@@ -394,7 +254,7 @@ export function JournalMod() {
   return (
     <div>
       <PageHead title="Journal" sub="Every posted entry — auto-generated from Fees/Payroll, plus manual entries">
-        <button onClick={() => setNewOpen(true)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
+        <button onClick={() => navigate('/portal/accounting/journal/new')} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
           <Plus size={15} /> New manual entry
         </button>
       </PageHead>
@@ -432,7 +292,7 @@ export function JournalMod() {
         {sorted.map(e => {
           const total = e.totalDebit ?? e.lines.reduce((a, l) => a + (Number(l.debit) || 0), 0)
           return (
-            <button key={e.id} onClick={() => setSelected(e)} className={`${rowCls} w-full text-left hover:bg-black/[.02] dark:hover:bg-white/[.03]`}>
+            <button key={e.id} onClick={() => navigate(`/portal/accounting/journal/${e.id}`)} className={`${rowCls} w-full text-left hover:bg-black/[.02] dark:hover:bg-white/[.03]`}>
               <div className="min-w-40 flex-1">
                 <p className="text-[14px] font-semibold">{e.memo}</p>
                 <p className={muted}>{fmtDate(e.date, { day: 'numeric', month: 'short', year: 'numeric' })}{e.reference ? ` · ${e.reference}` : ''}</p>
@@ -447,18 +307,28 @@ export function JournalMod() {
         })}
       </Card>
 
-      <NewEntryModal open={newOpen} accounts={accounts.items ?? []} onClose={() => setNewOpen(false)} onCreated={() => entries.reload()} />
-      <EntryDetailModal entry={selected} accounts={accounts.items ?? []} onClose={() => setSelected(null)} />
     </div>
   )
 }
 
 /* ── Reports ───────────────────────────────────────────── */
 
-type ReportTab = 'trial' | 'pl' | 'bs'
+type ReportTab = 'trial' | 'pl' | 'bs' | 'cashflow' | 'program' | 'concession'
 const REPORT_TABS: { id: ReportTab; label: string }[] = [
   { id: 'trial', label: 'Trial Balance' }, { id: 'pl', label: 'Profit & Loss' }, { id: 'bs', label: 'Balance Sheet' },
+  { id: 'cashflow', label: 'Cash Flow Forecast' }, { id: 'program', label: 'Program Profitability' }, { id: 'concession', label: 'Concession Impact' },
 ]
+
+/** Shared disclaimer strip for the two Phase 21 reports whose `methodology` field is an estimate, not
+ * precise accounting (per the phase spec: never hide this text). */
+function MethodologyNote({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-2xl bg-amber-50 dark:bg-amber-500/10 p-3.5 text-[12.5px] text-amber-800 dark:text-amber-300">
+      <Info size={15} className="mt-0.5 shrink-0" />
+      <p>{text}</p>
+    </div>
+  )
+}
 
 function ReportTable({ head, rows, footer }: { head: ReactNode; rows: ReactNode; footer?: ReactNode }) {
   return (
@@ -627,6 +497,195 @@ function BalanceSheetView() {
   )
 }
 
+/* ── Phase 21 item 1: cash-flow forecast ──────────────────── */
+
+function CashFlowForecastView() {
+  const [months, setMonths] = useState(3)
+  const { data, loading, error } = useCashFlowForecast(months)
+  const maxAbs = useMemo(() => Math.max(1, ...(data?.months ?? []).map(m => Math.abs(m.projectedBalance))), [data])
+  return (
+    <div className="space-y-4">
+      <Field label="Months to project">
+        <select value={months} onChange={e => setMonths(Number(e.target.value))} className={`${inputCls} max-w-xs`}>
+          {[1, 2, 3, 6, 12].map(n => <option key={n} value={n}>{n} month{n === 1 ? '' : 's'}</option>)}
+        </select>
+      </Field>
+      {loading && <p className="py-8 text-center text-[14px] text-black/40 dark:text-white/40">Loading…</p>}
+      {error && <Empty text={error} />}
+      {!loading && !error && data && (
+        <div className="space-y-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Card className="flex items-center gap-4">
+              <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-500/10"><Wallet size={20} className="text-indigo-600" /></span>
+              <div><p className={muted}>Current bank balance</p><p className="font-display text-2xl font-medium">{fmtMoney(data.startingBalance)}</p></div>
+            </Card>
+            <Card className="flex items-center gap-4">
+              <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-50 dark:bg-amber-500/10"><TrendingDown size={20} className="text-amber-600" /></span>
+              <div><p className={muted}>Monthly payroll obligation</p><p className="font-display text-2xl font-medium">{fmtMoney(data.monthlyPayrollObligation)}</p></div>
+            </Card>
+          </div>
+
+          <Card className="p-0">
+            <p className={`${sectionLabel} border-b border-black/[.06] px-5 py-3.5 dark:border-white/[.08]`}>Projected balance by month</p>
+            <div className="space-y-3 p-5">
+              {data.months.map(m => {
+                const pct = Math.round((Math.abs(m.projectedBalance) / maxAbs) * 100)
+                const negative = m.projectedBalance < 0
+                return (
+                  <div key={m.month} className="flex items-center gap-3">
+                    <span className="w-20 shrink-0 text-[12.5px] font-semibold text-black/50 dark:text-white/50">{fmtMonthLabel(m.month)}</span>
+                    <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-black/[.05] dark:bg-white/[.08]">
+                      <div className={`h-full rounded-full ${negative ? 'bg-rose-500' : 'bg-indigo-500'}`} style={{ width: `${Math.max(2, pct)}%` }} />
+                    </div>
+                    <span className={`w-32 shrink-0 text-right text-[13px] font-semibold ${negative ? 'text-rose-600 dark:text-rose-400' : ''}`}>{fmtMoney(m.projectedBalance)}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
+
+          <Card className="p-0">
+            <ReportTable
+              head={<><th className="px-5 py-2.5">Month</th><th className="px-3 py-2.5 text-right">Projected inflow</th><th className="px-3 py-2.5 text-right">Projected outflow</th><th className="px-5 py-2.5 text-right">Projected balance</th></>}
+              rows={data.months.map(m => (
+                <tr key={m.month}>
+                  <td className="px-5 py-2.5 font-medium">{fmtMonthLabel(m.month)}</td>
+                  <td className="px-3 py-2.5 text-right text-emerald-700 dark:text-emerald-400">+{fmtMoney(m.projectedInflow)}</td>
+                  <td className="px-3 py-2.5 text-right text-rose-600 dark:text-rose-400">−{fmtMoney(m.projectedOutflow)}</td>
+                  <td className={`px-5 py-2.5 text-right font-semibold ${m.projectedBalance < 0 ? 'text-rose-600 dark:text-rose-400' : ''}`}>{fmtMoney(m.projectedBalance)}</td>
+                </tr>
+              ))}
+            />
+          </Card>
+
+          <MethodologyNote text={data.methodology} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function fmtMonthLabel(m: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(m)
+  if (!match) return m
+  return new Date(Number(match[1]), Number(match[2]) - 1, 1).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })
+}
+
+/* ── Phase 21 item 2: per-program profitability ───────────── */
+
+function ProgramProfitabilityView() {
+  const { terms, currentTerm } = useAcademic()
+  const [termId, setTermId] = useState('')
+  const activeTermId = terms.some(t => t.id === termId) ? termId : (currentTerm?.id ?? '')
+  const { data, loading, error } = useProgramProfitability(activeTermId)
+  const maxProfit = useMemo(() => Math.max(1, ...(data?.programs ?? []).map(p => Math.max(Math.abs(p.income), Math.abs(p.expense)))), [data])
+
+  if (terms.length === 0) return <Card><Empty text="Create terms in Academic Setup first." /></Card>
+  return (
+    <div className="space-y-4">
+      <Field label="Term">
+        <select value={activeTermId} onChange={e => setTermId(e.target.value)} className={`${inputCls} max-w-xs`}>
+          {terms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+      </Field>
+      {loading && <p className="py-8 text-center text-[14px] text-black/40 dark:text-white/40">Loading…</p>}
+      {error && <Empty text={error} />}
+      {!loading && !error && data && (
+        <div className="space-y-5">
+          {data.programs.length === 0 ? <Card><Empty text="No classes found for this term's academic year." /></Card> : (
+            <Card className="p-0">
+              {data.programs.map(p => (
+                <div key={`${p.boardId}-${p.gradeId}`} className={rowCls}>
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10"><GraduationCap size={17} /></span>
+                  <div className="min-w-40 flex-1">
+                    <p className="text-[14.5px] font-semibold">{p.boardName} · {p.gradeLabel}</p>
+                    <p className={muted}>{p.teacherCount} teacher{p.teacherCount === 1 ? '' : 's'} · {p.weeklyPeriods} periods/week</p>
+                  </div>
+                  <div className="flex min-w-40 flex-col gap-1">
+                    <div className="flex items-center gap-2 text-[12px]">
+                      <span className="w-16 text-black/45 dark:text-white/45">Income</span>
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-black/[.05] dark:bg-white/[.08]"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(2, Math.round((p.income / maxProfit) * 100))}%` }} /></div>
+                      <span className="w-24 text-right font-semibold">{fmtMoney(p.income)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[12px]">
+                      <span className="w-16 text-black/45 dark:text-white/45">Expense</span>
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-black/[.05] dark:bg-white/[.08]"><div className="h-full rounded-full bg-amber-500" style={{ width: `${Math.max(2, Math.round((p.expense / maxProfit) * 100))}%` }} /></div>
+                      <span className="w-24 text-right font-semibold">{fmtMoney(p.expense)}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {p.profit >= 0 ? <TrendingUp size={14} className="text-emerald-600" /> : <TrendingDown size={14} className="text-rose-500" />}
+                    <Pill tone={p.profit >= 0 ? 'green' : 'rose'}>{fmtMoney(p.profit)}</Pill>
+                  </div>
+                </div>
+              ))}
+            </Card>
+          )}
+          <MethodologyNote text={data.methodology} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Phase 21 item 3: concession/scholarship impact ───────── */
+
+function ConcessionImpactView() {
+  const { terms, currentTerm } = useAcademic()
+  const [termId, setTermId] = useState('')
+  const activeTermId = terms.some(t => t.id === termId) ? termId : (currentTerm?.id ?? '')
+  const { data, loading, error } = useConcessionImpact(activeTermId || undefined)
+
+  return (
+    <div className="space-y-4">
+      <Field label="Term">
+        <select value={activeTermId} onChange={e => setTermId(e.target.value)} className={`${inputCls} max-w-xs`}>
+          <option value="">All terms</option>
+          {terms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+      </Field>
+      {loading && <p className="py-8 text-center text-[14px] text-black/40 dark:text-white/40">Loading…</p>}
+      {error && <Empty text={error} />}
+      {!loading && !error && data && (
+        <div className="space-y-5">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Card><p className={muted}>Total invoiced</p><p className="mt-1 font-display text-xl font-medium">{fmtMoney(data.totalInvoiced)}</p></Card>
+            <Card><p className={muted}>Total concession</p><p className="mt-1 font-display text-xl font-medium text-rose-600 dark:text-rose-400">{fmtMoney(data.totalConcession)}</p></Card>
+            <Card><p className={muted}>% of invoiced value</p><p className="mt-1 font-display text-xl font-medium">{data.pctOfInvoiced}%</p></Card>
+            <Card><p className={muted}>Students affected</p><p className="mt-1 font-display text-xl font-medium">{data.studentsAffected}</p></Card>
+          </div>
+          <div className="grid gap-5 lg:grid-cols-2">
+            <Card className="p-0">
+              <p className={`${sectionLabel} border-b border-black/[.06] px-5 py-3.5 dark:border-white/[.08]`}>Scholarship vs. manual concession</p>
+              <div className="p-5">
+                <ReportTable
+                  head={<><th className="py-2 pr-3">Source</th><th className="py-2 text-right">Amount</th></>}
+                  rows={<>
+                    <tr><td className="py-2 pr-3">Approved scholarships</td><td className="py-2 text-right">{fmtMoney(data.scholarshipConcession)}</td></tr>
+                    <tr><td className="py-2 pr-3">Manual (staff-applied)</td><td className="py-2 text-right">{fmtMoney(data.manualConcession)}</td></tr>
+                  </>}
+                  footer={<tr className="border-t border-black/[.08] font-semibold dark:border-white/[.1]"><td className="py-2 pr-3">Total</td><td className="py-2 text-right">{fmtMoney(data.totalConcession)}</td></tr>}
+                />
+              </div>
+            </Card>
+            <Card className="p-0">
+              <p className={`${sectionLabel} border-b border-black/[.06] px-5 py-3.5 dark:border-white/[.08]`}>By scholarship type</p>
+              <div className="p-5">
+                <ReportTable
+                  head={<><th className="py-2 pr-3">Type</th><th className="py-2 text-right">Amount</th></>}
+                  rows={data.byScholarshipType.length === 0
+                    ? <tr><td colSpan={2} className="py-4 text-black/40 dark:text-white/40">No scholarship-driven concessions this period.</td></tr>
+                    : data.byScholarshipType.map(t => <tr key={t.type}><td className="py-2 pr-3">{scholarshipTypeLabel(t.type as ScholarshipType)}</td><td className="py-2 text-right">{fmtMoney(t.amount)}</td></tr>)}
+                />
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function AccountingReportsMod() {
   const [tab, setTab] = useState<ReportTab>('trial')
   return (
@@ -643,6 +702,9 @@ export function AccountingReportsMod() {
       {tab === 'trial' && <TrialBalanceView />}
       {tab === 'pl' && <ProfitAndLossView />}
       {tab === 'bs' && <BalanceSheetView />}
+      {tab === 'cashflow' && <CashFlowForecastView />}
+      {tab === 'program' && <ProgramProfitabilityView />}
+      {tab === 'concession' && <ConcessionImpactView />}
     </div>
   )
 }
