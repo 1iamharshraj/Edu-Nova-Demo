@@ -1,0 +1,32 @@
+# Phase 26 — Timetable Auto-Generation
+
+The algorithmically trickiest phase in this roadmap — runs alone, no parallel phase, benefits from focus. Extends the existing Timetable Builder (`server/src/modules/timetable/`, `src/portal/modules/timetableBuilder.tsx`) and its conflict-detection engine — **read that module thoroughly before writing anything**, this phase must reuse the exact same conflict rules the manual builder already enforces (teacher double-booking, room double-booking, the 409+`conflicts[]` response convention), not invent parallel logic that could disagree with it.
+
+## Design stance
+
+This is a **first-draft generator, not an autonomous scheduler**. Its job is to take the manual effort out of the tedious 80% of a timetable (fill every period for every class-subject with a valid teacher+room, respecting hard constraints) and hand the admin a complete, conflict-free draft they can review and hand-edit exactly as they do today. It does not need to produce a "perfect" or "optimal" timetable — it needs to produce a *valid* one, fast, that saves real time. Don't build a general constraint-solver library or pull in an external optimization dependency; a well-structured greedy/backtracking algorithm in plain TypeScript is the right level of engineering here, matching how every other phase in this project has favored a straightforward, explainable implementation over a sophisticated one.
+
+## 1. Inputs the generator needs (read from existing data, nothing new to model)
+
+- `PeriodTemplate` (existing — the school's period/day structure).
+- Every `ClassSubject` needing periods/week (check if `ClassSubject` or `CurriculumSubject` already has a "periods per week" field — if not, this is the one genuinely new piece of input data needed: add a `periodsPerWeek Int` field via additive migration, defaulting sensibly, admin-editable in the existing Curriculum screen).
+- Teacher subject qualifications/assignments (existing `ClassSubject.teacherId` or equivalent — check the exact field).
+- `Room` list with `type`/capacity (existing — needed for lab-period pairing: a Chemistry practical period must land in a Lab-type room, not any room).
+- Existing `TimetableEntry` rows already locked in (if partial timetable exists, generate only into the empty slots — don't overwrite manually-placed entries unless the admin explicitly asks for a full regenerate, which should be a distinct, clearly-labeled destructive action requiring confirmation).
+
+## 2. Generation endpoint
+
+- `POST /api/timetable/auto-generate` `{classId (or all classes), termId, mode: 'fill-empty' | 'full-regenerate'}` (admin only — this is a significant operation). Algorithm outline:
+  1. For each class, gather its `ClassSubject`s and required periods/week.
+  2. Build a working grid of empty slots (respecting the `PeriodTemplate`'s break/lunch periods, which are never assignable).
+  3. Assign greedily: for each class-subject needing periods, pick candidate (day, period) slots where the assigned teacher is free (no existing `TimetableEntry` for them at that time, across ALL classes — reuse the exact same free-check the manual builder/Phase 19's substitute-suggestion logic uses) and, if the subject needs a special room type, a matching free room is available. Apply a simple no-double-same-subject-same-day rule per class (don't schedule Math twice in one day unless periods/week genuinely require more slots than days available). If a lab/practical period, pair it with the room and prefer a double-period block if the school's `PeriodTemplate` supports back-to-back slots (check first).
+  4. If greedy placement fails for some requirement (no valid slot found for a required period), do NOT crash or silently drop it — collect it into an `unplaced []` list in the response with a clear reason ("no free slot for Teacher X's remaining 2 Physics periods this week") so the admin knows exactly what still needs manual attention.
+  5. Return a **draft, not yet saved**: `{ draftEntries: [...], unplaced: [...], conflictsAvoided: <count> }` — the admin reviews it in the UI before committing.
+- `POST /api/timetable/auto-generate/commit` `{draftEntries}` — actually creates the `TimetableEntry` rows, reusing the exact same creation path (and validation/conflict-check) the manual "add entry" endpoint already uses, so a committed auto-generated entry is indistinguishable from a manually-created one afterward (same table, same audit trail, fully hand-editable).
+
+## 3. Frontend
+
+- A new "Auto-Generate" entry point inside the existing Timetable Builder (`src/portal/modules/timetableBuilder.tsx`) — not a separate module. Admin picks scope (one class or all), mode (fill-empty vs full-regenerate, with a clear warning + confirmation for full-regenerate since it's destructive to existing manual work), runs generation, reviews the draft grid (highlight what's newly placed vs. pre-existing, list any `unplaced` items prominently), then commits or discards. After commit, the grid is just the normal editable Timetable Builder grid — no special "generated" state persists.
+
+## Ground rules
+Same as every previous phase: additive migration only for `periodsPerWeek` if it doesn't already exist, extend `server/src/modules/timetable/` (don't fork a new module — this is squarely timetable-domain), zod validation, `requireRole()` (admin-only for generation), `HttpError`, `audit()` on both generate (even though it's a draft, log the action) and commit, no new cleanup block needed unless `periodsPerWeek` migration requires one (it doesn't, it's a column not a table), no git commands, no `/admin/reset`/`/admin/load-sample-data` except your own final step, server/frontend split with Portal.tsx changes (if any — this may just be an addition inside the existing Timetable Builder module, check whether it even needs a Portal.tsx registry entry or just lives inside the existing screen) described-not-made by the frontend agent, full tsc/eslint/87-test verification, live curl+UI verification — specifically generate a full timetable for at least one real seeded class with genuinely constrained data (a teacher who teaches multiple classes, a subject needing a Lab room) and confirm: zero conflicts in the generated draft against the existing conflict-check logic, at least one realistic `unplaced` case is handled gracefully (not crashed) if the seed data is tight enough to produce one, and after commit the entries are fully editable through the normal manual Timetable Builder UI exactly like any other entry.
