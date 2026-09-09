@@ -52,6 +52,24 @@ self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting()
 })
 
+/* ─────────────────────────────────────────────────────────
+   Phase 29B — Background Sync for the offline attendance queue.
+   The service worker has no access to the app's auth token (it lives in the page's localStorage), so it
+   can't replay queued submissions itself. Instead, when the browser fires 'sync' (connectivity restored,
+   possibly with the tab in the background/not focused), it wakes every open EduNova tab and asks it to
+   run the real replay (src/lib/offlineAttendance.ts `flushQueue`, wired up in
+   src/lib/hooks/useOfflineSync.ts). Browsers without Background Sync (notably Safari) never fire this —
+   those rely entirely on the in-page 'online' + focus/visibility fallback instead.
+   ───────────────────────────────────────────────────────── */
+self.addEventListener('sync', (event) => {
+  if (event.tag !== 'edunova-attendance-sync') return
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      clients.forEach((client) => client.postMessage({ type: 'EDUNOVA_ATTENDANCE_SYNC' }))
+    })
+  )
+})
+
 async function cacheFirst(request) {
   const cached = await caches.match(request)
   if (cached) return cached
