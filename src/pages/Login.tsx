@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, Crown, Eye, EyeOff, GraduationCap, Landmark, Lay
 import { Logo } from '@/components/Logo'
 import { useStore } from '@/lib/store'
 import { ThemeToggle } from '@/lib/theme'
+import { ApiError } from '@/lib/api'
 import type { Role } from '@/lib/data'
 
 const ROLES: { role: Role; label: string; icon: any; email: string; pass: string; grad: string; blurb: string }[] = [
@@ -39,8 +40,18 @@ export default function Login() {
       const u = await login(email, pass)
       if (u) navigate(u.mustChangePassword ? '/change-password' : '/portal')
       else setError('Those credentials don’t match any EduNova account. Try the demo login.')
-    } catch {
-      setError('Those credentials don’t match any EduNova account. Try the demo login.')
+    } catch (err) {
+      // A 429 (too many attempts) and a 403 (deactivated account) are not "wrong password" — show
+      // the real reason instead of the generic credentials message, which was actively misleading.
+      if (err instanceof ApiError && err.status === 429) {
+        const retryAfter = (err.body as { retryAfter?: number } | undefined)?.retryAfter
+        const mins = retryAfter ? Math.max(1, Math.ceil(retryAfter / 60)) : null
+        setError(mins ? `Too many login attempts. Please try again in about ${mins} minute${mins === 1 ? '' : 's'}.` : 'Too many login attempts. Please try again shortly.')
+      } else if (err instanceof ApiError && err.status === 403) {
+        setError(err.message || 'This account is inactive. Contact your school administrator.')
+      } else {
+        setError('Those credentials don’t match any EduNova account. Try the demo login.')
+      }
     }
   }
 
