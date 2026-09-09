@@ -13,6 +13,13 @@ model School {
   createdAt DateTime @default(now())
   users     User[]
 
+  // Phase 28 — multi-school/group management. Nullable/additive: most schools are standalone. A
+  // SchoolGroup is NOT itself a tenant — it has no classes/students/staff of its own, see
+  // phase-28-multi-school-group.md §1. onDelete: SetNull so deleting a SchoolGroup (not currently exposed
+  // via any endpoint) never cascades into deleting real school data.
+  groupId String?
+  group   SchoolGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+
   years         AcademicYear[]
   terms         Term[]
   boards        Board[]
@@ -44,13 +51,16 @@ model School {
   boardRegistrations  BoardRegistration[]
   parentVerifications ParentVerification[]
 
-  feeHeads         FeeHead[]
-  feeStructures    FeeStructure[]
-  feeInvoices      FeeInvoice[]
-  payments         Payment[]
-  feeReminders     FeeReminder[]
-  salaryStructures SalaryStructure[]
-  payslips         Payslip[]
+  feeHeads            FeeHead[]
+  feeStructures       FeeStructure[]
+  feeInvoices         FeeInvoice[]
+  payments            Payment[]
+  feeReminders        FeeReminder[]
+  salaryStructures    SalaryStructure[]
+  payslips            Payslip[]
+  feeInstallmentPlans FeeInstallmentPlan[]
+  scholarships        Scholarship[]
+  scholarshipAwards   ScholarshipAward[]
 
   leaveTypes    LeaveType[]
   leaveRequests LeaveRequest[]
@@ -70,9 +80,11 @@ model School {
   disciplinaryCases DisciplinaryCase[]
   callLogs          CallLog[]
   activities        Activity[]
+  housePoints       HousePoints[]
 
-  aiConversations AiConversation[]
-  highlights      Highlight[]
+  aiConversations     AiConversation[]
+  generatedWorksheets GeneratedWorksheet[]
+  highlights          Highlight[]
 
   // Phase 11 — employee management (A3-A6).
   performanceReviews  PerformanceReview[]
@@ -98,21 +110,57 @@ model School {
   hostelBeds        HostelBed[]
   hostelAllocations HostelAllocation[]
 
+  // Phase 24 — hostel outpass / roll-call / mess menu extensions. HostelRollCallEntry has no schoolId of
+  // its own (like AttendanceRecord) — scoped via its HostelRollCall.
+  hostelOutpasses HostelOutpass[]
+  hostelRollCalls HostelRollCall[]
+  messMenus       MessMenu[]
+  mealFeedback    MealFeedback[]
+
   // Phase 15 — library management.
-  books            Book[]
-  bookCopies       BookCopy[]
-  loans            Loan[]
-  librarySettings  LibrarySettings?
+  books           Book[]
+  bookCopies      BookCopy[]
+  loans           Loan[]
+  librarySettings LibrarySettings?
 
   // Phase 16 — inventory / procurement.
-  inventoryItems  InventoryItem[]
-  stockMovements  StockMovement[]
-  vendors         Vendor[]
-  purchaseOrders  PurchaseOrder[]
+  inventoryItems InventoryItem[]
+  stockMovements StockMovement[]
+  vendors        Vendor[]
+  purchaseOrders PurchaseOrder[]
 
   // Phase 17 — accounting / general ledger.
-  accounts      Account[]
+  accounts       Account[]
   journalEntries JournalEntry[]
+
+  // Phase 18 — syllabus & teaching progress tracking.
+  syllabusChapters    SyllabusChapter[]
+  chapterProgress     ChapterProgress[]
+  termSyllabusTargets TermSyllabusTarget[]
+  chapterResources    ChapterResource[]
+
+  // Phase 19 — early warning & teaching analytics.
+  studentRiskSnapshots StudentRiskSnapshot[]
+  analyticsSettings    AnalyticsSettings?
+
+  // Phase 22 — campus safety & security.
+  authorizedPickupPeople AuthorizedPickupPerson[]
+  pickupEvents           PickupEvent[]
+  visitors               Visitor[]
+  counselingRecords      CounselingRecord[]
+  counselingSettings     CounselingSettings?
+  anonymousReports       AnonymousReport[]
+  medicationSchedules    MedicationSchedule[]
+  medicationLogs         MedicationLog[]
+
+  // Phase 23 — parent experience (family summary / daily digest / WhatsApp channel).
+  parentDigestSends ParentDigestSend[]
+
+  // Phase 25 — exam operations.
+  examSeatingPlans   ExamSeatingPlan[]
+  invigilationDuties InvigilationDuty[]
+  studentWallets     StudentWallet[]
+  walletTransactions WalletTransaction[]
 }
 
 model User {
@@ -147,6 +195,12 @@ model User {
 
   // Phase 11 — employee ID (teacher/staff/admin/superadmin only; see A1).
   employeeId String? @unique
+
+  // Phase 22 — item 3 (confidential counseling). Admin-settable capability flag; gates the entire
+  // modules/counseling/ module. See modules/counseling/service.ts — deliberately a boolean, not a
+  // designation-string match (fragile) and not a new Role (counselors keep their existing teacher/staff
+  // role, this is an additive capability on top).
+  isCounselor Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -225,10 +279,12 @@ model User {
   callLogsMade           CallLog[]              @relation("CallLogBy")
   activitiesCreated      Activity[]             @relation("ActivityCreatedBy")
   activityRegistrations  ActivityRegistration[] @relation("ActivityRegistrationUser")
+  housePointsAwarded     HousePoints[]          @relation("HousePointsAwardedBy")
 
-  aiConversations   AiConversation[]   @relation("AiConversationStudent")
-  highlightsCreated Highlight[]        @relation("HighlightCreatedBy")
-  pushSubscriptions PushSubscription[] @relation("PushSubscriptionUser")
+  aiConversations         AiConversation[]     @relation("AiConversationStudent")
+  generatedWorksheetsMade GeneratedWorksheet[] @relation("GeneratedWorksheetCreatedBy")
+  highlightsCreated       Highlight[]          @relation("HighlightCreatedBy")
+  pushSubscriptions       PushSubscription[]   @relation("PushSubscriptionUser")
 
   sessions Session[]
 
@@ -261,6 +317,14 @@ model User {
   hostelAllocationsAsStudent HostelAllocation[] @relation("HostelAllocationStudent")
   hostelAllocationsMade      HostelAllocation[] @relation("HostelAllocationAllocatedBy")
 
+  // Phase 24 — hostel outpass / roll-call / mess menu extensions. See phase-24-boarding-hostel-extensions.md.
+  hostelOutpassesAsStudent HostelOutpass[]  @relation("HostelOutpassStudent")
+  hostelOutpassesRequested HostelOutpass[]  @relation("HostelOutpassRequestedBy")
+  hostelOutpassesApproved  HostelOutpass[]  @relation("HostelOutpassApprovedBy")
+  hostelRollCallsRecorded  HostelRollCall[] @relation("HostelRollCallRecordedBy")
+  messMenusCreated         MessMenu[]       @relation("MessMenuCreatedBy")
+  mealFeedbackAsStudent    MealFeedback[]   @relation("MealFeedbackStudent")
+
   // Phase 15 — library management. `borrowerId` on Loan is a student OR staff/teacher account (whoever
   // borrowed the book) — see phase-15-library.md.
   loansAsBorrower Loan[] @relation("LoanBorrower")
@@ -273,6 +337,49 @@ model User {
 
   // Phase 17 — accounting / general ledger.
   journalEntriesCreated JournalEntry[] @relation("JournalEntryCreatedBy")
+
+  // Phase 18 — syllabus & teaching progress tracking.
+  chapterProgressUpdated ChapterProgress[] @relation("ChapterProgressUpdatedBy")
+  chapterResourcesAdded  ChapterResource[] @relation("ChapterResourceUploadedBy")
+
+  // Phase 19 — early warning & teaching analytics.
+  riskSnapshotsAsStudent StudentRiskSnapshot[] @relation("StudentRiskSnapshotStudent")
+
+  // Phase 21 — financial intelligence: formal scholarship program.
+  scholarshipAwardsAsStudent ScholarshipAward[] @relation("ScholarshipAwardStudent")
+  scholarshipAwardsProposed  ScholarshipAward[] @relation("ScholarshipAwardProposedBy")
+  scholarshipAwardsApproved  ScholarshipAward[] @relation("ScholarshipAwardApprovedBy")
+
+  // Phase 22 — campus safety & security. See phase-22-campus-safety.md.
+  authorizedPickupPeopleAdded  AuthorizedPickupPerson[] @relation("AuthorizedPickupPersonAddedBy")
+  pickupPeopleAsStudent        AuthorizedPickupPerson[] @relation("AuthorizedPickupPersonStudent")
+  pickupEventsAsStudent        PickupEvent[]            @relation("PickupEventStudent")
+  pickupEventsRecorded         PickupEvent[]            @relation("PickupEventRecordedBy")
+  visitorsHosted               Visitor[]                @relation("VisitorHost")
+  visitorsRecorded             Visitor[]                @relation("VisitorRecordedBy")
+  counselingRecordsAsStudent   CounselingRecord[]       @relation("CounselingRecordStudent")
+  counselingRecordsAsCounselor CounselingRecord[]       @relation("CounselingRecordCounselor")
+  anonymousReportsReviewed     AnonymousReport[]        @relation("AnonymousReportReviewedBy")
+  medicationSchedulesAsStudent MedicationSchedule[]     @relation("MedicationScheduleStudent")
+  medicationSchedulesAdded     MedicationSchedule[]     @relation("MedicationScheduleAddedBy")
+  medicationLogsAdministered   MedicationLog[]          @relation("MedicationLogAdministeredBy")
+  parentDigestSends            ParentDigestSend[]       @relation("ParentDigestSendParent")
+
+  // Phase 25 — exam operations.
+  examSeatingPlansGenerated   ExamSeatingPlan[]  @relation("ExamSeatingPlanGeneratedBy")
+  examSeatsAsStudent          ExamSeat[]         @relation("ExamSeatStudent")
+  invigilationDutiesAsTeacher InvigilationDuty[] @relation("InvigilationDutyTeacher")
+
+  // Phase 28 — multi-school/group management. A GroupAdmin grant is independent of this user's own
+  // `schoolId` — see phase-28-multi-school-group.md §1 (a group-admin may be a trust-level employee with
+  // no operational account at any single member school).
+  groupAdminGrants GroupAdmin[] @relation("GroupAdminUser")
+
+  // Phase 30 — canteen prepaid wallet. See phase-30-canteen-wallet.md. `studentWallet` is a nullable
+  // one-to-one (lazily created on first top-up, see modules/canteen/service.ts#ensureWallet) — most users
+  // (non-students) never have one.
+  studentWallet              StudentWallet?
+  walletTransactionsRecorded WalletTransaction[] @relation("WalletTransactionRecordedBy")
 
   @@index([schoolId])
 }
@@ -289,9 +396,10 @@ model AcademicYear {
   isCurrent Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  terms       Term[]
-  classes     Class[]
-  enrollments Enrollment[]
+  terms             Term[]
+  scholarshipAwards ScholarshipAward[]
+  classes           Class[]
+  enrollments       Enrollment[]
 
   @@index([schoolId])
 }
@@ -308,12 +416,14 @@ model Term {
   isCurrent      Boolean      @default(false)
   createdAt      DateTime     @default(now())
 
-  timetableEntries   TimetableEntry[]
-  timetablePublishes TimetablePublish[]
-  assessments        Assessment[]
-  feeStructures      FeeStructure[]
-  feeInvoices        FeeInvoice[]
-  calendarEvents     CalendarEvent[]
+  timetableEntries     TimetableEntry[]
+  timetablePublishes   TimetablePublish[]
+  assessments          Assessment[]
+  feeStructures        FeeStructure[]
+  feeInvoices          FeeInvoice[]
+  calendarEvents       CalendarEvent[]
+  termSyllabusTargets  TermSyllabusTarget[]
+  studentRiskSnapshots StudentRiskSnapshot[]
 
   @@index([schoolId])
   @@index([academicYearId])
@@ -385,6 +495,9 @@ model CurriculumSubject {
   syllabusRef String?
   createdAt   DateTime @default(now())
 
+  syllabusChapters    SyllabusChapter[]
+  termSyllabusTargets TermSyllabusTarget[]
+
   @@index([schoolId])
   @@index([boardId, gradeId])
 }
@@ -420,9 +533,11 @@ model Class {
   conversations  Conversation[]
   calendarEvents CalendarEvent[]
 
-  permissionSlips   PermissionSlip[]
-  disciplinaryCases DisciplinaryCase[]
-  highlights        Highlight[]
+  permissionSlips      PermissionSlip[]
+  disciplinaryCases    DisciplinaryCase[]
+  highlights           Highlight[]
+  termSyllabusTargets  TermSyllabusTarget[]
+  studentRiskSnapshots StudentRiskSnapshot[]
 
   @@unique([schoolId, academicYearId, boardId, gradeId, section])
   @@index([schoolId])
@@ -459,9 +574,11 @@ model ClassSubject {
   periodsPerWeek Int      @default(5)
   createdAt      DateTime @default(now())
 
-  timetableEntries TimetableEntry[]
-  assessments      Assessment[]
-  homework         Homework[]
+  timetableEntries    TimetableEntry[]
+  assessments         Assessment[]
+  homework            Homework[]
+  chapterProgress     ChapterProgress[]
+  generatedWorksheets GeneratedWorksheet[]
 
   @@unique([classId, subjectId])
   @@index([schoolId])
@@ -478,6 +595,10 @@ model Room {
   createdAt DateTime @default(now())
 
   timetableEntries TimetableEntry[]
+
+  // Phase 25 — exam operations.
+  examSeatingPlans   ExamSeatingPlan[]
+  invigilationDuties InvigilationDuty[]
 
   @@unique([schoolId, name])
   @@index([schoolId])
@@ -496,6 +617,17 @@ model Enrollment {
   rollNo         String?
   status         String       @default("active")
   createdAt      DateTime     @default(now())
+
+  // Phase 20 — AI-drafted report-card remarks (item 3). No standalone per-(student,term) report-card row
+  // exists (report cards are computed on the fly from Assessment/Mark, see modules/assessments/reports.ts),
+  // and the ground rules forbid a new Prisma model here beyond GeneratedWorksheet — so the one
+  // teacher-editable overall remark per term lives as a JSON map keyed by termId directly on the
+  // enrollment it belongs to (Enrollment is already per (studentId, academicYearId), and every Term
+  // belongs to exactly one AcademicYear, so `termId` is always a term of this enrollment's year).
+  // Shape: { [termId]: { text: string, updatedById: string, updatedAt: string (ISO) } }.
+  // Read via modules/assessments/reports.ts#reportCard, written via modules/assessments PUT
+  // /report-card/remark (see modules/assessments/service.ts#setReportCardRemark).
+  remarks Json @default("{}")
 
   @@unique([studentId, academicYearId])
   @@index([schoolId])
@@ -627,6 +759,7 @@ model File {
   highlightThumbnails Highlight[]
   employeeDocuments   EmployeeDocument[]
   bookCovers          Book[]
+  chapterResources    ChapterResource[]
 
   @@index([schoolId])
 }
@@ -709,8 +842,16 @@ model Assessment {
   date           DateTime?    @db.Date
   publishedAt    DateTime?
   createdAt      DateTime     @default(now())
+  // Phase 18: chapters this assessment covers, enabling the coverage-vs-learning report. Array column,
+  // matching the established convention for this kind of loose id list (see Homework.attachments,
+  // Post.mediaFileIds, Activity.forRoles) rather than a join table.
+  chapterIds     String[]     @default([])
 
   marks Mark[]
+
+  // Phase 25 — exam operations.
+  examSeats          ExamSeat[]
+  invigilationDuties InvigilationDuty[]
 
   @@index([schoolId])
   @@index([classSubjectId, termId])
@@ -905,41 +1046,70 @@ model FeeStructure {
   lines     Json
   createdAt DateTime @default(now())
 
-  invoices FeeInvoice[]
+  invoices         FeeInvoice[]
+  installmentPlans FeeInstallmentPlan[]
 
   @@unique([classId, termId])
   @@index([schoolId])
 }
 
-// lines: [{ feeHeadId, name, amount }]. invoiceNo: "INV/2026/0001" — sequential per school + year.
-// unique(studentId, feeStructureId): Postgres treats NULL as distinct, so ad-hoc invoices (feeStructureId
-// null) don't collide; generate-invoices relies on this to be idempotent per structure.
-model FeeInvoice {
-  id             String        @id @default(cuid())
+// Phase 21 item 5 — parent-facing fee installment plans. `installments`: JSON array of
+// { label, percentage?, amount?, dueDateOffsetDays } (exactly one of percentage/amount per entry,
+// validated in schema.ts; percentages across all entries must sum to 100 when percentage-based).
+// dueDateOffsetDays is added to the parent FeeStructure.dueDate to get each installment's due date.
+model FeeInstallmentPlan {
+  id             String       @id @default(cuid())
   schoolId       String
-  school         School        @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  studentId      String
-  student        User          @relation("FeeInvoiceStudent", fields: [studentId], references: [id], onDelete: Cascade)
-  feeStructureId String?
-  feeStructure   FeeStructure? @relation(fields: [feeStructureId], references: [id], onDelete: SetNull)
-  termId         String
-  term           Term          @relation(fields: [termId], references: [id], onDelete: Cascade)
-  lines          Json
-  total          Float
-  concession     Float         @default(0)
-  dueDate        DateTime      @db.Date
-  status         String        @default("Due") // Due | PartiallyPaid | Paid | Waived
-  invoiceNo      String
-  createdAt      DateTime      @default(now())
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  feeStructureId String
+  feeStructure   FeeStructure @relation(fields: [feeStructureId], references: [id], onDelete: Cascade)
+  name           String
+  installments   Json
+  createdAt      DateTime     @default(now())
+
+  invoices FeeInvoice[]
+
+  @@unique([feeStructureId, name])
+  @@index([schoolId])
+}
+
+// lines: [{ feeHeadId, name, amount }]. invoiceNo: "INV/2026/0001" — sequential per school + year.
+// unique(studentId, feeStructureId, installmentLabel): Postgres treats NULL as distinct (ad-hoc invoices,
+// feeStructureId null, never collide), and installmentLabel defaults to "" (not null) so a structure's
+// single lump-sum invoice per student still behaves exactly as before Phase 21 (one row per
+// student+structure); a Phase 21 installment plan's invoices for the same student+structure instead get
+// one distinct non-empty label each ("Q1", "Q2", ...), so generate-invoices stays idempotent per
+// student+structure+installment the same way it was already idempotent per student+structure.
+model FeeInvoice {
+  id                String              @id @default(cuid())
+  schoolId          String
+  school            School              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  studentId         String
+  student           User                @relation("FeeInvoiceStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  feeStructureId    String?
+  feeStructure      FeeStructure?       @relation(fields: [feeStructureId], references: [id], onDelete: SetNull)
+  installmentPlanId String?
+  installmentPlan   FeeInstallmentPlan? @relation(fields: [installmentPlanId], references: [id], onDelete: SetNull)
+  installmentLabel  String              @default("")
+  termId            String
+  term              Term                @relation(fields: [termId], references: [id], onDelete: Cascade)
+  lines             Json
+  total             Float
+  concession        Float               @default(0)
+  dueDate           DateTime            @db.Date
+  status            String              @default("Due") // Due | PartiallyPaid | Paid | Waived
+  invoiceNo         String
+  createdAt         DateTime            @default(now())
 
   payments  Payment[]
   reminders FeeReminder[]
 
-  @@unique([studentId, feeStructureId])
+  @@unique([studentId, feeStructureId, installmentLabel])
   @@unique([schoolId, invoiceNo])
   @@index([schoolId])
   @@index([termId])
   @@index([studentId])
+  @@index([installmentPlanId])
 }
 
 // receiptNo: "RCPT/2026/0001" — sequential per school + year.
@@ -1460,6 +1630,7 @@ model Activity {
   createdAt   DateTime  @default(now())
 
   registrations ActivityRegistration[]
+  housePoints   HousePoints[]          @relation("HousePointsHouse")
 
   @@index([schoolId])
 }
@@ -1476,6 +1647,30 @@ model ActivityRegistration {
 
   @@unique([activityId, userId])
   @@index([activityId])
+}
+
+// ───────────────────────── Phase 27 — culture & engagement ─────────────────────────
+// See phase-27-culture-engagement.md item 1. Additive points ledger for the inter-house leaderboard — a
+// "house" is an Activity row with kind='house' (see ACTIVITY_KINDS); which house a student belongs to is
+// resolved via their Registered ActivityRegistration for that Activity, not a redundant field here. Points
+// are never mutated/replaced — the leaderboard is always a SUM(points) GROUP BY houseActivityId query, so
+// concurrent awards never race each other (same reasoning as the GL/library-fine ledgers elsewhere).
+model HousePoints {
+  id              String   @id @default(cuid())
+  schoolId        String
+  school          School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  houseActivityId String
+  houseActivity   Activity @relation("HousePointsHouse", fields: [houseActivityId], references: [id], onDelete: Cascade)
+  points          Int
+  reason          String
+  awardedById     String
+  awardedBy       User     @relation("HousePointsAwardedBy", fields: [awardedById], references: [id], onDelete: Cascade)
+  awardedAt       DateTime @default(now())
+  sourceType      String? // Sports | Academic | Discipline | Event | Manual
+  sourceRefId     String?
+
+  @@index([schoolId])
+  @@index([houseActivityId])
 }
 
 // ── Phase 9 — integrations & AI. See phase-9-10-integrations-hardening.md. ──
@@ -1948,6 +2143,11 @@ model Hostel {
 
   rooms HostelRoom[]
 
+  // Phase 24 additions.
+  outpasses HostelOutpass[]
+  rollCalls HostelRollCall[]
+  messMenus MessMenu[]
+
   @@unique([schoolId, name])
   @@index([schoolId])
   @@index([wardenUserId])
@@ -2029,10 +2229,149 @@ model HostelAllocation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Phase 24 addition.
+  rollCallEntries HostelRollCallEntry[]
+
   @@index([schoolId])
   @@index([studentId])
   @@index([bedId])
   @@index([status])
+}
+
+// ───────────────────────────── Phase 24: hostel outpass / leave workflow ─────────────────────────────
+// See phase-24-boarding-hostel-extensions.md → item 1. Student or parent requests leave from the hostel;
+// the hostel's warden (identified via the student's active HostelAllocation → HostelBed → HostelRoom →
+// Hostel.wardenUserId) approves/declines; gate/warden logs actual depart/return. `Overdue` is not a
+// stored status the row transitions into — it's computed at read time in service.ts (Departed, past
+// expectedReturnAt, no actualReturnAt) per the spec ("computed-at-read is simpler ... don't build a
+// scheduler for this").
+model HostelOutpass {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  studentId String
+  student   User   @relation("HostelOutpassStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  // Denormalized snapshot of the student's hostel at request time (via their active HostelAllocation),
+  // same convention as HostelBed/HostelRoom keeping schoolId alongside their real parent FK — lets the
+  // warden's "my hostel" scoping query directly instead of joining through allocation history, and keeps
+  // old requests attributed to the right hostel even if the student is later reallocated/vacated.
+  hostelId String
+  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  // Who submitted the request — the student themself, or a parent on the student's behalf.
+  requestedById String
+  requestedBy   User   @relation("HostelOutpassRequestedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+
+  requestedDepartureAt DateTime
+  expectedReturnAt     DateTime
+  reason               String
+  destination          String?
+
+  status String @default("Pending") // Pending | Approved | Declined | Departed | Returned
+
+  approvedByWardenId String?
+  approvedByWarden   User?     @relation("HostelOutpassApprovedBy", fields: [approvedByWardenId], references: [id], onDelete: SetNull)
+  approvedAt         DateTime?
+
+  actualDepartureAt DateTime?
+  actualReturnAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([schoolId])
+  @@index([studentId])
+  @@index([hostelId])
+  @@index([status])
+}
+
+// ───────────────────────────── Phase 24: night roll-call ─────────────────────────────
+// Mirrors AttendanceSession/AttendanceRecord (Phase 3) exactly: one session per (hostel, date), entries
+// pre-populated for every currently-Active allocation in that hostel — "create session, then patch
+// records" (POST creates + pre-populates, PATCH bulk-updates presence).
+model HostelRollCall {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  hostelId String
+  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  date DateTime @db.Date
+
+  recordedById String?
+  recordedBy   User?   @relation("HostelRollCallRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  entries HostelRollCallEntry[]
+
+  @@unique([hostelId, date])
+  @@index([schoolId])
+}
+
+model HostelRollCallEntry {
+  id String @id @default(cuid())
+
+  rollCallId String
+  rollCall   HostelRollCall @relation(fields: [rollCallId], references: [id], onDelete: Cascade)
+
+  allocationId String
+  allocation   HostelAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+
+  present Boolean @default(true)
+  notes   String?
+
+  @@unique([rollCallId, allocationId])
+  @@index([allocationId])
+}
+
+// ───────────────────────────── Phase 24: mess menu + meal feedback ─────────────────────────────
+model MessMenu {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  hostelId String
+  hostel   Hostel @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  date     DateTime @db.Date
+  mealType String // Breakfast | Lunch | Snacks | Dinner
+  items    String[] @default([])
+
+  createdById String?
+  createdBy   User?   @relation("MessMenuCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  feedback MealFeedback[]
+
+  @@unique([hostelId, date, mealType])
+  @@index([schoolId])
+}
+
+model MealFeedback {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  menuId String
+  menu   MessMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+
+  studentId String
+  student   User   @relation("MealFeedbackStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  rating  Int
+  comment String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([menuId, studentId])
+  @@index([schoolId])
+  @@index([menuId])
 }
 
 // ───────────────────────────── Phase 15: library management ─────────────────────────────
@@ -2109,7 +2448,7 @@ model Loan {
   returnedAt DateTime?
 
   fineAmount Float?
-  fineStatus String  @default("None") // None | Pending | Paid | Waived
+  fineStatus String @default("None") // None | Pending | Paid | Waived
 
   issuedById String
   issuedBy   User   @relation("LoanIssuedBy", fields: [issuedById], references: [id], onDelete: Cascade)
@@ -2279,7 +2618,7 @@ model Account {
   isSystem Boolean @default(false) // true for accounts the Fees/Payroll auto-posting integration relies
   // on (Bank, Fee Income, Salary Expense) — discourages deletion; service.ts blocks deleting an isSystem
   // account outright rather than merely warning, since the integration would silently break otherwise.
-  active Boolean @default(true)
+  active   Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2331,4 +2670,594 @@ model JournalLine {
 
   @@index([entryId])
   @@index([accountId])
+}
+
+// ───────────────────── Phase 18: syllabus & teaching progress tracking ─────────────────────
+// See phase-18-syllabus-tracking.md. Syllabus lives on CurriculumSubject (board × grade × stream ×
+// subject) — every class/section teaching that curriculum-subject inherits the same chapter list, but
+// ChapterProgress is per ClassSubject so X-A and X-B can diverge in pace even though they share chapters.
+
+model SyllabusChapter {
+  id                  String            @id @default(cuid())
+  schoolId            String
+  school              School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  curriculumSubjectId String
+  curriculumSubject   CurriculumSubject @relation(fields: [curriculumSubjectId], references: [id], onDelete: Cascade)
+  order               Int
+  title               String
+  estimatedPeriods    Int
+  examWeightagePct    Float?
+  createdAt           DateTime          @default(now())
+
+  progress    ChapterProgress[]
+  resources   ChapterResource[]
+  termTargets TermSyllabusTarget[]
+
+  @@unique([curriculumSubjectId, order])
+  @@index([schoolId])
+}
+
+// One row per (class-subject, chapter) — untouched chapters have no row and read as NotStarted (handled
+// in the service, not the schema).
+model ChapterProgress {
+  id             String          @id @default(cuid())
+  schoolId       String
+  school         School          @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classSubjectId String
+  classSubject   ClassSubject    @relation(fields: [classSubjectId], references: [id], onDelete: Cascade)
+  chapterId      String
+  chapter        SyllabusChapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  status         String          @default("NotStarted") // NotStarted | InProgress | Done
+  startedAt      DateTime?
+  completedAt    DateTime?
+  notes          String?
+  updatedById    String
+  updatedBy      User            @relation("ChapterProgressUpdatedBy", fields: [updatedById], references: [id], onDelete: Cascade)
+  updatedAt      DateTime        @updatedAt
+  createdAt      DateTime        @default(now())
+
+  @@unique([classSubjectId, chapterId])
+  @@index([schoolId])
+}
+
+// classId null = school-wide target for the curriculum-subject; a non-null classId overrides it for that
+// one class. Postgres treats NULL as distinct in a unique index (same caveat as CurriculumSubject.streamId
+// elsewhere), so the "one target per (curriculumSubject, term, class-or-school-wide)" rule is enforced in
+// the service layer, not the DB constraint.
+model TermSyllabusTarget {
+  id                  String            @id @default(cuid())
+  schoolId            String
+  school              School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  curriculumSubjectId String
+  curriculumSubject   CurriculumSubject @relation(fields: [curriculumSubjectId], references: [id], onDelete: Cascade)
+  termId              String
+  term                Term              @relation(fields: [termId], references: [id], onDelete: Cascade)
+  targetChapterId     String
+  targetChapter       SyllabusChapter   @relation(fields: [targetChapterId], references: [id], onDelete: Cascade)
+  classId             String?
+  class               Class?            @relation(fields: [classId], references: [id], onDelete: Cascade)
+  createdAt           DateTime          @default(now())
+
+  @@unique([curriculumSubjectId, termId, classId])
+  @@index([schoolId])
+}
+
+// The shared per-chapter teaching-resource library (lesson plans, worksheets, slides) — reuses the
+// existing File upload infrastructure. Visible to every teacher who teaches that curriculum-subject
+// anywhere in the school (enforced in service.ts, not schema).
+model ChapterResource {
+  id           String          @id @default(cuid())
+  schoolId     String
+  school       School          @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  chapterId    String
+  chapter      SyllabusChapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  fileId       String
+  file         File            @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  label        String
+  uploadedById String
+  uploadedBy   User            @relation("ChapterResourceUploadedBy", fields: [uploadedById], references: [id], onDelete: Cascade)
+  createdAt    DateTime        @default(now())
+
+  @@index([schoolId])
+  @@index([chapterId])
+}
+
+// ───────────────────────── Phase 19 — early warning & teaching analytics ─────────────────────────
+// See phase-19-early-warning-analytics.md. A computed, periodically-refreshed snapshot (recomputed via
+// POST /api/analytics/risk-snapshots/recompute) — deliberately NOT a live-query-every-time endpoint since
+// the underlying formula reads across five modules (attendance, marks, homework, fees, discipline) and
+// that fan-out would be slow to run on every dashboard page load at scale. `classId` is denormalized from
+// the student's active enrollment at compute time (not a live join) so `GET ?classId=` can filter cheaply
+// without re-deriving enrollment for every row. `factors` is the explainability breakdown the scoring
+// formula documents in modules/analytics/service.ts — one row per weighted input with its actual
+// contribution, so the UI can show "why" a student is flagged instead of a bare number.
+model StudentRiskSnapshot {
+  id        String  @id @default(cuid())
+  schoolId  String
+  school    School  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  studentId String
+  student   User    @relation("StudentRiskSnapshotStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  termId    String
+  term      Term    @relation(fields: [termId], references: [id], onDelete: Cascade)
+  classId   String?
+  class     Class?  @relation(fields: [classId], references: [id], onDelete: SetNull)
+
+  computedAt DateTime @default(now())
+
+  attendancePct           Float
+  avgMarksPct             Float
+  homeworkOverdueCount    Int
+  feeOverdueAmount        Float
+  openDisciplineCaseCount Int
+
+  riskScore Int // 0-100, higher = more at-risk
+  riskLevel String // Low | Medium | High
+  factors   Json // [{ factor, weight, contribution }] — see service.ts computeRiskScore()
+
+  @@unique([studentId, termId])
+  @@index([schoolId])
+  @@index([classId])
+  @@index([riskLevel])
+}
+
+// One row per school (same lazily-created-singleton convention as LibrarySettings — see
+// modules/library/service.ts#getOrCreateSettings). `highLoadThreshold` backs item 3 (teacher workload
+// balancing): the periods/week count above which the Timetable Builder shows a warning banner.
+model AnalyticsSettings {
+  id       String @id @default(cuid())
+  schoolId String @unique
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  highLoadThreshold Int @default(30)
+
+  updatedAt DateTime @updatedAt
+}
+
+// ───────────────────────── Phase 21 — financial intelligence: formal scholarship program ─────────────────────────
+// See phase-21-financial-intelligence.md item 4. `discountValue` is a percentage (0-100) when
+// discountType is Percentage, or a currency amount when FixedAmount — interpreted in modules/scholarships.
+model Scholarship {
+  id            String   @id @default(cuid())
+  schoolId      String
+  school        School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name          String
+  type          String // MeritBased | NeedBased | SiblingDiscount | StaffWard | Other
+  discountType  String // Percentage | FixedAmount
+  discountValue Float
+  criteria      String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  awards ScholarshipAward[]
+
+  @@index([schoolId])
+}
+
+// Pending -> Approved | Rejected workflow (modules/scholarships/service.ts). On approval, the discount is
+// actually applied to the student's fee invoices for the academic year by increasing FeeInvoice.concession
+// (never the ledger directly — the GL only ever posts real payments, see accounting/service.ts, so a
+// correctly-reduced invoice total is what keeps the auto-posted amount correct with zero extra wiring).
+// `appliedToInvoiceIds` + `totalDiscountApplied` track exactly which invoices got how much, so a
+// FixedAmount scholarship's remaining pool is known precisely across both the retroactive apply-on-approval
+// pass and any later invoices generated for the same student/year (see fees/service.ts#generateInvoices).
+model ScholarshipAward {
+  id             String       @id @default(cuid())
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  scholarshipId  String
+  scholarship    Scholarship  @relation(fields: [scholarshipId], references: [id], onDelete: Cascade)
+  studentId      String
+  student        User         @relation("ScholarshipAwardStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+
+  status String  @default("Pending") // Pending | Approved | Rejected
+  reason String? // free text, e.g. rejection reason
+
+  proposedById String
+  proposedBy   User      @relation("ScholarshipAwardProposedBy", fields: [proposedById], references: [id], onDelete: Cascade)
+  approvedById String?
+  approvedBy   User?     @relation("ScholarshipAwardApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt   DateTime?
+
+  appliedToInvoiceIds  String[] @default([])
+  totalDiscountApplied Float    @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([scholarshipId, studentId, academicYearId])
+  @@index([schoolId])
+  @@index([studentId])
+  @@index([academicYearId])
+  @@index([status])
+}
+
+// ───────────────────────── Phase 22 — campus safety & security ─────────────────────────
+// See phase-22-campus-safety.md. Item 1-2 live in modules/safety/; item 3 (very different, much
+// stricter RBAC) lives in its own modules/counseling/ module — see that module's service.ts header for
+// why it is not folded into modules/safety/ or modules/health/; item 4 extends modules/health/.
+
+// Item 1 — per-student list of people allowed to collect them (managed by the parent/guardian or
+// staff/admin). `relation` = the person's relation to the student (e.g. "Uncle", "Driver") — free text,
+// same convention as Guardian.relation. `photoFileId` is a plain (unvalidated-at-DB-level) file id, same
+// convention as User.photoFileId / HealthRecord.fileIds — checked against modules/files at write time.
+model AuthorizedPickupPerson {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  studentId String
+  student   User   @relation("AuthorizedPickupPersonStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  name        String
+  relation    String
+  phone       String
+  photoFileId String?
+  active      Boolean @default(true)
+
+  addedById String
+  addedBy   User     @relation("AuthorizedPickupPersonAddedBy", fields: [addedById], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([studentId])
+}
+
+// Item 1 — every pickup, logged by staff/gate-security. `otpRequired` is decided (and frozen) at creation
+// time: pickupType EarlyOrUnlisted, or the collector isn't a currently-active AuthorizedPickupPerson for
+// this student. `status`: PendingOtp (otpRequired, not yet verified — the "clearly flagged, not silently
+// allowed through" state from the spec) -> Completed (verified, or otpRequired was false to begin with),
+// or Flagged (an OTP was requested but expired / was never verified — an explicit failure state, distinct
+// from the merely-waiting PendingOtp). The OTP code itself is never stored in plaintext (bcrypt hash,
+// same as User.passwordHash) and expires quickly.
+model PickupEvent {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  studentId String
+  student   User   @relation("PickupEventStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  pickedUpByName     String
+  pickedUpByRelation String
+  pickupType         String @default("Regular") // Regular | EarlyOrUnlisted
+
+  otpRequired   Boolean   @default(false)
+  approvedByOtp Boolean   @default(false)
+  otpCodeHash   String?
+  otpExpiresAt  DateTime?
+  otpVerifiedAt DateTime?
+  otpAttempts   Int       @default(0)
+  status        String    @default("Completed") // PendingOtp | Completed | Flagged
+
+  recordedById String
+  recordedBy   User     @relation("PickupEventRecordedBy", fields: [recordedById], references: [id], onDelete: Cascade)
+  recordedAt   DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([studentId])
+}
+
+// Item 2 — front-desk visitor check-in/checkout. `hostUserId` is who they're visiting (optional — a
+// visitor may not be visiting a specific staff member).
+model Visitor {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  name    String
+  phone   String
+  purpose String
+
+  hostUserId String?
+  host       User?   @relation("VisitorHost", fields: [hostUserId], references: [id], onDelete: SetNull)
+
+  checkInAt  DateTime  @default(now())
+  checkOutAt DateTime?
+  badgeNo    String?
+
+  recordedById String
+  recordedBy   User   @relation("VisitorRecordedBy", fields: [recordedById], references: [id], onDelete: Cascade)
+
+  @@index([schoolId])
+  @@index([checkInAt])
+}
+
+// Item 3 — confidential counseling. Deliberately MORE restricted than HealthRecord (visible to class
+// teachers) and StaffConductRecord (HR/admin-only): visibility is the authoring counselor only, plus
+// admin/superadmin ONLY if CounselingSettings.oversightEnabled is explicitly turned on for the school
+// (default off — see modules/counseling/service.ts). Never the class teacher, never plain staff, never
+// the student, never the parent.
+model CounselingRecord {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  studentId String
+  student   User   @relation("CounselingRecordStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  counselorId String
+  counselor   User   @relation("CounselingRecordCounselor", fields: [counselorId], references: [id], onDelete: Cascade)
+
+  sessionDate    DateTime @db.Date
+  notes          String
+  category       String?
+  followUpNeeded Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([schoolId])
+  @@index([studentId])
+  @@index([counselorId])
+}
+
+// Per-school toggle for CounselingRecord oversight (see above). A dedicated one-row-per-school settings
+// table, same convention as AnalyticsSettings / LibrarySettings — kept separate from School itself so it
+// stays inside the Phase 22 cleanup block in admin/router.ts#reset.
+model CounselingSettings {
+  id       String @id @default(cuid())
+  schoolId String @unique
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  oversightEnabled Boolean @default(false)
+
+  updatedAt DateTime @updatedAt
+}
+
+// Item 3 — genuinely anonymous. No submittedById field, hidden or otherwise, anywhere on this model —
+// see modules/counseling/service.ts#createAnonymousReport, which also takes care not to leak the
+// submitter's identity into the audit() call for this row's creation.
+model AnonymousReport {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  category    String // Bullying | Safety | Wellbeing | Other
+  description String
+  submittedAt DateTime @default(now())
+  status      String   @default("New") // New | Reviewing | Resolved
+
+  reviewedById    String?
+  reviewedBy      User?   @relation("AnonymousReportReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  resolutionNotes String?
+
+  @@index([schoolId])
+  @@index([status])
+}
+
+// Item 4 — extends modules/health/ (Phase 8). A schedule + an administration log is a different concept
+// from a one-off HealthRecord entry, so it's a new model, but RBAC/visibility reuses
+// modules/health/service.ts#canViewHealth verbatim (student/guardians/class-teacher/staff/admin) — not
+// reimplemented here.
+model MedicationSchedule {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  studentId String
+  student   User   @relation("MedicationScheduleStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  medicationName String
+  dosage         String
+  times          String[]  @default([]) // e.g. ["08:00", "14:00", "20:00"]
+  startDate      DateTime  @db.Date
+  endDate        DateTime? @db.Date
+  notes          String?
+
+  addedById String
+  addedBy   User     @relation("MedicationScheduleAddedBy", fields: [addedById], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  logs MedicationLog[]
+
+  @@index([schoolId])
+  @@index([studentId])
+}
+
+model MedicationLog {
+  id         String             @id @default(cuid())
+  schoolId   String
+  school     School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  scheduleId String
+  schedule   MedicationSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  administeredAt   DateTime @default(now())
+  administeredById String
+  administeredBy   User     @relation("MedicationLogAdministeredBy", fields: [administeredById], references: [id], onDelete: Cascade)
+  notes            String?
+
+  @@index([schoolId])
+  @@index([scheduleId])
+}
+
+// ───────────────────────── Phase 20 — AI-powered teaching & communication ─────────────────────────
+// See phase-20-ai-teaching-communication.md item 2. A teacher-reviewed, explicitly-saved worksheet/question
+// paper draft (the AI-generated draft itself, from POST /ai/generate-worksheet, is never persisted —
+// only what a teacher deliberately saves via POST /ai/worksheets after reviewing/editing it). `content` is
+// the reviewed markdown/plain-text body; `pdfFileId` is set lazily the first time a PDF is rendered for it
+// (same bare-scalar convention as Certificate.pdfFileId — see modules/certificates, no Prisma relation to
+// File declared).
+model GeneratedWorksheet {
+  id             String       @id @default(cuid())
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classSubjectId String
+  classSubject   ClassSubject @relation(fields: [classSubjectId], references: [id], onDelete: Cascade)
+  chapterIds     String[]     @default([])
+  title          String
+  content        String
+  pdfFileId      String?
+  createdById    String
+  createdBy      User         @relation("GeneratedWorksheetCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@index([schoolId])
+  @@index([classSubjectId])
+}
+
+// ───────────────────────── Phase 23 — parent experience ─────────────────────────
+// See phase-23-parent-experience.md item 2. Bookkeeping-only row so the daily "my child today" digest
+// (POST /api/parents/digest/send-now, and whatever external scheduler eventually calls it once a day)
+// never sends a parent two digests for the same calendar day — no digest content is persisted, just
+// "this parent already got today's digest". `digestDate` is the YYYY-MM-DD the digest covers (server's
+// local date at send time), not a timestamp, so the uniqueness check is a plain equality, not a range query.
+model ParentDigestSend {
+  id         String   @id @default(cuid())
+  schoolId   String
+  school     School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  parentId   String
+  parent     User     @relation("ParentDigestSendParent", fields: [parentId], references: [id], onDelete: Cascade)
+  digestDate String // YYYY-MM-DD
+  sentAt     DateTime @default(now())
+
+  @@unique([parentId, digestDate])
+  @@index([schoolId])
+}
+
+// ───────────────────────── Phase 25 — exam operations ─────────────────────────
+// See phase-25-exam-operations.md. `Assessment` only ever carries a `date` (no period/time field — the
+// existing model predates this phase and was not changed), so every "overlapping" check in this phase
+// (elective clash detection in modules/assessments/service.ts, seating and invigilation here) operates at
+// day granularity: two exams on the same calendar date are treated as concurrent. Documented at each call
+// site rather than repeated here.
+
+// assessmentIds: loose id array (same convention as Homework.attachments / Post.mediaFileIds) — one seating
+// plan can bundle several assessments sharing a room + date (e.g. two different electives sitting in the
+// same hall at once), so this is intentionally not a join table.
+model ExamSeatingPlan {
+  id            String   @id @default(cuid())
+  schoolId      String
+  school        School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  assessmentIds String[] @default([])
+  date          DateTime @db.Date
+  roomId        String
+  room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  generatedAt   DateTime @default(now())
+  generatedById String?
+  generatedBy   User?    @relation("ExamSeatingPlanGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull)
+
+  seats ExamSeat[]
+
+  @@index([schoolId, date])
+  @@index([roomId])
+}
+
+model ExamSeat {
+  id           String          @id @default(cuid())
+  planId       String
+  plan         ExamSeatingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  studentId    String
+  student      User            @relation("ExamSeatStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  seatNumber   Int
+  assessmentId String
+  assessment   Assessment      @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, seatNumber])
+  @@index([planId])
+  @@index([studentId])
+  @@index([assessmentId])
+}
+
+model InvigilationDuty {
+  id           String     @id @default(cuid())
+  schoolId     String
+  school       School     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  roomId       String
+  room         Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  teacherId    String
+  teacher      User       @relation("InvigilationDutyTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  date         DateTime   @db.Date
+  status       String     @default("Assigned") // Assigned | Confirmed | Completed
+  createdAt    DateTime   @default(now())
+
+  @@index([schoolId, date])
+  @@index([teacherId])
+  @@index([assessmentId])
+  @@index([roomId])
+}
+
+// ───────────────────────── Phase 28: multi-school / group management ─────────────────────────
+// See phase-28-multi-school-group.md. Deliberately NOT a tenant boundary like School — a group has no
+// classes/students/staff of its own, it is a thin read-only aggregation layer over 2+ real School tenants.
+// Strict per-school data isolation is preserved everywhere else in the schema; this is the one addition
+// that lets a single request legitimately touch more than one School's data (via N separate per-school
+// queries combined in the group router — never a single query spanning schoolIds).
+
+model SchoolGroup {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  schools School[]
+  admins  GroupAdmin[]
+}
+
+// A user's grant of cross-school access to one SchoolGroup. `userId` deliberately has no relationship to
+// group membership of that user's own `schoolId` — see the User.groupAdminGrants relation comment. Kept
+// fully separate from the Ctx/requireRole() single-school scope system (server/src/lib/rbac.ts) that
+// every other module depends on; only the new assertGroupAccess() helper reads this table.
+model GroupAdmin {
+  id        String      @id @default(cuid())
+  groupId   String
+  group     SchoolGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation("GroupAdminUser", fields: [userId], references: [id], onDelete: Cascade)
+  role      String // 'GroupAdmin' | 'GroupViewer'
+  createdAt DateTime    @default(now())
+
+  @@unique([groupId, userId])
+  @@index([userId])
+}
+
+// ───────────────────────── Phase 30: canteen prepaid wallet ─────────────────────────
+// See phase-30-canteen-wallet.md. Ties into the real Phase 17 GL (modules/accounting/service.ts —
+// postCanteenTopUpAutoEntry / postCanteenPurchaseAutoEntry, both funnelled through the one balanced-entry
+// write path, writeBalancedEntry). Balance is stored as an integer PAISE running total (never a float,
+// matching the GL's integer-cents comparison convention) — `WalletTransaction.amount` is the
+// ledger-not-mutable-total pattern used elsewhere: balance is always re-derivable as the signed sum of a
+// wallet's transactions, `StudentWallet.balance` is a maintained cache of that sum for cheap reads.
+// Student QR/scan identifier: this codebase has no stable admission-number field on Enrollment (`rollNo`
+// is per-academic-year and nullable) — per the phase spec's own guidance, we reuse `User.id` itself (the
+// same "stable unique reference" every other module already keys students by) rather than adding a
+// redundant new ID field. A canteen point-of-sale scans/enters that id directly (or an admin-issued QR
+// encoding it, mirroring the `qrText` convention in modules/employeeDocuments/service.ts's ID-card PDF —
+// no new QR library needed, none is added here since no PDF-rendering endpoint is in this phase's scope).
+model StudentWallet {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  studentId String   @unique
+  student   User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  balance   Int      @default(0) // integer paise, never negative (enforced in service.ts — no overdraft)
+  pinHash   String? // optional PIN for in-person top-up/spend authorization — nullable, unused in v1
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions WalletTransaction[]
+
+  @@index([schoolId])
+}
+
+model WalletTransaction {
+  id               String        @id @default(cuid())
+  schoolId         String
+  school           School        @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  walletId         String
+  wallet           StudentWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  type             String // TopUp | Purchase | Refund | Adjustment
+  amount           Int // signed integer paise — positive for TopUp/Refund, negative for Purchase/Adjustment-down
+  reason           String?
+  itemsSummary     String? // free text, e.g. "2x Samosa, 1x Juice" — no full POS item-catalog model in v1
+  recordedById     String?
+  recordedBy       User?         @relation("WalletTransactionRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+  occurredAt       DateTime      @default(now())
+  relatedInvoiceId String? // unused in v1 — top-ups are a direct payment via the existing Payment Gateway
+  // flow (see modules/canteen/service.ts#topUp), not a fee invoice; kept per the phase spec's data model
+  // in case a future phase bills a top-up as a fee line item instead.
+
+  @@index([schoolId])
+  @@index([walletId, occurredAt])
 }

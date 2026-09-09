@@ -18,6 +18,8 @@ import { loadPhase14 } from './samplePhase14'
 import { loadPhase15 } from './samplePhase15'
 import { loadPhase16 } from './samplePhase16'
 import { loadPhase17 } from './samplePhase17'
+import { loadPhase18 } from './samplePhase18'
+import { loadPhase19 } from './samplePhase19'
 
 const YEAR = { label: '2025-26', start: '2025-06-01', end: '2026-05-31' }
 // Fixed term ids matching the seed term list (`sampleConstants.ts`).
@@ -174,6 +176,12 @@ export async function loadSampleData(schoolId: string) {
       }
     }
 
+    // Phase 23 item 1/2/7: a genuine multi-ward parent for the family-summary/digest aggregation to
+    // exercise — Nisha Sharma (u-p, already Aarav's parent in X-A) is also Kabir Singh's guardian
+    // (u-s3, X-B), e.g. as an aunt with joint custody. Every other seed parent still has exactly one
+    // ward, so this is the one account the family-summary/digest live-verification runs against.
+    await tx.guardian.create({ data: { schoolId, parentId: userId('u-p'), studentId: userId('u-s3'), relation: 'guardian' } })
+
     let n = 0
     const classSubjects = new Map<string, { id: string; teacherId: string | null }>()
     for (const label of CLASS_LABELS) {
@@ -259,6 +267,17 @@ export async function loadSampleData(schoolId: string) {
     // Phase 17: chart of accounts, a ledger mirroring the Fees/Payroll activity above via the same
     // auto-posting shape the live hooks use, plus a couple of manual entries (opening balance, Utilities).
     await loadPhase17(tx, { schoolId, userId })
+
+    // Phase 18: real CBSE-X Math/Physics/Chemistry chapter lists, progress varied across X-A/X-B (ahead /
+    // behind / on-pace / untouched), two term targets, two chapter resources, and one assessment linked
+    // to a completed chapter for the coverage-vs-learning view.
+    await loadPhase18(tx, { schoolId, boardIds, gradeIds, classIds, classSubjects, users, userId })
+
+    // Phase 19: early-warning analytics sample data — skews Kabir Singh (X-B) into a genuinely at-risk
+    // profile (poor Term 3 attendance, declining marks, overdue homework, two open discipline cases —
+    // on top of his existing Phase 5 fee default) and Aarav Sharma (X-A) into a genuinely healthy one
+    // (on-time homework, on top of his already-strong Phase 3 attendance/marks).
+    await loadPhase19(tx, { schoolId, classIds, classSubjects, userId })
   }, { timeout: 60_000 })
 
   const all = await prisma.user.findMany({ where: { schoolId }, select: { id: true, email: true } })
