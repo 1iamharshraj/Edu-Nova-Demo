@@ -2,7 +2,8 @@ import { useMemo } from 'react'
 import { useStore } from '../store'
 import { qs, useFetchMany, useList, useOne } from './useAcademics'
 import type {
-  FeeDefaulter, FeeHead, FeeInvoice, FeeStructure, FeeSummary, InvoiceStatus, Payment, PaymentMethod, Payslip, SalaryComponent, SalaryStructure, User,
+  FeeDefaulter, FeeHead, FeeInstallmentPlan, FeeInvoice, FeeStructure, FeeSummary, InvoiceStatus, Payment, PaymentMethod, Payslip,
+  SalaryComponent, SalaryStructure, User,
 } from '../data'
 
 // Data hooks and pure helpers for fees, payments and payroll.
@@ -67,11 +68,23 @@ export function useFeeSummary(termId?: string, enabled = true) {
   return useOne<FeeSummary>(enabled ? `/fees/summary${qs({ termId })}` : null)
 }
 
+/* ── Phase 21 item 5: fee installment plans ───────────────
+ * `GET /fees/installment-plans?feeStructureId=` — every plan defined for a fee structure (an admin screen
+ * lists these before letting a parent/admin pick one at generate-invoices time); a plan's `installments`
+ * array is `{ label, percentage?, amount?, dueDateOffsetDays }[]` (see FeeInstallmentPlan in data.ts). */
+export function useInstallmentPlans(feeStructureId?: string, enabled = true) {
+  return useList<FeeInstallmentPlan>(enabled ? `/fees/installment-plans${qs({ feeStructureId })}` : null)
+}
+
 /* ── payroll ───────────────────────────────────────────── */
 
 export const sumComponents = (x: SalaryComponent[] | number | undefined) => (typeof x === 'number' ? x : (x ?? []).reduce((a, c) => a + (Number(c.amount) || 0), 0))
 export const netOf = (s: { basic: number; allowances: SalaryComponent[] | number; deductions: SalaryComponent[] | number }) =>
   (Number(s.basic) || 0) + sumComponents(s.allowances) - sumComponents(s.deductions)
+
+/** Parses a form-input string into a non-negative number (falls back to 0). Used by every rupee-amount
+ * input across finance.tsx and the routed `/portal/finance/fee-structures/:classId/:termId` page. */
+export const num = (v: string) => Math.max(0, Number(v) || 0)
 
 /** `YYYY-MM` for a date (default: today). */
 export const monthKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`

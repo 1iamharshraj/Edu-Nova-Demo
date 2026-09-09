@@ -36,6 +36,20 @@ export interface CreateUserInput extends Omit<Partial<User>, 'id' | 'password'> 
 }
 export type UpdateUserInput = Partial<CreateUserInput>
 
+// Phase 28 — multi-school/group membership. Orthogonal to `role`/`schoolId`: fetched once per session
+// (right alongside `/auth/me`) and cached here, the same global app-state the current `user` lives in —
+// see src/lib/hooks/useGroup.ts for the read hook and mutation helpers that build on this.
+export type GroupRole = 'GroupAdmin' | 'GroupViewer'
+export interface GroupMembership { groupId: string; groupName: string; role: GroupRole }
+export interface GroupMineResponse {
+  memberships: GroupMembership[]
+  school: { id: string; groupId: string | null; groupName: string | null }
+}
+
+async function fetchGroupMine(): Promise<GroupMineResponse | null> {
+  try { return await api.get<GroupMineResponse>('/group/mine') } catch { return null }
+}
+
 interface StoreCtx {
   db: DB
   academic: AcademicState
@@ -50,9 +64,15 @@ interface StoreCtx {
   createUser: (input: CreateUserInput) => Promise<{ user: User; password: string }>
   updateUser: (id: string, input: UpdateUserInput) => Promise<User>
   deleteUser: (id: string) => Promise<boolean>
+  /** Bug A fix: soft-deactivate/reactivate instead of hard-delete. Reversible — sets User.active. */
+  setUserActive: (id: string, active: boolean) => Promise<boolean>
   loadSampleData: () => Promise<void>
   resetSchool: () => Promise<void>
   loading: boolean
+  /** Phase 28: this session's group memberships + own school's group, or `null` before boot/on fetch failure. */
+  groupMine: GroupMineResponse | null
+  /** Re-reads `/group/mine` — call after creating/joining a group or being granted a new membership. */
+  refreshGroupMine: () => Promise<void>
 }
 
 const Ctx = createContext<StoreCtx | null>(null)
@@ -61,6 +81,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [db, setDb] = useState<DB>(emptyDB)
   const [academic, setAcademic] = useState<AcademicState>(emptyAcademic)
   const [user, setUserState] = useState<User | null>(null)
+  const [groupMine, setGroupMine] = useState<GroupMineResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const dbRef = useRef(db)
   dbRef.current = db
@@ -80,6 +101,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (cancelled) return
         setUserState(me.user)
         await loadAll()
+        if (cancelled) return
+        setGroupMine(await fetchGroupMine())
       } catch {
         setTokens(null)
         setUserState(null)
@@ -93,6 +116,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const refreshDB = useCallback(async () => { setDb(await fetchFullDB()) }, [])
   const refreshAcademic = useCallback(async () => { setAcademic(await fetchAcademic()) }, [])
+  const refreshGroupMine = useCallback(async () => { setGroupMine(await fetchGroupMine()) }, [])
   const refreshMe = useCallback(async () => {
     try {
       const me = await api.get<{ user: User }>('/auth/me')
@@ -108,11 +132,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     academic,
     loading,
     user,
+    groupMine,
     login: async (email, password) => {
       const res = await api.post('/auth/login', { email, password })
       setTokens({ token: res.token, refreshToken: res.refreshToken })
       setUserState(res.user)
       await loadAll()
+      setGroupMine(await fetchGroupMine())
       return res.user
     },
     logout: () => {
@@ -121,11 +147,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setUserState(null)
       setDb(emptyDB())
       setAcademic(emptyAcademic())
+      setGroupMine(null)
     },
     setUser: (u) => setUserState(u),
     refreshDB,
     refreshAcademic,
     refreshMe,
+    refreshGroupMine,
     createUser: async (input) => {
       const res = await api.post<{ user: User; password: string }>('/users', input)
       await loadAll()
@@ -146,6 +174,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return false
       }
     },
+    setUserActive: async (id, active) => {
+      try {
+        await api.patch(`/users/${id}/active`, { active })
+        await loadAll()
+        return true
+      } catch {
+        return false
+      }
+    },
     loadSampleData: async () => {
       await api.post('/admin/load-sample-data')
       await loadAll()
@@ -155,7 +192,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       await loadAll()
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [db, academic, user, loading, loadAll, refreshDB, refreshAcademic, refreshMe])
+  }), [db, academic, user, groupMine, loading, loadAll, refreshDB, refreshAcademic, refreshMe, refreshGroupMine])
 
   if (loading) {
     return (

@@ -1,6 +1,9 @@
 import { useMemo } from 'react'
 import { qs, useList } from './useAcademics'
-import type { HostelAllocationRec, HostelAllocationStatus, HostelBedRec, HostelRec, HostelRoomRec, HostelType } from '../data'
+import type {
+  HostelAllocationRec, HostelAllocationStatus, HostelBedRec, HostelOutpassRec, HostelOutpassStatus, HostelRec, HostelRollCallRec,
+  HostelRoomRec, HostelType, MealFeedbackRec, MealType, MessMenuRec,
+} from '../data'
 
 // Data hooks and pure helpers for Phase 14: hostels → rooms → beds (one row per physical bed, so occupancy is
 // exact) and student allocations. Components live in src/portal/modules/hostel.tsx.
@@ -65,4 +68,68 @@ export function useMyHostel(studentId?: string, enabled = true) {
   const loading = allocations.loading || (!!allocation && (hostels.loading || rooms.loading || beds.loading))
   const error = allocations.error || hostels.error || rooms.error || beds.error
   return { allocation, bed, room, hostel, loading, error, reload: allocations.reload }
+}
+
+/* ── Phase 24: outpass / leave, night roll-call, mess menu + feedback ────────
+ * See .agents/edunova/phase-24-boarding-hostel-extensions.md. Components live in
+ * src/portal/modules/hostelExtras.tsx. Same scoping convention as allocations above: staff/admin/superadmin
+ * see everything (optionally filtered), student/parent see only their own/their ward's. */
+
+export const OUTPASS_STATUSES: HostelOutpassStatus[] = ['Pending', 'Approved', 'Declined', 'Departed', 'Returned', 'Overdue']
+export const MEAL_TYPES: MealType[] = ['Breakfast', 'Lunch', 'Snacks', 'Dinner']
+
+export const outpassStatusTone = (s: HostelOutpassStatus): 'green' | 'slate' | 'amber' | 'rose' | 'indigo' | 'sky' => {
+  switch (s) {
+    case 'Approved': return 'green'
+    case 'Declined': return 'rose'
+    case 'Pending': return 'amber'
+    case 'Departed': return 'sky'
+    case 'Returned': return 'slate'
+    case 'Overdue': return 'rose'
+  }
+}
+
+/** `/hostel/outpasses?studentId=&hostelId=&status=` — self/guardian-scoped for student/parent, staff/admin/
+ * superadmin see their hostel/any. */
+export function useOutpasses(params: { studentId?: string; hostelId?: string; status?: HostelOutpassStatus } = {}, enabled = true) {
+  return useList<HostelOutpassRec>(enabled ? `/hostel/outpasses${qs(params)}` : null)
+}
+
+/** `/hostel/roll-calls?hostelId=&from=&to=` — one session per hostel per night, with nested entries. */
+export function useRollCalls(params: { hostelId?: string; from?: string; to?: string } = {}, enabled = true) {
+  return useList<HostelRollCallRec>(enabled ? `/hostel/roll-calls${qs(params)}` : null)
+}
+
+/** `/hostel/mess-menu?hostelId=&from=&to=&date=` — open to anyone with a hostel allocation, write is warden/
+ * staff/admin. */
+export function useMessMenu(params: { hostelId?: string; from?: string; to?: string; date?: string } = {}, enabled = true) {
+  return useList<MessMenuRec>(enabled ? `/hostel/mess-menu${qs(params)}` : null)
+}
+
+/** `/hostel/meal-feedback?menuId=&studentId=&hostelId=` — student/parent create for own/ward's meals, warden/
+ * staff/admin read/aggregate. */
+export function useMealFeedback(params: { menuId?: string; studentId?: string; hostelId?: string } = {}, enabled = true) {
+  return useList<MealFeedbackRec>(enabled ? `/hostel/meal-feedback${qs(params)}` : null)
+}
+
+/** Hostels this user wardens (`Hostel.wardenUserId === user.id`) — used to scope the warden-facing outpass
+ * approval queue, roll-call and mess-menu screens to "my hostel" the same way the spec calls out. Admin/
+ * superadmin/staff who aren't a warden of any hostel fall back to a picker over every hostel. */
+export function useMyWardenHostels(userId?: string) {
+  const hostels = useHostels(!!userId)
+  return useMemo(() => (hostels.items ?? []).filter(h => h.wardenUserId === userId), [hostels.items, userId])
+}
+
+export const mealTypeOrder: Record<MealType, number> = { Breakfast: 0, Lunch: 1, Snacks: 2, Dinner: 3 }
+export const isoDate = (d: Date) => d.toISOString().slice(0, 10)
+export const startOfWeek = (base = new Date()) => {
+  const d = new Date(base)
+  const day = d.getDay() // 0=Sun
+  d.setDate(d.getDate() - day)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+export const weekDates = (base = new Date()) => {
+  const start = startOfWeek(base)
+  return Array.from({ length: 7 }, (_, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return isoDate(d) })
 }

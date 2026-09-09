@@ -1,4 +1,7 @@
-import type { AccountRec, AccountType, BalanceSheetRec, JournalEntryRec, JournalSourceType, ProfitAndLossRec, TrialBalanceRec } from '../data'
+import type {
+  AccountRec, AccountType, BalanceSheetRec, CashFlowForecastRec, ConcessionImpactRec, JournalEntryRec,
+  JournalSourceType, ProfitAndLossRec, ProgramProfitabilityRec, TrialBalanceRec,
+} from '../data'
 import { qs, useList, useOne } from './useAcademics'
 
 // Data hooks and pure helpers for Phase 17: Accounting / General Ledger — a real double-entry ledger
@@ -111,4 +114,25 @@ export function useProfitAndLoss(from?: string, to?: string, enabled = true) {
 /** `GET /accounting/reports/balance-sheet?asOf=` — admin/superadmin only. */
 export function useBalanceSheet(asOf?: string, enabled = true) {
   return useOne<BalanceSheetRec>(enabled && asOf ? `/accounting/reports/balance-sheet${qs({ asOf })}` : null)
+}
+
+/* ── Phase 21 — financial intelligence reports ────────────── */
+
+/** `GET /accounting/reports/cash-flow-forecast?months=` — admin/superadmin only. Bank balance (Phase 17
+ * GL) as the starting point, projected forward `months` months from known unpaid fee due-dates (inflow)
+ * and the current total payroll obligation held constant (outflow). */
+export function useCashFlowForecast(months: number, enabled = true) {
+  return useOne<CashFlowForecastRec>(enabled ? `/accounting/reports/cash-flow-forecast${qs({ months })}` : null)
+}
+
+/** `GET /accounting/reports/program-profitability?termId=` — admin/superadmin only. `termId` is required
+ * server-side (400s without it), so this only fires once a term is picked. */
+export function useProgramProfitability(termId?: string, enabled = true) {
+  return useOne<ProgramProfitabilityRec>(enabled && termId ? `/accounting/reports/program-profitability${qs({ termId })}` : null)
+}
+
+/** `GET /accounting/reports/concession-impact?termId=` — admin/superadmin only. `termId` is optional
+ * server-side (all-terms totals when omitted), unlike program-profitability above. */
+export function useConcessionImpact(termId?: string, enabled = true) {
+  return useOne<ConcessionImpactRec>(enabled ? `/accounting/reports/concession-impact${qs({ termId })}` : null)
 }

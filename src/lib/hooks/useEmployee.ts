@@ -1,4 +1,4 @@
-import { qs, useList } from './useAcademics'
+import { qs, useList, useOne } from './useAcademics'
 import type {
   EmployeeDocumentRec, EmploymentHistoryEntry, PerformanceReviewRec, ReviewStatus, StaffConductCategory, StaffConductRecord, StaffConductStatus,
 } from '../data'
@@ -22,10 +22,19 @@ export function useEmploymentHistory(userId?: string, enabled = true) {
 
 export const REVIEW_STATUSES: ReviewStatus[] = ['Draft', 'Shared', 'Acknowledged']
 export const reviewTone = (s: ReviewStatus): 'green' | 'amber' | 'slate' => (s === 'Acknowledged' ? 'green' : s === 'Shared' ? 'amber' : 'slate')
+/** Index 1-5 → human label for `overallRating`. Shared by employee.tsx and the routed
+ * `/portal/reviews/:id` page (src/pages/portal/ReviewDetail.tsx). */
+export const RATING_LABEL = ['', 'Needs improvement', 'Below expectations', 'Meets expectations', 'Exceeds expectations', 'Outstanding']
 
 /** `GET /reviews?employeeId=` — self sees own; HR/admin sees anyone; a manager sees their direct reports'. */
 export function useReviews(employeeId?: string, enabled = true) {
   return useList<PerformanceReviewRec>(enabled ? `/reviews${qs({ employeeId })}` : null)
+}
+
+/** `GET /reviews/:id` — single review, used by the routed `/portal/reviews/:id` detail page
+ * (see .agents/edunova/ui-architecture-fix.md Phase D). Same visibility rule as the list endpoint. */
+export function useReview(id?: string, enabled = true) {
+  return useOne<PerformanceReviewRec>(enabled && id ? `/reviews/${encodeURIComponent(id)}` : null)
 }
 
 /* ── staff conduct (A5 — admin/superadmin only) ────────────── */

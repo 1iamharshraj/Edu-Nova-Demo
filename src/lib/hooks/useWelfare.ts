@@ -2,7 +2,7 @@ import { qs, useList } from './useAcademics'
 import type {
   ActivityKind, ActivityRec, ActivityRegistrationRec, AchievementCategory, AchievementRec, CallLogRec, CallOutcome, CallReason,
   DisciplinaryActionRec, DisciplinaryCaseRec, DisciplinaryCaseStatus, DisciplinaryNote, HealthKind, HealthRecordRec,
-  PermissionSlipRec, SlipResponseRec,
+  MedicationLog, MedicationSchedule, PermissionSlipRec, SlipResponseRec,
 } from '../data'
 
 // Data hooks and pure helpers for Phase 8: health, permission slips, achievements, discipline, call log, activities.
@@ -16,6 +16,25 @@ export const HEALTH_KINDS: HealthKind[] = ['Vaccination', 'Allergy', 'Condition'
 /** `/health?studentId` — scoped server-side (student self, guardians, class teacher, staff/admin). */
 export function useHealthRecords(studentId?: string, enabled = true) {
   return useList<HealthRecordRec>(enabled && studentId ? `/health${qs({ studentId })}` : null)
+}
+
+/** true if any of the student's health records are of the Allergy kind — drives allergy badges elsewhere. */
+export function hasAllergyRecord(records?: HealthRecordRec[]): boolean {
+  return (records ?? []).some(h => h.kind === 'Allergy')
+}
+
+/* ── medication schedule & administration log (Phase 22 item 4) ───────────────────────── */
+// Extends the health module rather than forking it — same RBAC/visibility as HealthRecord
+// (student/guardians/class-teacher/staff/admin). See phase-22-campus-safety.md.
+
+/** `/health/medication-schedules?studentId=` — scoped like health records. */
+export function useMedicationSchedules(studentId?: string, enabled = true) {
+  return useList<MedicationSchedule>(enabled && studentId ? `/health/medication-schedules${qs({ studentId })}` : null)
+}
+
+/** `/health/medication-logs?scheduleId=` — the dose-by-dose administration log for one schedule. */
+export function useMedicationLogs(scheduleId?: string, enabled = true) {
+  return useList<MedicationLog>(enabled && scheduleId ? `/health/medication-logs${qs({ scheduleId })}` : null)
 }
 
 /* ── permission slips ───────────────────────────────────── */

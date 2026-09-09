@@ -1,4 +1,4 @@
-import { qs, useList } from './useAcademics'
+import { qs, useList, useOne } from './useAcademics'
 import type {
   ContractRec, ContractRecStatus, Duty, LeaveBalanceLine, LeaveRequest, LeaveRequestStatus, LeaveType, ResignationRec,
 } from '../data'
@@ -63,6 +63,12 @@ export const contractRecTone = (s: ContractRecStatus): 'green' | 'amber' | 'rose
 /** `/hr/contracts?userId&status` — employee sees own, admin sees all. */
 export function useContracts(params: { userId?: string; status?: ContractRecStatus | '' } = {}, enabled = true) {
   return useList<ContractRec>(enabled ? `/hr/contracts${qs(params)}` : null)
+}
+
+/** `GET /hr/contracts/:id` — single contract, used by the routed `/portal/hr/contracts/:id` detail/edit page
+ * (see .agents/edunova/ui-architecture-fix.md Phase D). */
+export function useContract(id?: string, enabled = true) {
+  return useOne<ContractRec>(enabled && id ? `/hr/contracts/${encodeURIComponent(id)}` : null)
 }
 
 /* ── resignations ───────────────────────────────────────── */
