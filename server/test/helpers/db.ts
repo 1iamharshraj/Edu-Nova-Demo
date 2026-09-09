@@ -28,7 +28,12 @@ export async function resetDatabase() {
         "Meeting", "CalendarEvent",
         "HealthRecord", "PermissionSlip", "SlipResponse", "Achievement", "DisciplinaryCase",
         "DisciplinaryNote", "CallLog", "Activity", "ActivityRegistration",
-        "AiConversation", "AiMessage", "Highlight", "PushSubscription"
+        "AiConversation", "AiMessage", "Highlight", "PushSubscription",
+        "AuthorizedPickupPerson", "PickupEvent", "Visitor",
+        "CounselingRecord", "CounselingSettings", "AnonymousReport",
+        "MedicationSchedule", "MedicationLog",
+        "ParentDigestSend",
+        "SchoolGroup", "GroupAdmin"
       RESTART IDENTITY CASCADE
     `),
   ])

@@ -85,6 +85,14 @@ describe('fees: invoice -> pay -> defaulter check', () => {
     expect(res.body.items.some((d: { studentId: string }) => d.studentId === fx.ids.studentId)).toBe(false)
   })
 
+  it('a second payment on an already-Paid invoice is rejected (400), no double-payment', async () => {
+    const res = await request(app).post('/api/fees/payments').set(authHeader(fx.tokens.staff)).send({ invoiceId, amount: 500, method: 'Cash' })
+    expect(res.status).toBe(400)
+    const inv = await request(app).get(`/api/fees/invoices/${invoiceId}`).set(authHeader(fx.tokens.staff))
+    expect(inv.body.item.paid).toBe(5000)
+    expect(inv.body.item.balance).toBe(0)
+  })
+
   it("a parent unrelated to the student cannot see that student's invoices", async () => {
     const other = await request(app).post('/api/users').set(authHeader(fx.tokens.superadmin)).send({ role: 'parent', name: 'Other Parent' })
     const login = await request(app).post('/api/auth/login').send({ email: other.body.user.email, password: other.body.password })
@@ -96,5 +104,39 @@ describe('fees: invoice -> pay -> defaulter check', () => {
     } else {
       expect(res.status).toBe(403)
     }
+  })
+})
+
+describe('fees: overpayment guard', () => {
+  let adHocInvoiceId: string
+
+  it('staff creates an ad-hoc invoice for 1000', async () => {
+    const res = await request(app).post('/api/fees/invoices').set(authHeader(fx.tokens.staff)).send({
+      studentId: fx.ids.studentId, termId: fx.ids.termId, dueDate: yesterday,
+      lines: [{ feeHeadId, name: 'Ad-hoc fee', amount: 1000 }],
+    })
+    expect(res.status).toBe(201)
+    adHocInvoiceId = res.body.item.id
+  })
+
+  it('a payment exceeding the remaining balance is rejected (400), invoice untouched', async () => {
+    const res = await request(app).post('/api/fees/payments').set(authHeader(fx.tokens.staff)).send({ invoiceId: adHocInvoiceId, amount: 1500, method: 'Cash' })
+    expect(res.status).toBe(400)
+    const inv = await request(app).get(`/api/fees/invoices/${adHocInvoiceId}`).set(authHeader(fx.tokens.staff))
+    expect(inv.body.item.paid).toBe(0)
+    expect(inv.body.item.status).toBe('Due')
+  })
+
+  it('a payment that exactly matches the remaining balance still succeeds normally', async () => {
+    const res = await request(app).post('/api/fees/payments').set(authHeader(fx.tokens.staff)).send({ invoiceId: adHocInvoiceId, amount: 1000, method: 'Cash' })
+    expect(res.status).toBe(201)
+    const inv = await request(app).get(`/api/fees/invoices/${adHocInvoiceId}`).set(authHeader(fx.tokens.staff))
+    expect(inv.body.item.paid).toBe(1000)
+    expect(inv.body.item.status).toBe('Paid')
+  })
+
+  it('a further payment on the now fully-paid ad-hoc invoice is rejected (400)', async () => {
+    const res = await request(app).post('/api/fees/payments').set(authHeader(fx.tokens.staff)).send({ invoiceId: adHocInvoiceId, amount: 1, method: 'Cash' })
+    expect(res.status).toBe(400)
   })
 })

@@ -130,3 +130,32 @@ describe('activities: capacity, waitlist, and promotion', () => {
     expect(res.status).toBe(403)
   })
 })
+
+// Bug D regression test: capacity enforcement must hold under concurrent registration, not just when
+// requests are serialized one after another. Two students fire POST /register at the same time against a
+// fresh capacity-1 activity; before the fix (count-then-write outside any lock/transaction) both could
+// read count=0 before either commit and both land 'Registered'. After the fix, exactly one should land
+// 'Registered' and the other 'Waitlisted'.
+describe('activities: concurrent registration race (capacity is not oversold)', () => {
+  it('two simultaneous registrations against a capacity-1 activity: exactly one Registered, one Waitlisted', async () => {
+    const created = await request(app).post('/api/activities').set(authHeader(fx.tokens.staff)).send({
+      kind: 'club', title: 'Robotics Club', description: 'Race condition test', capacity: 1, forRoles: ['student'],
+    })
+    expect(created.status).toBe(201)
+    const raceActivityId = created.body.item.id
+
+    const [a, b] = await Promise.all([
+      request(app).post(`/api/activities/${raceActivityId}/register`).set(authHeader(fx.tokens.student)),
+      request(app).post(`/api/activities/${raceActivityId}/register`).set(authHeader(otherStudentToken)),
+    ])
+
+    expect(a.status).toBe(201)
+    expect(b.status).toBe(201)
+    const statuses = [a.body.item.status, b.body.item.status].sort()
+    expect(statuses).toEqual(['Registered', 'Waitlisted'])
+
+    const regs = await request(app).get(`/api/activities/${raceActivityId}/registrations`).set(authHeader(fx.tokens.staff))
+    const registeredCount = regs.body.items.filter((r: { status: string }) => r.status === 'Registered').length
+    expect(registeredCount).toBe(1)
+  })
+})
