@@ -48,7 +48,7 @@ export interface Conflict {
   roomId?: string
 }
 
-export interface ResolvedEntry { dayOfWeek: number; periodIdx: number; classSubjectId: string; roomId: string | null; teacherId: string | null }
+export interface ResolvedEntry { dayOfWeek: number; periodIdx: number; classSubjectId: string; roomId: string | null; teacherId: string | null; sessionId: string | null }
 
 // Applies the four rules from phase-2-timetable.md to a whole class×term grid. Rules 3 (period must be a
 // class period of the effective template) and 4 (classSubject belongs to the class) are input errors → 400;
@@ -93,6 +93,7 @@ export async function validateGrid(ctx: Ctx, cls: ClassRow, termId: string, entr
     classSubjectId: e.classSubjectId,
     roomId: e.roomId ?? null,
     teacherId: e.teacherId ?? csById.get(e.classSubjectId)!.teacherId ?? null,
+    sessionId: e.sessionId ?? null,
   }))
 
   // This class's own grid is being replaced, so only other classes can clash.
@@ -107,17 +108,51 @@ export async function validateGrid(ctx: Ctx, cls: ClassRow, termId: string, entr
     if (o.roomId) byRoom.set(`${o.roomId}@${slotKey(o)}`, o)
   }
 
+  // Phase T6 — a SharedSession's own sibling rows (same sessionId, written into a different class by the
+  // same materialization call) are never a real conflict: they're the SAME session, deliberately spanning
+  // multiple classes (roadmap D3's "12-A + 12-B combined English" example). Every pre-T6 caller leaves
+  // e.sessionId/o.sessionId null, so this exemption can never fire for the manual builder or the legacy
+  // draft-commit path — their conflict behavior is byte-identical to before this phase.
+  const sameSession = (e: ResolvedEntry, o: { sessionId: string | null }) => !!e.sessionId && !!o.sessionId && e.sessionId === o.sessionId
+
   const conflicts: Conflict[] = []
   for (const e of resolved) {
     const t = e.teacherId ? byTeacher.get(`${e.teacherId}@${slotKey(e)}`) : undefined
-    if (t) conflicts.push({ rule: 'teacher', entryId: t.id, classId: t.classId, classLabel: classLabel(t.class), dayOfWeek: e.dayOfWeek, periodIdx: e.periodIdx, teacherId: e.teacherId! })
+    if (t && !sameSession(e, t)) conflicts.push({ rule: 'teacher', entryId: t.id, classId: t.classId, classLabel: classLabel(t.class), dayOfWeek: e.dayOfWeek, periodIdx: e.periodIdx, teacherId: e.teacherId! })
     const r = e.roomId ? byRoom.get(`${e.roomId}@${slotKey(e)}`) : undefined
-    if (r) conflicts.push({ rule: 'room', entryId: r.id, classId: r.classId, classLabel: classLabel(r.class), dayOfWeek: e.dayOfWeek, periodIdx: e.periodIdx, roomId: e.roomId! })
+    if (r && !sameSession(e, r)) conflicts.push({ rule: 'room', entryId: r.id, classId: r.classId, classLabel: classLabel(r.class), dayOfWeek: e.dayOfWeek, periodIdx: e.periodIdx, roomId: e.roomId! })
   }
   if (conflicts.length) {
     throw new HttpError(409, `${conflicts.length} timetable conflict${conflicts.length === 1 ? '' : 's'}`, undefined, { conflicts })
   }
   return resolved
+}
+
+// ───────────────────────────── Phase T7 §2 — enforced publish-immutability ─────────────────────────────
+// See phase-t7-versioning-override.md §2. This is the SERVICE-LAYER guard the phase explicitly requires be
+// tested by attempting a direct write that bypasses the override system's own fork->edit->publish flow: any
+// caller that reaches replaceGrid/removeEntry directly (this app's pre-existing, still-live manual builder
+// endpoints — PUT /entries, DELETE /entries/:id) against a class/term currently governed by a PUBLISHED
+// TimetableVersion is refused here, unconditionally, regardless of role. The ONLY sanctioned path that ever
+// replaces a PUBLISHED version's live rows is versions.ts#publishVersion (superseding it with a NEW
+// version) — that function deliberately does not call replaceGrid/removeEntry, so this guard never fires
+// for it. See also lib/timetableImmutability.ts for a second, Prisma-client-level guard underneath this one.
+export async function assertGridEditable(ctx: Ctx, classId: string, termId: string) {
+  const publishedRow = await prisma.timetableEntry.findFirst({
+    where: { schoolId: ctx.schoolId, classId, termId, timetableVersion: { status: 'PUBLISHED' } },
+    select: { timetableVersionId: true },
+  })
+  if (publishedRow) {
+    throw new HttpError(409, `This class's timetable is governed by PUBLISHED version ${publishedRow.timetableVersionId} and is immutable — fork a modification draft first (POST /timetable/versions/fork), edit it there, then publish`, undefined, { publishedVersionId: publishedRow.timetableVersionId })
+  }
+}
+
+async function assertEntryEditable(entry: { timetableVersionId: string | null }) {
+  if (!entry.timetableVersionId) return
+  const version = await prisma.timetableVersion.findUnique({ where: { id: entry.timetableVersionId }, select: { status: true, id: true } })
+  if (version?.status === 'PUBLISHED') {
+    throw new HttpError(409, `This entry belongs to PUBLISHED version ${version.id} and is immutable — fork a modification draft first (POST /timetable/versions/fork), edit it there, then publish`, undefined, { publishedVersionId: version.id })
+  }
 }
 
 // ───────────────────────────── writes ─────────────────────────────
@@ -127,6 +162,7 @@ export async function replaceGrid(ctx: Ctx, input: z.infer<typeof putEntries>) {
   const cls = await getClass(ctx, input.classId)
   const term = await getTerm(ctx, input.termId)
   assertSameYear(cls, term)
+  await assertGridEditable(ctx, cls.id, term.id)
   const resolved = await validateGrid(ctx, cls, term.id, input.entries)
 
   const before = await listEntries(cls.id, term.id)
@@ -138,7 +174,7 @@ export async function replaceGrid(ctx: Ctx, input: z.infer<typeof putEntries>) {
       await tx.timetableEntry.upsert({
         where: { classId_termId_dayOfWeek_periodIdx: { classId: cls.id, termId: term.id, dayOfWeek: e.dayOfWeek, periodIdx: e.periodIdx } },
         create: { schoolId: ctx.schoolId, classId: cls.id, termId: term.id, ...e },
-        update: { classSubjectId: e.classSubjectId, roomId: e.roomId, teacherId: e.teacherId },
+        update: { classSubjectId: e.classSubjectId, roomId: e.roomId, teacherId: e.teacherId, sessionId: e.sessionId },
       })
     }
   })
@@ -150,6 +186,7 @@ export async function replaceGrid(ctx: Ctx, input: z.infer<typeof putEntries>) {
 export async function removeEntry(ctx: Ctx, id: string) {
   const before = await prisma.timetableEntry.findFirst({ where: { id, schoolId: ctx.schoolId } })
   if (!before) throw notFound('Timetable entry')
+  await assertEntryEditable(before)
   await prisma.timetableEntry.delete({ where: { id } })
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'timetableEntry', id, serializeEntry(before))
 }

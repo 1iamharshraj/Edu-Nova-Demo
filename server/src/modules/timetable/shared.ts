@@ -24,6 +24,7 @@ export const serializeEntry = (e: TimetableEntry) => ({
   classSubjectId: e.classSubjectId,
   roomId: e.roomId ?? undefined,
   teacherId: e.teacherId ?? undefined,
+  sessionId: e.sessionId ?? undefined, // Phase T6 — present when a TimetableSession materialized this row
 })
 
 // Entry plus the display fields the teacher / substitution views need.
