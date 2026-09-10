@@ -33,7 +33,8 @@ export async function resetDatabase() {
         "CounselingRecord", "CounselingSettings", "AnonymousReport",
         "MedicationSchedule", "MedicationLog",
         "ParentDigestSend",
-        "SchoolGroup", "GroupAdmin"
+        "SchoolGroup", "GroupAdmin",
+        "Cohort", "CohortClass", "Capability", "RoomCapability", "TeacherQualification", "WorkingDayPattern"
       RESTART IDENTITY CASCADE
     `),
   ])
