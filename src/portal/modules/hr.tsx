@@ -1,18 +1,20 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { Briefcase, Check, ClipboardList, Download, FileBadge, FileText, Pencil, Plus, ScrollText, Trash2 } from 'lucide-react'
+import { ArrowRight, Briefcase, Check, ClipboardList, Download, FileBadge, FileText, Pencil, Plus, ScrollText, Trash2, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
 import { api, downloadPath, errorMessage } from '@/lib/api'
-import type { ContractRec, Duty, LeaveRequest, LeaveRequestStatus, LeaveType, ResignationRec } from '@/lib/data'
+import type { ContractRec, Duty, LeaveRequest, LeaveRequestStatus, LeaveType, ResignationRec, SubstitutionRequest } from '@/lib/data'
 import { fmtDate } from '@/lib/hooks/useAcademics'
-import { isoDate } from '@/lib/hooks/useTimetable'
+import { isoDate, useFetch, type TeacherTimetable } from '@/lib/hooks/useTimetable'
 import { useEmployees } from '@/lib/hooks/useFinance'
 import {
-  LEAVE_APPLIES_TO, LEAVE_STATUSES, MIN_NOTICE_DAYS, contractRecTone, countLeaveDays, leaveTone, leaveTypeName,
+  LEAVE_APPLIES_TO, LEAVE_STATUSES, MIN_NOTICE_DAYS, contractRecTone, countLeaveDays, leaveStatusLabel, leaveTone, leaveTypeName,
   noticeShortfallDays, useContracts, useDuties, useLeaveBalance, useLeaveRequests, useLeaveTypes, useResignations,
 } from '@/lib/hooks/useHr'
 import { invigilationTone, useInvigilationDuties } from '@/lib/hooks/useExams'
+import { noticeHours, periodsInRange, useSubstitutionActions, useSubstitutionPolicy, useSubstitutionRequests } from '@/lib/hooks/useSubstitution'
+import { SubstituteFinderModal, SubstitutionInboxCard, SubstitutionStatusList } from './substitutionFinder'
 import { Card, Empty, Field, Modal, PageHead, Pill, inputCls, statusTone } from '../ui'
 import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
 
@@ -132,6 +134,7 @@ export function LeaveTypesMod() {
 
 export function MyLeaveMod() {
   const { user } = useStore()
+  const { currentTerm } = useAcademic()
   const types = useLeaveTypes(!!user)
   const year = new Date().getFullYear()
   const balance = useLeaveBalance(user?.id, year, !!user)
@@ -139,12 +142,28 @@ export function MyLeaveMod() {
   const list = useMemo(() => [...(requests.items ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [requests.items])
   const staffTypes = useMemo(() => (types.items ?? []).filter(t => t.appliesTo === 'staff'), [types.items])
 
+  // Phase T9 — the create-leave flow itself is UNCHANGED (critical regression requirement): a
+  // SubstitutionRequest always needs a real leaveRequestId (see substitution.ts#createSubstitutionRequest),
+  // so "find a substitute" only becomes available on a row AFTER the leave is submitted, not inside this
+  // create form. Incoming accept/decline inbox (this user as a proposed substitute) sits above the list.
+  const isTeacher = user?.role === 'teacher'
+  const inbox = useSubstitutionRequests({ substituteTeacherId: user?.id, status: 'SENT' }, !!user)
+  const inboxActions = useSubstitutionActions(() => inbox.reload())
+  const [inboxBusyId, setInboxBusyId] = useState<string | null>(null)
+  const acceptInbound = async (r: SubstitutionRequest) => { setInboxBusyId(r.id); await inboxActions.accept(r.id); setInboxBusyId(null) }
+  const declineInbound = async (r: SubstitutionRequest) => { setInboxBusyId(r.id); await inboxActions.decline(r.id); setInboxBusyId(null) }
+
+  const policy = useSubstitutionPolicy()
+  const myTimetable = useFetch<TeacherTimetable>(isTeacher && user && currentTerm ? `/timetable/teacher/${encodeURIComponent(user.id)}?termId=${encodeURIComponent(currentTerm.id)}` : null)
+  const coversTeachingPeriods = (r: LeaveRequest) => isTeacher && periodsInRange(myTimetable.data?.entries ?? [], r.fromDate, r.toDate).length > 0
+
   const [open, setOpen] = useState(false)
   const [leaveTypeId, setLeaveTypeId] = useState('')
   const [from, setFrom] = useState(() => isoDate(new Date()))
   const [to, setTo] = useState(() => isoDate(new Date()))
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const [finderFor, setFinderFor] = useState<LeaveRequest | null>(null)
   const days = countLeaveDays(from, to)
 
   const openModal = () => { setLeaveTypeId(staffTypes[0]?.id ?? ''); setFrom(isoDate(new Date())); setTo(isoDate(new Date())); setReason(''); setOpen(true) }
@@ -169,6 +188,8 @@ export function MyLeaveMod() {
         <button onClick={openModal} disabled={staffTypes.length === 0} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold disabled:opacity-40"><Plus size={15} /> New request</button>
       </PageHead>
 
+      <SubstitutionInboxCard items={inbox.items ?? []} busyId={inboxBusyId} onAccept={acceptInbound} onDecline={declineInbound} />
+
       {types.items !== undefined && staffTypes.length === 0 && (
         <div className="mb-5"><Empty text="No leave types set up yet — ask an admin to add Casual / Sick leave under Leave Types." /></div>
       )}
@@ -190,17 +211,27 @@ export function MyLeaveMod() {
         {requests.loading ? loadingRow('Loading requests…')
           : requests.error ? <div className="p-6"><Empty text={requests.error} /></div>
           : list.length === 0 ? <div className="p-6"><Empty text="No leave requests yet." /></div>
-          : list.map(r => (
-            <div key={r.id} className={rowCls}>
-              <div className="min-w-40 flex-1">
-                <p className="text-[14.5px] font-semibold">{leaveTypeName(types.items, r.leaveTypeId, r.leaveTypeName)} · {r.days} day{r.days === 1 ? '' : 's'}</p>
-                <p className="text-[12.5px] text-black/45 dark:text-white/45">{fmtDate(r.fromDate)} → {fmtDate(r.toDate)} · {r.reason}</p>
-                {r.decisionNote && <p className="mt-1 text-[12px] text-black/50 dark:text-white/50">Note: {r.decisionNote}</p>}
+          : list.map(r => {
+            const covers = coversTeachingPeriods(r)
+            const canArrange = covers && (r.status === 'Pending' || r.status === 'PENDING_SUBSTITUTION') && policy.item?.mode !== 'ADMIN_ASSIGNED'
+            return (
+              <div key={r.id} className={rowCls}>
+                <div className="min-w-40 flex-1">
+                  <p className="text-[14.5px] font-semibold">{leaveTypeName(types.items, r.leaveTypeId, r.leaveTypeName)} · {r.days} day{r.days === 1 ? '' : 's'}</p>
+                  <p className="text-[12.5px] text-black/45 dark:text-white/45">{fmtDate(r.fromDate)} → {fmtDate(r.toDate)} · {r.reason}</p>
+                  {r.decisionNote && <p className="mt-1 text-[12px] text-black/50 dark:text-white/50">Note: {r.decisionNote}</p>}
+                  {covers && <MyLeaveSubstitutionStatus leaveRequestId={r.id} />}
+                </div>
+                <Pill tone={leaveTone(r.status)}>{leaveStatusLabel(r.status)}</Pill>
+                {canArrange && (
+                  <button onClick={() => setFinderFor(r)} className="flex items-center gap-1 rounded-full border border-indigo-300 px-3.5 py-1.5 text-[12.5px] font-semibold text-indigo-700 hover:bg-indigo-50 dark:border-indigo-500/40 dark:text-indigo-300 dark:hover:bg-indigo-500/10">
+                    <Users size={12} /> Find a substitute
+                  </button>
+                )}
+                {r.status === 'Pending' && <button onClick={() => cancel(r)} disabled={busy === r.id} className={ghostBtn}>Cancel</button>}
               </div>
-              <Pill tone={leaveTone(r.status)}>{r.status}</Pill>
-              {r.status === 'Pending' && <button onClick={() => cancel(r)} disabled={busy === r.id} className={ghostBtn}>Cancel</button>}
-            </div>
-          ))}
+            )
+          })}
       </Card>
 
       <Modal open={open} onClose={() => setOpen(false)} title="Request leave">
@@ -216,18 +247,44 @@ export function MyLeaveMod() {
           </div>
           <p className="text-[12.5px] text-black/45 dark:text-white/45">{days} day{days === 1 ? '' : 's'} (Sundays excluded)</p>
           <Field label="Reason"><textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} className={inputCls} /></Field>
+          {isTeacher && periodsInRange(myTimetable.data?.entries ?? [], from, to).length > 0 && (
+            <p className="flex items-center gap-1.5 text-[12px] text-indigo-700 dark:text-indigo-300">
+              <Users size={12} /> This covers teaching periods — once submitted, use "Find a substitute" on the request to arrange cover{noticeHours(from) < (policy.item?.minNoticeHoursForSubstitution ?? 12) ? ' (though less than the minimum notice means this goes to admin as an emergency assignment)' : ''}.
+            </p>
+          )}
           <button onClick={submit} disabled={busy === 'submit' || !reason.trim() || days === 0} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy === 'submit' ? 'Submitting…' : 'Submit request'}</button>
         </div>
       </Modal>
+
+      {finderFor && (
+        <SubstituteFinderModal
+          open={!!finderFor}
+          onClose={() => setFinderFor(null)}
+          leaveRequestId={finderFor.id}
+          originalTeacherName={user?.name}
+          policyMode={policy.item?.mode ?? 'TEACHER_INITIATED'}
+          onSent={() => requests.reload()}
+        />
+      )}
     </div>
   )
+}
+
+/** Fetches one leave request's attached substitution requests for the compact status line under each row —
+ * a separate component (not inline in the list `.map`) since it needs its own hook call. */
+function MyLeaveSubstitutionStatus({ leaveRequestId }: { leaveRequestId: string }) {
+  const { items } = useSubstitutionRequests({ leaveRequestId }, true)
+  if (!items || items.length === 0) return null
+  return <SubstitutionStatusList requests={items} />
 }
 
 /* ── Approver: Leave Approvals (teacher over students, staff/admin over staff) ── */
 
 export function LeaveApprovalsMod() {
   const { user, db } = useStore()
+  const navigate = useNavigate()
   const types = useLeaveTypes(!!user)
+  const policy = useSubstitutionPolicy()
   const [status, setStatus] = useState<LeaveRequestStatus | ''>('Pending')
   const requests = useLeaveRequests({ scope: 'approvals', status }, !!user)
   const list = useMemo(() => [...(requests.items ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt)), [requests.items])
@@ -239,6 +296,13 @@ export function LeaveApprovalsMod() {
     if (forUserRole === 'student') return true
     return user?.role === 'admin' || user?.role === 'superadmin'
   }
+  // Phase T9 — no cheap per-row "does this actually cover a teaching period" signal exists without fetching
+  // every requester's own timetable (serializeLeaveRequest carries no such field — see data.ts's T9 doc
+  // comment), so this link shows whenever forUser is a teacher and lets the dedicated review page (which
+  // does resolve the real periods) render "no teaching periods overlap this leave" if it turns out to be a
+  // plain non-teaching absence for that teacher.
+  const isTeacherLeave = (r: LeaveRequest) => db.users.find(u => u.id === r.forUserId)?.role === 'teacher'
+  const emergencyRisk = (r: LeaveRequest) => !!policy.item && noticeHours(r.fromDate) < policy.item.minNoticeHoursForSubstitution
   const [decline, setDecline] = useState<LeaveRequest | null>(null)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -276,7 +340,14 @@ export function LeaveApprovalsMod() {
                 <p className="text-[12.5px] text-black/45 dark:text-white/45">{fmtDate(r.fromDate)} → {fmtDate(r.toDate)} · {r.days} day{r.days === 1 ? '' : 's'} · {r.reason}</p>
                 {r.requesterId !== r.forUserId && <p className="text-[12px] text-black/40 dark:text-white/40">Requested by {nameOf(r.requesterId, r.requesterName)}</p>}
               </div>
-              <Pill tone={leaveTone(r.status)}>{r.status}</Pill>
+              {isTeacherLeave(r) && emergencyRisk(r) && (r.status === 'Pending' || r.status === 'PENDING_SUBSTITUTION') && <Pill tone="rose">emergency</Pill>}
+              <Pill tone={leaveTone(r.status)}>{leaveStatusLabel(r.status)}</Pill>
+              {isTeacherLeave(r) && canDecide(r) && (
+                <button onClick={() => navigate(`/portal/timetable/substitutions/${r.id}`)}
+                  className="flex items-center gap-1 rounded-full border border-indigo-300 px-3.5 py-1.5 text-[12.5px] font-semibold text-indigo-700 hover:bg-indigo-50 dark:border-indigo-500/40 dark:text-indigo-300 dark:hover:bg-indigo-500/10">
+                  Manage substitution <ArrowRight size={12} />
+                </button>
+              )}
               {r.status === 'Pending' && canDecide(r) && (
                 <div className="flex gap-2">
                   <button onClick={() => approve(r)} disabled={busy === r.id} className="rounded-full bg-emerald-600 px-4 py-1.5 text-[12.5px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">Approve</button>

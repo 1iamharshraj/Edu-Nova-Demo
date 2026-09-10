@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { Camera, KeyRound, Save, ShieldCheck, Trash2 } from 'lucide-react'
+import { Camera, KeyRound, Save, ShieldCheck, Sparkles, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
 import { api, errorMessage, uploadFile } from '@/lib/api'
+import type { BandAffinity, BandLevel } from '@/lib/data'
 import { MIN_PASSWORD, fmtDateTime, passwordProblem, useFileUrl } from '@/lib/hooks/useIdentity'
 import { PushToggle } from '@/lib/pwa'
 import { Avatar, Card, Field, PageHead, Pill, VerificationCard, inputCls } from '../ui'
@@ -12,6 +13,17 @@ import { EmploymentHistoryTimeline, IdCardButton } from './employee'
 // and a read-only view of the wards / classes the account is linked to. See phase-4-admissions-identity.md
 
 const sectionHead = (text: string) => <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">{text}</p>
+
+const BAND_LEVELS: { value: BandLevel; label: string }[] = [
+  { value: 'NONE', label: 'Not declared' },
+  { value: 'MEDIUM', label: 'Medium' },
+  { value: 'STRONG', label: 'Strong' },
+]
+const BAND_FIELDS: { key: keyof BandAffinity; label: string; hint: string }[] = [
+  { key: 'support', label: 'Support band', hint: 'Students who need extra reinforcement' },
+  { key: 'mid', label: 'Mid band', hint: 'The broad middle of a class' },
+  { key: 'advanced', label: 'Advanced band', hint: 'Stretch/high-achiever groups' },
+]
 
 export function ProfileMod() {
   const { user, db, refreshMe, refreshDB } = useStore()
@@ -24,6 +36,22 @@ export function ProfileMod() {
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' })
   const [pwBusy, setPwBusy] = useState(false)
   const photoUrl = useFileUrl(user?.photoFileId)
+
+  // Phase T1 §4 — teacher band affinity self-service (roadmap D2 groundwork for T5's Mode 4 optimizer).
+  // Only `declaredBandAffinity` is ever writable here; `verifiedBandAffinity` stays null until the future
+  // T11 evaluation engine populates it — no UI for it exists yet, by design.
+  const defaultBand: BandAffinity = { support: 'NONE', mid: 'NONE', advanced: 'NONE' }
+  const [bandForm, setBandForm] = useState<BandAffinity>(() => user?.declaredBandAffinity ?? defaultBand)
+  const [bandBusy, setBandBusy] = useState(false)
+  const bandDirty = JSON.stringify(bandForm) !== JSON.stringify(user?.declaredBandAffinity ?? defaultBand)
+  const saveBand = async () => {
+    setBandBusy(true)
+    try {
+      await api.patch('/users/me/band-affinity', { declaredBandAffinity: bandForm })
+      await refreshMe()
+      toast.success('Band affinity updated')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBandBusy(false) }
+  }
 
   const links = useMemo(() => {
     if (!user) return []
@@ -171,6 +199,31 @@ export function ProfileMod() {
               <Save size={15} /> {saving ? 'Saving…' : 'Save changes'}
             </button>
           </Card>
+
+          {user.role === 'teacher' && (
+            <Card>
+              {sectionHead('Teaching band affinity')}
+              <p className="mb-4 -mt-2 text-[13px] text-black/50 dark:text-white/50">
+                Which student ability bands you're strongest teaching to. Self-declared — used as a starting signal for band-aware timetabling; a future evaluation pass may add a verified value alongside it.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-3">
+                {BAND_FIELDS.map(f => (
+                  <Field key={f.key} label={f.label}>
+                    <select value={bandForm[f.key]} onChange={e => setBandForm(b => ({ ...b, [f.key]: e.target.value as BandLevel }))} className={inputCls}>
+                      {BAND_LEVELS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+                    </select>
+                    <span className="mt-1 block text-[11.5px] text-black/40 dark:text-white/40">{f.hint}</span>
+                  </Field>
+                ))}
+              </div>
+              {user.affinitySource === 'VERIFIED' && (
+                <p className="mt-3 text-[12.5px] text-indigo-600 dark:text-indigo-400">A verified affinity is on file and currently takes priority over your declared values above.</p>
+              )}
+              <button onClick={saveBand} disabled={!bandDirty || bandBusy} className="btn-ink mt-5 flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold disabled:opacity-40">
+                <Sparkles size={15} /> {bandBusy ? 'Saving…' : 'Save band affinity'}
+              </button>
+            </Card>
+          )}
 
           <Card>
             {sectionHead('Change password')}

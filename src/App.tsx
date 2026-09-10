@@ -33,6 +33,13 @@ import FeeDefaulterCallLog from './pages/portal/FeeDefaulterCallLog'
 import DisciplinaryCaseDetail from './pages/portal/DisciplinaryCaseDetail'
 import StudentPortfolio from './pages/portal/StudentPortfolio'
 import HousePointsLedger from './pages/portal/HousePointsLedger'
+import ApplicationDetail from './pages/portal/ApplicationDetail'
+import TcIssuance from './pages/portal/TcIssuance'
+import SectioningDraftReview from './pages/portal/SectioningDraftReview'
+import TeachingRequirements from './pages/portal/TeachingRequirements'
+import TimetablePreferences from './pages/portal/TimetablePreferences'
+import ElectiveBlocks from './pages/portal/ElectiveBlocks'
+import SubstitutionReview from './pages/portal/SubstitutionReview'
 
 /** Signed-in only; accounts flagged `mustChangePassword` are held on the change-password page until they set one. */
 function Guard({ children }: { children: React.ReactNode }) {
@@ -80,6 +87,13 @@ export default function App() {
         <Route path="/portal/reviews/:id" element={<Guard><ReviewDetail /></Guard>} />
         <Route path="/portal/group/schools/:id" element={<Guard><SchoolDetail /></Guard>} />
         <Route path="/portal/admissions/new" element={<Guard><AdmissionNew /></Guard>} />
+        <Route path="/portal/admissions/:id" element={<Guard><ApplicationDetail /></Guard>} />
+        <Route path="/portal/tc-issuance/:studentId" element={<Guard><TcIssuance /></Guard>} />
+        <Route path="/portal/sectioning/versions/:id" element={<Guard><SectioningDraftReview /></Guard>} />
+        <Route path="/portal/academic/cohorts/:id/requirements" element={<Guard><TeachingRequirements /></Guard>} />
+        <Route path="/portal/academic/timetable-preferences" element={<Guard><TimetablePreferences /></Guard>} />
+        <Route path="/portal/academic/elective-blocks" element={<Guard><ElectiveBlocks /></Guard>} />
+        <Route path="/portal/timetable/substitutions/:leaveRequestId" element={<Guard><SubstitutionReview /></Guard>} />
         <Route path="/portal/people/new" element={<Guard><PersonEditor /></Guard>} />
         <Route path="/portal/people/:id/edit" element={<Guard><PersonEditor /></Guard>} />
         <Route path="/portal/activities/:id/registrations" element={<Guard><ActivityRegistrations /></Guard>} />

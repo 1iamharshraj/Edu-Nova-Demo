@@ -11,12 +11,13 @@ import {
   compareClasses,
   type ActivityKind, type ActivityRec, type AdmissionCreated, type ApplicationKind, type ApplicationRec, type ApplicationStatus,
   type BoardRegistration, type BoardRegistrationStatus, type CalendarEventRec, type Certificate, type CertificateKind,
-  type ParentVerification, type Role, type User, type VerificationStatus,
+  type ParentVerification, type PriorSubjectScore, type Role, type User, type VerificationStatus,
 } from '@/lib/data'
 import {
   APPLICATION_KINDS, APPLICATION_STATUSES, BOARD_REG_STATUSES, CERTIFICATE_KINDS, KIND_LABEL, boardRegLabel, boardRegTone, certificateFileName,
   isCertificateKind, kindTone, useApplications, useBoardRegistrations, useFileUrl, useVerifications, verificationTone,
 } from '@/lib/hooks/useIdentity'
+import { useAdmissionCategories, useChecklist, useSiblingSuggestions } from '@/lib/hooks/useDocuments'
 import { fmtDate, qs, useFetchMany } from '@/lib/hooks/useAcademics'
 import { useCalendarEvents } from '@/lib/hooks/useComms'
 import { ACTIVITY_KIND_LABEL, ACTIVITY_KINDS, activityRegTone, useActivities, useActivityRegistrations } from '@/lib/hooks/useWelfare'
@@ -95,7 +96,8 @@ export function RegistrationsMod({ kind, title, sub }: { kind: ActivityKind; tit
 /* ── Staff/admin: manage activities & view registrations ── */
 
 function ActivityForm({ onDone }: { onDone: () => void }) {
-  const [f, setF] = useState({ kind: 'club' as ActivityKind, title: '', description: '', capacity: '', opensAt: '', closesAt: '' })
+  const { academic } = useStore()
+  const [f, setF] = useState({ kind: 'club' as ActivityKind, title: '', description: '', capacity: '', opensAt: '', closesAt: '', trackCohortId: '' })
   const [busy, setBusy] = useState(false)
   const submit = async () => {
     setBusy(true)
@@ -105,6 +107,7 @@ function ActivityForm({ onDone }: { onDone: () => void }) {
         capacity: f.capacity ? Number(f.capacity) : undefined,
         opensAt: f.opensAt || undefined, closesAt: f.closesAt || undefined,
         forRoles: f.kind === 'faculty' ? ['teacher', 'staff'] : ['student'],
+        trackCohortId: f.kind === 'track' ? (f.trackCohortId || undefined) : undefined,
       })
       toast.success('Activity created')
       onDone()
@@ -120,6 +123,14 @@ function ActivityForm({ onDone }: { onDone: () => void }) {
         </Field>
         <Field label="Capacity (optional)"><input type="number" min={1} value={f.capacity} onChange={e => setF(x => ({ ...x, capacity: e.target.value }))} className={inputCls} /></Field>
       </div>
+      {f.kind === 'track' && (
+        <Field label="Track cohort (Phase T3)">
+          <select value={f.trackCohortId} onChange={e => setF(x => ({ ...x, trackCohortId: e.target.value }))} className={inputCls}>
+            <option value="">Select a cohort to link this track's registrations to…</option>
+            {academic.cohorts?.map(c => <option key={c.id} value={c.id}>{c.name} · {c.type}</option>)}
+          </select>
+        </Field>
+      )}
       <Field label="Title"><input value={f.title} onChange={e => setF(x => ({ ...x, title: e.target.value }))} className={inputCls} autoFocus /></Field>
       <Field label="Description"><textarea value={f.description} onChange={e => setF(x => ({ ...x, description: e.target.value }))} rows={3} className={inputCls} /></Field>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -368,11 +379,18 @@ export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
                   <DocumentLinks ids={a.documents ?? []} />
                   <Pill tone={statusTone(a.status)}>{a.status}</Pill>
                   <div className="flex flex-wrap items-center gap-2">
+                    {approver && a.kind === 'Admission' && (
+                      <button onClick={() => navigate(`/portal/admissions/${a.id}`)} className={ghostPill}>Documents</button>
+                    )}
                     {approver && a.status === 'Pending' && (
                       <button onClick={() => verify(a)} disabled={busy} className={`${pillBtn} bg-sky-600 text-white hover:bg-sky-700`}>Verify</button>
                     )}
                     {approver && a.status === 'Verified' && (
-                      <button onClick={() => setModal({ t: 'approve', app: a })} disabled={busy} className={`${pillBtn} bg-emerald-600 text-white hover:bg-emerald-700`}>Approve</button>
+                      <button
+                        onClick={() => a.kind === 'TC' && a.studentId ? navigate(`/portal/tc-issuance/${a.studentId}?applicationId=${a.id}`) : setModal({ t: 'approve', app: a })}
+                        disabled={busy} className={`${pillBtn} bg-emerald-600 text-white hover:bg-emerald-700`}>
+                        {a.kind === 'TC' ? 'Approve → return checklist' : 'Approve'}
+                      </button>
                     )}
                     {approver && (a.status === 'Pending' || a.status === 'Verified') && (
                       <button onClick={() => setModal({ t: 'decline', app: a })} disabled={busy} className={ghostPill}>Decline</button>
@@ -411,14 +429,48 @@ export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
   )
 }
 
+/** One prior-school subject score row (Part A — feeds T3's TrackEligibilityRule thresholds). */
+function PriorScoreRows({ rows, onChange }: { rows: PriorSubjectScore[]; onChange: (rows: PriorSubjectScore[]) => void }) {
+  const patch = (i: number, p: Partial<PriorSubjectScore>) => onChange(rows.map((r, j) => j === i ? { ...r, ...p } : r))
+  return (
+    <div className="space-y-2">
+      {rows.map((r, i) => (
+        <div key={i} className="grid grid-cols-[1fr_90px_90px_auto] items-center gap-2">
+          <input value={r.subjectName} onChange={e => patch(i, { subjectName: e.target.value })} placeholder="Subject (e.g. Mathematics)" className={inputCls} />
+          <input type="number" min={0} value={r.score || ''} onChange={e => patch(i, { score: Number(e.target.value) })} placeholder="Score" className={inputCls} />
+          <input type="number" min={1} value={r.maxScore || ''} onChange={e => patch(i, { maxScore: Number(e.target.value) })} placeholder="Out of" className={inputCls} />
+          <button type="button" onClick={() => onChange(rows.filter((_, j) => j !== i))} className="rounded-full p-2 text-black/35 hover:bg-rose-50 hover:text-rose-500 dark:text-white/35" aria-label="Remove subject"><X size={14} /></button>
+        </div>
+      ))}
+      <button type="button" onClick={() => onChange([...rows, { subjectName: '', score: 0, maxScore: 100 }])} className="flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400">
+        <Plus size={13} /> Add subject score
+      </button>
+    </div>
+  )
+}
+
+const ADMISSION_MODE_OPTIONS = ['Regular', 'RTE', 'Management', 'Staff-Ward'] as const
+
 export function AdmissionForm({ onDone }: { onDone: () => void }) {
-  const { classes, classById, currentYear, gradeById } = useAcademic()
+  const { classes, classById, currentYear, gradeById, boards } = useAcademic()
   const options = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort(compareClasses(gradeById)), [classes, currentYear, gradeById])
-  const [f, setF] = useState({ applicantName: '', dob: '', gender: '', gName: '', gPhone: '', gEmail: '', gRelation: 'Parent', targetClassId: options[0]?.id ?? '' })
+  const [f, setF] = useState({
+    applicantName: '', dob: '', gender: '', gName: '', gPhone: '', gEmail: '', gRelation: 'Parent', targetClassId: options[0]?.id ?? '',
+    previousSchoolName: '', previousBoardId: '', lastGradeCompleted: '', declaredTrackPreference: '', admissionCategoryId: '', admissionMode: '',
+    allergies: '', conditions: '', bloodGroup: '', transportNeeded: false, transportArea: '',
+  })
+  const [priorScores, setPriorScores] = useState<PriorSubjectScore[]>([])
+  const [siblingId, setSiblingId] = useState('')
+  const [siblingLabel, setSiblingLabel] = useState('')
   const [docs, setDocs] = useState<UploadedFile[]>([])
   const [busy, setBusy] = useState(false)
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF(x => ({ ...x, [k]: e.target.value }))
+  const categories = useAdmissionCategories()
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setF(x => ({ ...x, [k]: e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value }))
   const valid = f.applicantName.trim() && f.dob && f.gName.trim() && f.targetClassId
+
+  const suggestions = useSiblingSuggestions(f.gPhone, f.gEmail)
+
   const submit = async () => {
     setBusy(true)
     try {
@@ -426,6 +478,17 @@ export function AdmissionForm({ onDone }: { onDone: () => void }) {
         kind: 'Admission', applicantName: f.applicantName.trim(), dob: f.dob, gender: f.gender || undefined,
         guardian: { name: f.gName.trim(), phone: f.gPhone.trim() || undefined, email: f.gEmail.trim() || undefined, relation: f.gRelation },
         targetClassId: f.targetClassId, targetBoardId: classById.get(f.targetClassId)?.boardId, documents: docs.map(d => d.id),
+        previousSchoolName: f.previousSchoolName.trim() || undefined,
+        previousBoardId: f.previousBoardId || undefined,
+        lastGradeCompleted: f.lastGradeCompleted.trim() || undefined,
+        priorSubjectScores: priorScores.filter(r => r.subjectName.trim()).map(r => ({ subjectName: r.subjectName.trim(), score: r.score, maxScore: r.maxScore })),
+        declaredTrackPreference: f.declaredTrackPreference.trim() || undefined,
+        siblingStudentId: siblingId || undefined,
+        admissionCategoryId: f.admissionCategoryId || undefined,
+        admissionMode: f.admissionMode || undefined,
+        healthFlags: (f.allergies || f.conditions || f.bloodGroup) ? { allergies: f.allergies.trim() || undefined, conditions: f.conditions.trim() || undefined, bloodGroup: f.bloodGroup.trim() || undefined } : undefined,
+        transportRequired: f.transportNeeded || undefined,
+        transportPreferredArea: f.transportNeeded ? (f.transportArea.trim() || undefined) : undefined,
       })
       toast.success('Admission application recorded')
       onDone()
@@ -447,7 +510,23 @@ export function AdmissionForm({ onDone }: { onDone: () => void }) {
             {options.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
           </select>
         </Field>
+        <Field label="Admission category / quota (optional)">
+          <select value={f.admissionCategoryId} onChange={set('admissionCategoryId')} className={inputCls}>
+            <option value="">General / not specified</option>
+            {categories.items.filter(c => c.isActive !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Declared track / stream preference (optional, 11th entry)">
+          <input value={f.declaredTrackPreference} onChange={set('declaredTrackPreference')} placeholder="e.g. Science — JEE, Commerce…" className={inputCls} />
+        </Field>
+        <Field label="Admission mode (how the seat was allotted)">
+          <select value={f.admissionMode} onChange={set('admissionMode')} className={inputCls}>
+            <option value="">Regular</option>
+            {ADMISSION_MODE_OPTIONS.filter(m => m !== 'Regular').map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </Field>
       </div>
+
       <p className="text-[12.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Guardian</p>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Name"><input value={f.gName} onChange={set('gName')} className={inputCls} /></Field>
@@ -457,8 +536,59 @@ export function AdmissionForm({ onDone }: { onDone: () => void }) {
         <Field label="Phone"><input value={f.gPhone} onChange={set('gPhone')} placeholder="+91 …" className={inputCls} /></Field>
         <Field label="Email (links an existing parent account if it matches)"><input type="email" value={f.gEmail} onChange={set('gEmail')} className={inputCls} /></Field>
       </div>
-      <Field label="Documents (birth certificate, previous TC, ID…)">
-        <UploadField files={docs} onChange={setDocs} multiple accept=".pdf,.png,.jpg,.jpeg,.docx" hint="PDF, images or DOCX · up to 10 MB each" />
+      {(suggestions.items ?? []).length > 0 && !siblingId && (
+        <div className="rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 p-4">
+          <p className="text-[12.5px] font-semibold text-indigo-700 dark:text-indigo-300">Possible sibling{(suggestions.items ?? []).length > 1 ? 's' : ''} — same guardian contact already on file</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {(suggestions.items ?? []).map(s => (
+              <button key={s.studentId} type="button" onClick={() => { setSiblingId(s.studentId); setSiblingLabel(s.name) }}
+                className="flex items-center gap-1.5 rounded-full bg-white dark:bg-[#14141f] px-3 py-1.5 text-[12.5px] font-semibold ring-1 ring-indigo-200 dark:ring-indigo-500/30 hover:bg-indigo-100 dark:hover:bg-indigo-500/20">
+                Link {s.name}{s.classLabel ? ` · ${s.classLabel}` : ''}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {siblingId && (
+        <div className="flex items-center justify-between rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 px-4 py-2.5 text-[13px] font-semibold text-emerald-700 dark:text-emerald-300">
+          <span>Linked as sibling of {siblingLabel}</span>
+          <button type="button" onClick={() => { setSiblingId(''); setSiblingLabel('') }} className="rounded-full p-1 hover:bg-emerald-100 dark:hover:bg-emerald-500/20"><X size={13} /></button>
+        </div>
+      )}
+      {!siblingId && (
+        <Field label="Or search for a sibling directly (optional)">
+          <AsyncEntityPicker role="student" value={siblingId} onChange={(id, label) => { setSiblingId(id); setSiblingLabel(label) }} placeholder="Search enrolled students…" />
+        </Field>
+      )}
+
+      <p className="text-[12.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Prior academics</p>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Field label="Previous school"><input value={f.previousSchoolName} onChange={set('previousSchoolName')} className={inputCls} /></Field>
+        <Field label="Previous board">
+          <select value={f.previousBoardId} onChange={set('previousBoardId')} className={inputCls}>
+            <option value="">Not applicable / unknown</option>
+            {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Last grade completed"><input value={f.lastGradeCompleted} onChange={set('lastGradeCompleted')} placeholder="e.g. Grade 9" className={inputCls} /></Field>
+      </div>
+      <Field label="Subject-wise marks (previous school)"><PriorScoreRows rows={priorScores} onChange={setPriorScores} /></Field>
+
+      <p className="text-[12.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Health & transport (optional — captured once, handed off on approval)</p>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Field label="Known allergies"><input value={f.allergies} onChange={set('allergies')} className={inputCls} /></Field>
+        <Field label="Known conditions"><input value={f.conditions} onChange={set('conditions')} className={inputCls} /></Field>
+        <Field label="Blood group"><input value={f.bloodGroup} onChange={set('bloodGroup')} placeholder="e.g. O+" className={inputCls} /></Field>
+      </div>
+      <div className="flex flex-wrap items-center gap-4">
+        <label className="flex items-center gap-2 text-[13.5px] font-medium">
+          <input type="checkbox" checked={f.transportNeeded} onChange={set('transportNeeded')} className="h-4 w-4 rounded border-black/20" /> Needs school transport
+        </label>
+        {f.transportNeeded && <input value={f.transportArea} onChange={set('transportArea')} placeholder="Preferred area / stop (if known)" className={inputCls + ' max-w-xs'} />}
+      </div>
+
+      <Field label="Documents (birth certificate, previous TC, marksheet, ID…)">
+        <UploadField files={docs} onChange={setDocs} multiple accept=".pdf,.png,.jpg,.jpeg,.docx" hint="PDF, images or DOCX · up to 10 MB each — tag these against specific required document types from the application once recorded" />
       </Field>
       <button onClick={submit} disabled={!valid || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Saving…' : 'Record application'}</button>
     </div>
@@ -514,11 +644,14 @@ function CertificateApplicationForm({ students, wholeSchool, onDone }: { student
 }
 
 function IssueCertificateForm({ students, wholeSchool, onDone }: { students: User[]; wholeSchool?: boolean; onDone: () => void }) {
+  const navigate = useNavigate()
   const { classOf } = useAcademic()
   const [kind, setKind] = useState<CertificateKind>('Bonafide')
   const [studentId, setStudentId] = useState(wholeSchool ? '' : (students[0]?.id ?? ''))
   const [busy, setBusy] = useState(false)
+  const isTC = kind === 'TC'
   const submit = async () => {
+    if (isTC) { onDone(); navigate(`/portal/tc-issuance/${studentId}`); return }
     setBusy(true)
     try {
       const res = await api.post<{ item: Certificate }>('/certificates', { kind, studentId })
@@ -528,7 +661,7 @@ function IssueCertificateForm({ students, wholeSchool, onDone }: { students: Use
   }
   return (
     <div className="space-y-4">
-      <p className="text-[13.5px] text-black/60 dark:text-white/60">Issues a numbered certificate straight away, without an application. A TC issued here does not close the student’s enrolment.</p>
+      <p className="text-[13.5px] text-black/60 dark:text-white/60">Issues a numbered certificate straight away, without an application.{isTC ? ' A TC first walks through the held-original-documents return checklist.' : ''}</p>
       <Field label="Certificate">
         <select value={kind} onChange={e => setKind(e.target.value as CertificateKind)} className={inputCls}>
           {CERTIFICATE_KINDS.map(k => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
@@ -544,7 +677,9 @@ function IssueCertificateForm({ students, wholeSchool, onDone }: { students: Use
           </select>
         )}
       </Field>
-      <button onClick={submit} disabled={!studentId || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Issuing…' : 'Issue certificate'}</button>
+      <button onClick={submit} disabled={!studentId || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">
+        {busy ? 'Issuing…' : isTC ? 'Continue to document return checklist' : 'Issue certificate'}
+      </button>
     </div>
   )
 }
@@ -638,6 +773,7 @@ function ApproveDialog({ app, boardName, onClose, onChanged }: { app: Applicatio
               <p className="text-[12.5px] text-black/50 dark:text-white/50">{[app.guardian?.relation, app.guardian?.email || (existingParent ? existingParent.email : 'email will be generated'), app.guardian?.phone].filter(Boolean).join(' · ')}</p>
             </div>
           </div>
+          <ChecklistWarning app={app} />
         </>
       ) : (
         <p className="text-[13.5px] text-black/60 dark:text-white/60">
@@ -648,6 +784,25 @@ function ApproveDialog({ app, boardName, onClose, onChanged }: { app: Applicatio
         <button onClick={run} disabled={busy || (isAdmission && !cls)} className="flex-1 rounded-xl bg-emerald-600 py-3 text-[14px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">{busy ? 'Approving…' : isAdmission ? 'Approve & create accounts' : 'Approve & issue'}</button>
         <button onClick={onClose} className="rounded-xl bg-black/[.05] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:bg-white/[.07] dark:hover:bg-white/15">Cancel</button>
       </div>
+    </div>
+  )
+}
+
+/** Compact missing-documents summary shown in the Approve-admission dialog. The hard-vs-soft-required call
+ * (`School.admissionDocumentsBlockApproval`) is enforced server-side in `approve()` — this is a heads-up so
+ * staff aren't surprised by a rejected approval, not a client-side gate (the existing catch(e)/toast already
+ * surfaces the server's reason if it does block). */
+function ChecklistWarning({ app }: { app: ApplicationRec }) {
+  const { data: checklist, loading } = useChecklist(app.id)
+  if (loading || !checklist) return null
+  if (checklist.complete) return (
+    <p className="flex items-center gap-1.5 text-[12.5px] font-semibold text-emerald-600"><Check size={13} /> All required documents for this category are on file.</p>
+  )
+  return (
+    <div className={`rounded-2xl p-4 text-[13px] ${checklist.admissionDocumentsBlockApproval ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300' : 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300'}`}>
+      <p className="flex items-center gap-1.5 font-semibold"><AlertTriangle size={14} /> {checklist.missingRequired.length} required document{checklist.missingRequired.length > 1 ? 's' : ''} still missing</p>
+      <p className="mt-1">{checklist.missingRequired.join(', ')}</p>
+      <p className="mt-1 text-[12px] opacity-80">{checklist.admissionDocumentsBlockApproval ? 'This school blocks approval until they’re collected.' : 'This school allows approval to proceed — collect them from the application’s Documents screen.'}</p>
     </div>
   )
 }

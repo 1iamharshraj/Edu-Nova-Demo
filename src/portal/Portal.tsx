@@ -1,10 +1,10 @@
 import React, { createContext, useContext, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
-  AlertTriangle, Award, Banknote, BedDouble, BookMarked, BookOpen, Boxes, BrainCircuit, Bus, Calculator, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock3,
-  CloudUpload, CreditCard, DoorOpen, FileBadge, FileBarChart2, Gavel, GraduationCap, Handshake, HeartHandshake, HeartPulse, Home, IdCard, KeyRound, Landmark, LayoutGrid, Layers,
-  LogOut, Megaphone, MessageCircleWarning, MessageSquare, MessagesSquare, Network, NotebookPen, PartyPopper, PencilLine, PillBottle, Play, School, ScrollText, Settings, ShoppingCart,
-  Scale, ShieldAlert, ShieldCheck, Sparkles, Star, Trophy, Truck, UserCheck, UserCircle2, Umbrella, Undo2, Users, Users2, Video, Wallet, Wand2, type LucideIcon,
+  AlertTriangle, Award, Banknote, BarChart3, BedDouble, BookMarked, BookOpen, Boxes, BrainCircuit, Bus, Calculator, CalendarClock, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock3,
+  CloudUpload, CreditCard, DoorOpen, FileBadge, FileBarChart2, FileWarning, FolderCog, Gavel, GraduationCap, Handshake, HeartHandshake, HeartPulse, Home, IdCard, KeyRound, Landmark, LayoutGrid, Layers,
+  LogOut, Megaphone, MessageCircleWarning, MessageSquare, MessagesSquare, Network, NotebookPen, PartyPopper, PencilLine, PillBottle, Play, Route as RouteIcon, School, ScrollText, Settings, ShoppingCart, Shuffle,
+  Scale, ShieldAlert, ShieldCheck, Sparkles, Star, Target, Trophy, Truck, UserCheck, UserCircle2, Umbrella, Undo2, Users, Users2, Video, Wallet, Wand2, type LucideIcon,
 } from 'lucide-react'
 import { Logo } from '@/components/Logo'
 import { api, errorMessage } from '@/lib/api'
@@ -39,6 +39,9 @@ import { useLeaveRequests, useResignations } from '@/lib/hooks/useHr'
 import { useDefaulters, useInvoices } from '@/lib/hooks/useFinance'
 import { StudentReportMod } from './modules/studentReport'
 import { AcademicYearsMod, BoardsMod, ClassesMod, CurriculumMod, PeriodsMod, RoomsMod } from './modules/academic'
+import { WorkingDaysMod } from './modules/schoolConfig'
+import { AdmissionCatalogsMod, DocumentRecordsReportMod } from './modules/documents'
+import { EligibilityExceptionsReportMod, PerformanceBandsMod, SectioningTemplatesMod, TrackEligibilityMod, TrackRegistrationsMod } from './modules/sectioning'
 import { SettingsMod } from './modules/settings'
 import { firstName } from './modules/viewer'
 import { MyTeamMod, MyReviewsMod, TeamReviewsMod, StaffConductMod } from './modules/employee'
@@ -136,6 +139,7 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('iha', 'Inter-House (IHA)', PartyPopper, <RegistrationsMod kind="house" title="Inter-House Activities" sub="Represent your house this term" />, 'Activities'),
       M('exc', 'Extra-Curricular (EXC)', Sparkles, <RegistrationsMod kind="exc" title="EXC Registrations" sub="Weekend extra-curricular coaching" />, 'Activities'),
       M('events', 'Event Registration', Play, <RegistrationsMod kind="event" title="Event Registration" sub="Sign up for upcoming school events" />, 'Activities'),
+      M('trackreg', 'Track & Stream Registration', RouteIcon, <TrackRegistrationsMod />, 'Actions'),
       M('health', 'Health Records', HeartPulse, <HealthMod />, 'Actions'),
       M('meds', 'Medication Log', PillBottle, <MedicationMod />, 'Actions'),
       M('ach', 'Achievements', Award, <AchievementsMod />, 'Actions'),
@@ -205,6 +209,9 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Operations'),
       M('people', 'People', Users, <PeopleMod />, 'Operations'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Operations'),
+      M('admissioncat', 'Admission Catalogs', FolderCog, <AdmissionCatalogsMod />, 'Operations'),
+      M('docrecords', 'Held Documents', ClipboardList, <DocumentRecordsReportMod />, 'Operations'),
+      M('trackexceptions', 'Eligibility Exceptions', FileWarning, <EligibilityExceptionsReportMod />, 'Operations'),
       M('verify', 'Verifications', ShieldCheck, <VerificationsMod />, 'Operations'),
       M('leaves', 'Leave Approvals', Umbrella, <LeaveApprovalsMod />, 'Operations'),
       M('calm', 'Calendar Mgmt', CalendarPlus, <CalendarAdminMod />, 'Operations'),
@@ -254,8 +261,14 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Academic Setup'),
       M('rooms', 'Rooms', DoorOpen, <RoomsMod />, 'Academic Setup'),
       M('periods', 'Periods', Clock3, <PeriodsMod />, 'Academic Setup'),
+      M('bands', 'Performance Bands', BarChart3, <PerformanceBandsMod />, 'Academic Setup'),
+      M('sectemplates', 'Sectioning Templates', Shuffle, <SectioningTemplatesMod />, 'Academic Setup'),
+      M('tracks', 'Track Eligibility', Target, <TrackEligibilityMod />, 'Academic Setup'),
       M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
+      M('admissioncat', 'Admission Catalogs', FolderCog, <AdmissionCatalogsMod />, 'Manage'),
+      M('docrecords', 'Held Documents', ClipboardList, <DocumentRecordsReportMod />, 'Manage'),
+      M('trackexceptions', 'Eligibility Exceptions', FileWarning, <EligibilityExceptionsReportMod />, 'Manage'),
       M('verify', 'Verifications', ShieldCheck, <VerificationsMod />, 'Manage'),
       M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Manage'),
       M('pickupdesk', 'Pickup Desk', KeyRound, <PickupDeskMod />, 'Manage'),
@@ -310,6 +323,7 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('journal', 'Journal', NotebookPen, <JournalMod />, 'Finance'),
       M('acctreports', 'Accounting Reports', FileBarChart2, <AccountingReportsMod />, 'Finance'),
       M('canteenrecon', 'Canteen Reconciliation', Scale, <CanteenReconciliationMod />, 'Finance'),
+      M('workingdays', 'Working Days & Periods', CalendarClock, <WorkingDaysMod />, 'System'),
       M('libsettings', 'Library Settings', BookMarked, <LibrarySettingsMod />, 'System'),
       M('udise', 'UDISE+ Export', FileBarChart2, <UdiseExportMod />, 'System'),
       M('settings', 'Settings', Settings, <SettingsMod />, 'System'),
@@ -326,9 +340,15 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Academic Setup'),
       M('rooms', 'Rooms', DoorOpen, <RoomsMod />, 'Academic Setup'),
       M('periods', 'Periods', Clock3, <PeriodsMod />, 'Academic Setup'),
+      M('bands', 'Performance Bands', BarChart3, <PerformanceBandsMod />, 'Academic Setup'),
+      M('sectemplates', 'Sectioning Templates', Shuffle, <SectioningTemplatesMod />, 'Academic Setup'),
+      M('tracks', 'Track Eligibility', Target, <TrackEligibilityMod />, 'Academic Setup'),
       M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
       M('admins', 'Admin Management', ShieldCheck, <AdminManagementMod />, 'Manage'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
+      M('admissioncat', 'Admission Catalogs', FolderCog, <AdmissionCatalogsMod />, 'Manage'),
+      M('docrecords', 'Held Documents', ClipboardList, <DocumentRecordsReportMod />, 'Manage'),
+      M('trackexceptions', 'Eligibility Exceptions', FileWarning, <EligibilityExceptionsReportMod />, 'Manage'),
       M('verify', 'Verifications', ShieldCheck, <VerificationsMod />, 'Manage'),
       M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Manage'),
       M('pickupdesk', 'Pickup Desk', KeyRound, <PickupDeskMod />, 'Manage'),
@@ -382,6 +402,7 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('journal', 'Journal', NotebookPen, <JournalMod />, 'Finance'),
       M('acctreports', 'Accounting Reports', FileBarChart2, <AccountingReportsMod />, 'Finance'),
       M('canteenrecon', 'Canteen Reconciliation', Scale, <CanteenReconciliationMod />, 'Finance'),
+      M('workingdays', 'Working Days & Periods', CalendarClock, <WorkingDaysMod />, 'System'),
       M('libsettings', 'Library Settings', BookMarked, <LibrarySettingsMod />, 'System'),
       M('udise', 'UDISE+ Export', FileBarChart2, <UdiseExportMod />, 'System'),
       M('settings', 'Settings', Settings, <SettingsMod />, 'System'),

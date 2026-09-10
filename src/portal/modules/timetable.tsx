@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Coffee, Sun, Utensils, Clock, MapPin, Sparkles, User, Users } from 'lucide-react'
+import { AlertTriangle, Coffee, Sun, Utensils, Clock, Lightbulb, MapPin, Sparkles, User, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAcademic, useStore } from '@/lib/store'
 import { api, errorMessage } from '@/lib/api'
-import type { PeriodDef, PeriodTemplate } from '@/lib/data'
+import type { Diagnostic, PeriodDef, PeriodTemplate } from '@/lib/data'
 import {
   DAY_LABELS, cellKey, daysFor, hhmm, isRunning, isoDate, sortedPeriods, useClock, useEntryLookup, useFetch, useMyTimetable,
   type ClassTimetable, type EntryLookup, type TeacherTimetable, type TimetableEntryView,
@@ -234,6 +234,69 @@ export function PeriodCard({ title, color, teacher, room, note, time, highlight,
 
 export function FreeCell({ dense }: { dense?: boolean }) {
   return <div className={`${dense ? 'min-h-[76px]' : 'min-h-[92px]'} rounded-xl border border-dashed border-black/[.08] dark:border-white/[.10] bg-black/[.02] dark:bg-white/[.03]`} />
+}
+
+const DIAG_LABEL: Record<Diagnostic['type'], string> = { CAPACITY_EXCEEDED: 'Not enough periods exist', REQUIREMENT_UNSATISFIED: 'Requirement couldn\'t be placed' }
+
+/**
+ * Phase T6 §4 — the structured infeasibility diagnosis: real conflicting numbers and concrete suggested
+ * actions, computed deterministically from the actual constraint model (never free-text guesswork or an
+ * LLM call — see server/src/modules/timetable/diagnostics.ts). Replaces a bare "needs manual attention"
+ * reason list per D9 — a dead-end error here is a real trust regression, so every card names the exact
+ * numbers involved and what to do about it, never just "failed". Shared between Phase 26/T6's Auto-Generate
+ * draft review (timetableBuilder.tsx) and Phase T8's what-if review (timetableWhatIf.tsx) — both surface the
+ * exact same diagnostics shape, so one panel serves both rather than two near-duplicates.
+ */
+export function DiagnosticsPanel({ diagnostics }: { diagnostics: Diagnostic[] }) {
+  const capacity = diagnostics.filter((d): d is Extract<Diagnostic, { type: 'CAPACITY_EXCEEDED' }> => d.type === 'CAPACITY_EXCEEDED')
+  const requirements = diagnostics.filter((d): d is Extract<Diagnostic, { type: 'REQUIREMENT_UNSATISFIED' }> => d.type === 'REQUIREMENT_UNSATISFIED')
+  return (
+    <Card className="border-rose-200 dark:border-rose-500/30 bg-rose-50/50 dark:bg-rose-500/[.05] p-5">
+      <p className="mb-4 flex items-center gap-2 text-[13.5px] font-semibold text-rose-700 dark:text-rose-300">
+        <AlertTriangle size={15} /> Why generation couldn't place everything ({diagnostics.length})
+      </p>
+      <div className="space-y-3">
+        {capacity.map((d, i) => (
+          <div key={`cap-${i}`} className="rounded-2xl border border-rose-200 dark:border-rose-500/25 bg-white dark:bg-[#14141f] p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Pill tone="rose">{DIAG_LABEL[d.type]}</Pill>
+              <p className="text-[13.5px] font-semibold">{d.cohortLabel}</p>
+            </div>
+            <p className="mt-2 text-[13px] text-black/70 dark:text-white/70">
+              Requires <strong className="tabular-nums">{d.requiredPeriodsPerWeek}</strong> periods/week, but only <strong className="tabular-nums">{d.availablePeriodsPerWeek}</strong> class periods/week exist
+              {' '}— short by <strong className="tabular-nums text-rose-600 dark:text-rose-400">{d.deficit}</strong>.
+            </p>
+            <SuggestedActions actions={d.suggestedActions} />
+          </div>
+        ))}
+        {requirements.map((d, i) => (
+          <div key={`req-${i}`} className="rounded-2xl border border-amber-200 dark:border-amber-500/25 bg-white dark:bg-[#14141f] p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Pill tone="amber">{DIAG_LABEL[d.type]}</Pill>
+              <p className="text-[13.5px] font-semibold">{d.cohortLabel}{d.subjectName ? ` · ${d.subjectName}` : ''}</p>
+              <span className="text-[12px] text-black/45 dark:text-white/45">{d.unplacedPeriods} period{d.unplacedPeriods === 1 ? '' : 's'} unplaced</span>
+            </div>
+            <p className="mt-2 text-[13px] text-black/70 dark:text-white/70">{d.reason}</p>
+            <SuggestedActions actions={d.suggestedActions} />
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+function SuggestedActions({ actions }: { actions: string[] }) {
+  if (!actions.length) return null
+  return (
+    <div className="mt-3 rounded-xl bg-black/[.03] dark:bg-white/[.05] p-3">
+      <p className="mb-1.5 flex items-center gap-1.5 text-[11.5px] font-semibold uppercase tracking-wider text-black/45 dark:text-white/45">
+        <Lightbulb size={12} /> Suggested actions
+      </p>
+      <ul className="space-y-1 text-[12.5px] text-black/65 dark:text-white/65">
+        {actions.map((a, i) => <li key={i}>• {a}</li>)}
+      </ul>
+    </div>
+  )
 }
 
 function Legend({ entries, lookup, template }: { entries: TimetableEntryView[]; lookup: EntryLookup; template: PeriodTemplate }) {

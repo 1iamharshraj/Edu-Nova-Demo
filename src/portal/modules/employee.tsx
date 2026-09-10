@@ -2,10 +2,11 @@ import { useId, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { Check, CloudUpload, FileText, IdCard, Pencil, Plus, Share2, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { useStore } from '@/lib/store'
+import { useAcademic, useStore } from '@/lib/store'
 import { api, downloadFile, downloadPath, errorMessage, uploadFile } from '@/lib/api'
 import { isAdmin } from '@/lib/access'
-import type { EmploymentChangeType, PerformanceReviewRec, StaffConductCategory, StaffConductRecord, StaffConductStatus, User } from '@/lib/data'
+import { useEntity } from '@/lib/hooks/useEntity'
+import type { EmploymentChangeType, PerformanceReviewRec, QualificationProficiency, StaffConductCategory, StaffConductRecord, StaffConductStatus, TeacherQualification, User } from '@/lib/data'
 import { fmtDate } from '@/lib/hooks/useAcademics'
 import { useEmployees } from '@/lib/hooks/useFinance'
 import {
@@ -149,6 +150,132 @@ export function EmployeeDocumentsSection({ userId }: { userId: string }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+/* ── Teacher qualifications (Phase T1 §3) — reachable from the teacher's People/profile screen ───────── */
+// Declared subject + grade-range + proficiency, superseding nothing (ClassSubject.teacherId's informal
+// signal keeps working) — this is what T4/T5's Constraint Builder will read. See
+// .agents/edunova/phase-t1-timetable-foundations.md §3.
+
+const PROFICIENCIES: { value: QualificationProficiency; label: string }[] = [
+  { value: 'PRIMARY', label: 'Primary' },
+  { value: 'SECONDARY', label: 'Secondary' },
+]
+
+interface QualificationForm { subjectId: string; gradeMin: string; gradeMax: string; proficiency: QualificationProficiency; isPrimarySubject: boolean }
+const emptyQualificationForm = (): QualificationForm => ({ subjectId: '', gradeMin: '', gradeMax: '', proficiency: 'PRIMARY', isPrimarySubject: false })
+
+export function TeacherQualificationsSection({ teacherId }: { teacherId: string }) {
+  const { subjects, grades } = useAcademic()
+  const qualifications = useEntity('teacherQualifications')
+  const sortedGrades = useMemo(() => [...grades].sort((a, b) => a.order - b.order), [grades])
+  const gradeByOrder = useMemo(() => new Map(sortedGrades.map(g => [g.order, g.label])), [sortedGrades])
+  const subjectById = useMemo(() => new Map(subjects.map(s => [s.id, s])), [subjects])
+  const mine = useMemo(
+    () => qualifications.items.filter(q => q.teacherId === teacherId)
+      .sort((a, b) => (subjectById.get(a.subjectId)?.name ?? '').localeCompare(subjectById.get(b.subjectId)?.name ?? '')),
+    [qualifications.items, teacherId, subjectById],
+  )
+
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<TeacherQualification | null>(null)
+  const [form, setForm] = useState<QualificationForm>(emptyQualificationForm)
+  const openAdd = () => {
+    setEditing(null)
+    setForm({ ...emptyQualificationForm(), subjectId: subjects[0]?.id ?? '', gradeMin: String(sortedGrades[0]?.order ?? 1), gradeMax: String(sortedGrades[sortedGrades.length - 1]?.order ?? 1) })
+    setFormOpen(true)
+  }
+  const openEdit = (q: TeacherQualification) => {
+    setEditing(q)
+    setForm({ subjectId: q.subjectId, gradeMin: String(q.gradeRangeMin), gradeMax: String(q.gradeRangeMax), proficiency: q.proficiency, isPrimarySubject: q.isPrimarySubject })
+    setFormOpen(true)
+  }
+  const save = async () => {
+    const body = { subjectId: form.subjectId, gradeRangeMin: Number(form.gradeMin), gradeRangeMax: Number(form.gradeMax), proficiency: form.proficiency, isPrimarySubject: form.isPrimarySubject }
+    const out = editing
+      ? await qualifications.update(editing.id, body, 'Qualification updated')
+      : await qualifications.create({ ...body, teacherId }, 'Qualification added')
+    if (out) setFormOpen(false)
+  }
+  const [del, setDel] = useState<TeacherQualification | null>(null)
+  const formValid = !!form.subjectId && form.gradeMin !== '' && form.gradeMax !== '' && Number(form.gradeMin) <= Number(form.gradeMax)
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-[13px] text-black/50 dark:text-white/50">Subjects and grade ranges this teacher is qualified to be scheduled for.</p>
+        <button onClick={openAdd} disabled={subjects.length === 0} className="flex shrink-0 items-center gap-1.5 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3 py-1.5 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15 disabled:opacity-40">
+          <Plus size={13} /> Add qualification
+        </button>
+      </div>
+      {mine.length === 0 ? (
+        <Empty text="No qualifications on file yet." />
+      ) : (
+        <div className="space-y-1.5">
+          {mine.map(q => (
+            <div key={q.id} className="flex items-center gap-3 rounded-2xl bg-black/[.03] dark:bg-white/[.05] px-4 py-2.5">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-[13.5px] font-semibold">{subjectById.get(q.subjectId)?.name ?? 'Unknown subject'}</p>
+                  <Pill tone={q.proficiency === 'PRIMARY' ? 'indigo' : 'slate'}>{q.proficiency === 'PRIMARY' ? 'Primary' : 'Secondary'}</Pill>
+                  {q.isPrimarySubject && <Pill tone="green">Primary subject</Pill>}
+                </div>
+                <p className="text-[12px] text-black/45 dark:text-white/45">Grades {gradeByOrder.get(q.gradeRangeMin) ?? q.gradeRangeMin} – {gradeByOrder.get(q.gradeRangeMax) ?? q.gradeRangeMax}</p>
+              </div>
+              <button onClick={() => openEdit(q)} className="shrink-0 rounded-full p-1.5 text-black/35 hover:bg-black/10 hover:text-black dark:text-white/35 dark:hover:bg-white/15 dark:hover:text-white" aria-label="Edit"><Pencil size={13} /></button>
+              <button onClick={() => setDel(q)} className="shrink-0 rounded-full p-1.5 text-black/35 hover:bg-rose-50 hover:text-rose-500 dark:text-white/35" aria-label="Delete"><Trash2 size={13} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Modal open={formOpen} onClose={() => setFormOpen(false)} title={editing ? 'Edit qualification' : 'New qualification'}>
+        <div className="space-y-4">
+          <Field label="Subject">
+            <select value={form.subjectId} onChange={e => setForm({ ...form, subjectId: e.target.value })} className={inputCls} disabled={!!editing}>
+              {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="From grade">
+              <select value={form.gradeMin} onChange={e => setForm({ ...form, gradeMin: e.target.value })} className={inputCls}>
+                {sortedGrades.map(g => <option key={g.id} value={g.order}>{g.label}</option>)}
+              </select>
+            </Field>
+            <Field label="To grade">
+              <select value={form.gradeMax} onChange={e => setForm({ ...form, gradeMax: e.target.value })} className={inputCls}>
+                {sortedGrades.map(g => <option key={g.id} value={g.order}>{g.label}</option>)}
+              </select>
+            </Field>
+          </div>
+          {Number(form.gradeMin) > Number(form.gradeMax) && <p className="text-[12.5px] text-rose-500">"From grade" must not be after "To grade".</p>}
+          <Field label="Proficiency">
+            <select value={form.proficiency} onChange={e => setForm({ ...form, proficiency: e.target.value as QualificationProficiency })} className={inputCls}>
+              {PROFICIENCIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+          </Field>
+          <label className="flex items-center gap-2.5 text-[13.5px] font-medium">
+            <input type="checkbox" checked={form.isPrimarySubject} onChange={e => setForm({ ...form, isPrimarySubject: e.target.checked })} />
+            This is one of the teacher's primary subjects
+          </label>
+          <div className="flex gap-3 pt-2">
+            <button onClick={save} disabled={!formValid || qualifications.busy} className="btn-ink flex-1 py-3 text-[14px] font-semibold disabled:opacity-40">{editing ? 'Save changes' : 'Add qualification'}</button>
+            <button onClick={() => setFormOpen(false)} className="rounded-xl bg-black/[.05] dark:bg-white/[.07] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">Cancel</button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={!!del} onClose={() => setDel(null)} title="Delete qualification?">
+        <div className="space-y-4">
+          <p className="text-[14px] text-black/60 dark:text-white/60">This removes the teacher's qualification for {del ? (subjectById.get(del.subjectId)?.name ?? 'this subject') : ''}.</p>
+          <div className="flex gap-3">
+            <button onClick={async () => { if (del && await qualifications.remove(del.id, 'Qualification removed')) setDel(null) }} disabled={qualifications.busy} className="btn-ink flex-1 py-3 text-[14px] font-semibold bg-rose-600 hover:bg-rose-700 disabled:opacity-40">Delete</button>
+            <button onClick={() => setDel(null)} className="rounded-xl bg-black/[.05] dark:bg-white/[.07] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">Cancel</button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

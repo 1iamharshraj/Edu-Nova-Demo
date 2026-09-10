@@ -8,6 +8,7 @@ import { api, errorMessage } from '@/lib/api'
 import type { BoardingType, MyStopAssignmentRec, RouteRec, StopRec, StudentStopAssignmentRec, VehicleRec } from '@/lib/data'
 import { fmtDate } from '@/lib/hooks/useAcademics'
 import { useEmployees } from '@/lib/hooks/useFinance'
+import { useTransportTodos } from '@/lib/hooks/useDocuments'
 import {
   BOARDING_TYPES, boardingTone, haversineKm, isLocationStale, minutesAgo, useAssignments, useMyStop, useRoutes, useStops, useVehicles,
 } from '@/lib/hooks/useTransport'
@@ -361,6 +362,31 @@ function VehiclesSection() {
 
 /* ── admin/staff: student ↔ stop assignments ───────────── */
 
+/** Phase T2 Part A hand-off: admissions that declared a transport need surface here as a to-do until staff
+ * either assign the real stop below or explicitly dismiss it — this module never auto-matches a stop from
+ * the applicant's free-text preferred area. See .agents/edunova/phase-t2-strong-admissions.md Part A. */
+function AdmissionTransportTodos({ onAssignNow }: { onAssignNow: (studentId: string) => void }) {
+  const todos = useTransportTodos()
+  const pending = (todos.items ?? []).filter(t => !t.alreadyAssigned)
+  if (todos.loading || pending.length === 0) return null
+  return (
+    <Card>
+      <p className={sectionLabel}>New admissions needing a stop</p>
+      <p className={`mt-1 ${muted}`}>Declared "needs transport" at intake — assign their stop below, or dismiss if handled another way.</p>
+      <div className="mt-3 space-y-2">
+        {pending.map(t => (
+          <div key={t.applicationId} className="flex flex-wrap items-center gap-3 rounded-xl bg-black/[.03] dark:bg-white/[.05] px-3 py-2 text-[13px]">
+            <span className="min-w-40 flex-1 font-semibold">{t.applicantName}</span>
+            {t.transportPreferredArea && <span className={muted}>preferred: {t.transportPreferredArea}</span>}
+            <button onClick={() => onAssignNow(t.studentId)} className="rounded-full bg-indigo-50 dark:bg-indigo-500/10 px-3 py-1.5 text-[12px] font-semibold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-500/20">Assign now</button>
+            <button onClick={() => todos.markHandled(t.applicationId)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] px-3 py-1.5 text-[12px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">Dismiss</button>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
 function AssignmentsSection() {
   const { db } = useStore()
   const routes = useRoutes()
@@ -375,7 +401,10 @@ function AssignmentsSection() {
   const [stopId, setStopId] = useState('')
   const [boardingType, setBoardingType] = useState<BoardingType>('Both')
   const [busy, setBusy] = useState(false)
+  const [pickerKey, setPickerKey] = useState(0)
   const stopsForRoute = useMemo(() => (stops.items ?? []).filter(s => s.routeId === routeId).sort((a, b) => a.sequence - b.sequence), [stops.items, routeId])
+
+  const assignNow = (id: string) => { setStudentId(id); setPickerKey(k => k + 1) }
 
   const assign = async () => {
     if (!studentId || !stopId) return
@@ -400,11 +429,12 @@ function AssignmentsSection() {
 
   return (
     <div className="space-y-6">
+      <AdmissionTransportTodos onAssignNow={assignNow} />
       <Card>
         <p className={sectionLabel}>Assign a student to a stop</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Student">
-            <AsyncEntityPicker role="student" value={studentId} onChange={id => setStudentId(id)} placeholder="Search student…" />
+            <AsyncEntityPicker key={pickerKey} role="student" value={studentId} initialLabel={studentId ? nameOf(studentId) : undefined} onChange={id => setStudentId(id)} placeholder="Search student…" />
           </Field>
           <Field label="Route">
             <select value={routeId} onChange={e => { setRouteId(e.target.value); setStopId('') }} className={inputCls}>

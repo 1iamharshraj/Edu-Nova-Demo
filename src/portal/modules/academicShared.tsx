@@ -1,4 +1,4 @@
-import type { BoardRec, ClassRec, Enrollment, Grade, Stream } from '@/lib/data'
+import type { BoardRec, ClassRec, Enrollment, Grade, PeriodKind, Stream } from '@/lib/data'
 import { Pill } from '../ui'
 
 // Non-component helpers shared between academic.tsx's modules and the routed pages that used to be modals
@@ -31,3 +31,31 @@ export const classPills = (c: ClassRec) => (
 
 export interface ChapterForm { title: string; estimatedPeriods: string; examWeightagePct: string }
 export const emptyChapterForm = (): ChapterForm => ({ title: '', estimatedPeriods: '', examWeightagePct: '' })
+
+// ── Period-row editing (shared by academic.tsx's PeriodsMod and schoolConfig.tsx's day-override editor,
+// Phase T1 §5 — roadmap D7) ──
+export interface PeriodRow { label: string; start: string; end: string; kind: PeriodKind }
+
+export const STARTER_ROWS: PeriodRow[] = [
+  { label: 'P1', start: '09:00', end: '09:45', kind: 'class' },
+  { label: 'P2', start: '09:45', end: '10:30', kind: 'class' },
+  { label: 'Morning Break', start: '10:30', end: '10:45', kind: 'break' },
+  { label: 'P3', start: '10:45', end: '11:30', kind: 'class' },
+  { label: 'P4', start: '11:30', end: '12:15', kind: 'class' },
+  { label: 'Lunch Break', start: '12:15', end: '13:00', kind: 'break' },
+  { label: 'P5', start: '13:00', end: '13:45', kind: 'class' },
+  { label: 'P6', start: '13:45', end: '14:30', kind: 'class' },
+]
+
+/** Next row that continues where the last one ends: a 45-minute class slot with the next P-number. */
+export function nextRow(rows: PeriodRow[]): PeriodRow {
+  const last = rows[rows.length - 1]
+  const classCount = rows.filter(r => r.kind === 'class').length
+  const start = last?.end || '09:00'
+  const [h, m] = start.split(':').map(Number)
+  const endMin = Math.min(23 * 60 + 59, h * 60 + m + 45)
+  const end = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`
+  return { label: `P${classCount + 1}`, start, end, kind: 'class' }
+}
+
+export const rowsValid = (rows: PeriodRow[]) => rows.length > 0 && rows.every(r => r.label.trim() && r.start && r.end && r.start < r.end)
