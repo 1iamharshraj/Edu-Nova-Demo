@@ -7,6 +7,7 @@ import type { Ctx } from '../../lib/rbac'
 import { fmtDate, toDate } from '../../lib/validate'
 import { isAdmin, isStaff, visibleStudentIds } from '../../lib/scope'
 import { notify, sendEmail, sendWhatsApp } from '../../lib/notify'
+import * as subSvc from '../timetable/substitution'
 import type { createLeaveType, patchLeaveType, createLeaveRequest, requestsQuery, decideBody, balanceQuery } from './schema'
 
 // See phase-6-hr.md → /api/leave. "Student leave" = LeaveType.appliesTo "student" (or no leaveType at all when
@@ -161,10 +162,18 @@ export async function createRequest(ctx: Ctx, input: z.infer<typeof createLeaveR
     },
   })
   await audit(ctx.schoolId, ctx.actorId, 'create', 'leaveRequest', row.id, undefined, serializeLeaveRequest(row))
+
+  // Phase T9 §4 — chained absence: if this newly-absent person was themselves an accepted substitute
+  // covering someone else's periods that overlap this new leave, that coverage is no longer real. No-op
+  // (a single fast lookup) for every leave that isn't a teacher's own — never touches student/staff leave.
+  await subSvc.detectAndHandleChainedAbsence(ctx, row)
   return row
 }
 
 function assertPending(row: LeaveRequest) {
+  if (row.status === 'PENDING_SUBSTITUTION') {
+    throw new HttpError(409, 'Leave request has a substitution request in flight — wait for it to be accepted/declined (or send a substitute request yourself) before deciding')
+  }
   if (row.status !== 'Pending') throw new HttpError(409, `Leave request is already ${row.status.toLowerCase()}`)
 }
 
@@ -203,12 +212,26 @@ export async function approve(ctx: Ctx, id: string, input: z.infer<typeof decide
   })
   await audit(ctx.schoolId, ctx.actorId, 'approve', 'leaveRequest', id, serializeLeaveRequest(before), serializeLeaveRequest(row))
   await notifyDecision(ctx, row, 'Approved')
-  return row
+
+  // Phase T9 §4 — the substitution workflow's own second validation pass (accept-time was the first):
+  // promotes any accepted substitute's hold from TENTATIVE to LOCKED, writes the real Substitution row(s),
+  // and reports any period this absence touches that still has no coverage. No-op (one fast role lookup)
+  // for every non-teacher leave — the critical regression guarantee. Attached as a non-enumerable-shaped
+  // extra property rather than changed into `row`'s own return shape, so every existing caller of approve()
+  // (and serializeLeaveRequest, which only reads its own explicit field list) is completely unaffected.
+  const substitution = await subSvc.onLeaveApproved(ctx, row)
+  return Object.assign(row, { _substitution: substitution })
 }
 
 export async function decline(ctx: Ctx, id: string, input: z.infer<typeof decideBody>) {
   const before = await get(ctx, id)
-  assertPending(before)
+  // Unlike approve(), a decline is allowed straight through PENDING_SUBSTITUTION — declining the whole
+  // leave makes any in-flight substitution round-trip moot, so it's cancelled rather than left blocking.
+  if (before.status === 'PENDING_SUBSTITUTION') {
+    await subSvc.cancelOutstandingSubstitutionRequests(ctx, before.id)
+  } else {
+    assertPending(before)
+  }
   await assertCanDecide(ctx, before)
   const row = await prisma.leaveRequest.update({
     where: { id }, data: { status: 'Declined', decidedById: ctx.actorId, decidedAt: new Date(), decisionNote: input.note ?? null },

@@ -33,6 +33,63 @@ adminRouter.post('/reset', requireRole('superadmin'), wrap(async (req, res) => {
   validate(resetBody, req.body)
   const { schoolId } = ctx
   await prisma.$transaction([
+    // Phase T1 tables (advanced timetable generation, foundations — phase-t1-timetable-foundations.md).
+    // FK-safe order: CohortClass -> Cohort, RoomCapability -> Capability. TeacherQualification and
+    // WorkingDayPattern have no dependents of their own. PeriodTemplate override rows (dayOfWeek/
+    // baseTemplateId, added to the existing PeriodTemplate table) are covered by the pre-existing
+    // `periodTemplate.deleteMany({ where: { schoolId } })` further below — one statement matching every
+    // row (base + override) for this school, so no separate cleanup needed here.
+    // Phase T3 tables (advanced timetable generation, sectioning engine — phase-t3-sectioning-engine.md).
+    // FK-safe order: SectioningAssignment before SectioningVersion; CohortMembership/TrackEligibilityException
+    // have no dependents of their own; TrackEligibilityRule before Activity is NOT required here since
+    // Activity itself is untouched by this reset block (see the pre-existing activityRegistration/activity
+    // deleteMany further below — those cascade TrackEligibilityRule via its own FK).
+    prisma.sectioningAssignment.deleteMany({ where: { schoolId } }),
+    prisma.sectioningVersion.deleteMany({ where: { schoolId } }),
+    prisma.sectioningTemplate.deleteMany({ where: { schoolId } }),
+    prisma.performanceBand.deleteMany({ where: { schoolId } }),
+    prisma.trackEligibilityException.deleteMany({ where: { schoolId } }),
+    prisma.trackEligibilityRule.deleteMany({ where: { schoolId } }),
+    prisma.cohortMembership.deleteMany({ where: { schoolId } }),
+    prisma.cohortClass.deleteMany({ where: { cohort: { schoolId } } }),
+    prisma.cohort.deleteMany({ where: { schoolId } }),
+    prisma.roomCapability.deleteMany({ where: { room: { schoolId } } }),
+    prisma.capability.deleteMany({ where: { schoolId } }),
+    prisma.teacherQualification.deleteMany({ where: { schoolId } }),
+    prisma.workingDayPattern.deleteMany({ where: { schoolId } }),
+    // Phase T4 tables (advanced timetable generation, Constraint Builder + solver core —
+    // phase-t4-solver-core.md). FK-safe order: TeachingAssignment before TeachingRequirement (assignment
+    // carries a teachingRequirementId FK); Constraint has no dependents of its own.
+    prisma.teachingAssignment.deleteMany({ where: { schoolId } }),
+    prisma.teachingRequirement.deleteMany({ where: { schoolId } }),
+    prisma.constraint.deleteMany({ where: { schoolId } }),
+    // Phase T5 tables (never added to reset when T5 shipped — caught and fixed here). No FK dependents of
+    // their own (TeachingAssignmentPool references TeachingRequirement, already cleared above).
+    prisma.teacherAvailability.deleteMany({ where: { schoolId } }),
+    prisma.teachingAssignmentPool.deleteMany({ where: { schoolId } }),
+    prisma.preference.deleteMany({ where: { schoolId } }),
+    prisma.preferenceProfile.deleteMany({ where: { schoolId } }),
+    // Phase T6 tables (advanced timetable generation, sessions/jobs/diagnostics — phase-t6-sessions-jobs.md).
+    // FK-safe order: leaf join/entry tables before their parents. TimetableEntry.sessionId (additive column
+    // on the existing table) needs no separate cleanup — it's cleared by that table's own pre-existing
+    // deleteMany further below, and TimetableSession is deleted here regardless of whether any
+    // TimetableEntry still references it (onDelete: SetNull).
+    prisma.electiveChoice.deleteMany({ where: { electiveOffering: { electiveBlock: { schoolId } } } }),
+    prisma.electiveOffering.deleteMany({ where: { electiveBlock: { schoolId } } }),
+    prisma.electiveBlock.deleteMany({ where: { schoolId } }),
+    prisma.sessionRequirement.deleteMany({ where: { session: { schoolId } } }),
+    prisma.sessionCohort.deleteMany({ where: { session: { schoolId } } }),
+    prisma.timetableSessionEntry.deleteMany({ where: { session: { schoolId } } }),
+    prisma.timetableSession.deleteMany({ where: { schoolId } }),
+    prisma.timetableGenerationJob.deleteMany({ where: { schoolId } }),
+    // Phase T7 tables (advanced timetable generation, versioning + locks + override system —
+    // phase-t7-versioning-override.md). FK-safe order: TimetableEditEvent/TimetableLock (children) before
+    // TimetableVersion (parent). TimetableEntry.timetableVersionId (additive column on the existing table)
+    // needs no separate cleanup — the pre-existing timetableEntry.deleteMany further below clears it, and
+    // TimetableVersion is deleted here regardless (onDelete: SetNull on that FK).
+    prisma.timetableEditEvent.deleteMany({ where: { schoolId } }),
+    prisma.timetableLock.deleteMany({ where: { schoolId } }),
+    prisma.timetableVersion.deleteMany({ where: { schoolId } }),
     // Phase 30 tables (FK-safe order: wallet-transactions -> wallets; both filtered directly by schoolId
     // rather than joined through the other, so this can run anywhere in the list).
     prisma.walletTransaction.deleteMany({ where: { schoolId } }),
@@ -136,6 +193,13 @@ adminRouter.post('/reset', requireRole('superadmin'), wrap(async (req, res) => {
     prisma.notification.deleteMany({ where: { schoolId } }),
     prisma.meeting.deleteMany({ where: { schoolId } }),
     prisma.calendarEvent.deleteMany({ where: { schoolId } }),
+    // Phase T9 tables (advanced timetable generation, substitution workflow — phase-t9-substitution.md).
+    // FK-safe order: PeriodHold/SubstitutionRequest (children, both carry a leaveRequestId-adjacent FK
+    // chain) before the Phase 6 LeaveRequest deleteMany immediately below; SubstitutionPolicy is a
+    // school-level singleton with no dependents of its own.
+    prisma.periodHold.deleteMany({ where: { schoolId } }),
+    prisma.substitutionRequest.deleteMany({ where: { schoolId } }),
+    prisma.substitutionPolicy.deleteMany({ where: { schoolId } }),
     // Phase 6 tables.
     prisma.leaveRequest.deleteMany({ where: { schoolId } }),
     prisma.leaveType.deleteMany({ where: { schoolId } }),
@@ -155,6 +219,14 @@ adminRouter.post('/reset', requireRole('superadmin'), wrap(async (req, res) => {
     prisma.feeHead.deleteMany({ where: { schoolId } }),
     prisma.payslip.deleteMany({ where: { schoolId } }),
     prisma.salaryStructure.deleteMany({ where: { schoolId } }),
+    // Phase T2 tables (FK-safe: SubmittedDocument/PriorSubjectScore before Application since both carry
+    // an applicationId FK; AdmissionCategory/RequiredDocumentType/AdmissionSettings are school-level
+    // catalogs cleaned like other catalogs — see phase-t2-strong-admissions.md).
+    prisma.submittedDocument.deleteMany({ where: { schoolId } }),
+    prisma.priorSubjectScore.deleteMany({ where: { schoolId } }),
+    prisma.admissionCategory.deleteMany({ where: { schoolId } }),
+    prisma.requiredDocumentType.deleteMany({ where: { schoolId } }),
+    prisma.admissionSettings.deleteMany({ where: { schoolId } }),
     // Phase 4 tables (password resets cascade from users).
     prisma.certificate.deleteMany({ where: { schoolId } }),
     prisma.application.deleteMany({ where: { schoolId } }),

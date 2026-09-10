@@ -17,6 +17,7 @@ export const serializeActivity = (a: Activity, registered?: number) => ({
   id: a.id, kind: a.kind, title: a.title, description: a.description, capacity: a.capacity ?? undefined,
   opensAt: a.opensAt?.toISOString(), closesAt: a.closesAt?.toISOString(), forRoles: a.forRoles,
   createdById: a.createdById, createdAt: a.createdAt.toISOString(),
+  trackCohortId: a.trackCohortId ?? undefined,
   registered,
 })
 
@@ -54,7 +55,7 @@ export async function createActivitySvc(ctx: Ctx, input: z.infer<typeof createAc
     data: {
       schoolId: ctx.schoolId, kind: input.kind, title: input.title, description: input.description, capacity: input.capacity,
       opensAt: input.opensAt ? new Date(input.opensAt) : null, closesAt: input.closesAt ? new Date(input.closesAt) : null,
-      forRoles: input.forRoles, createdById: ctx.actorId,
+      forRoles: input.forRoles, createdById: ctx.actorId, trackCohortId: input.trackCohortId ?? null,
     },
   })
   await audit(ctx.schoolId, ctx.actorId, 'create', 'activity', row.id, undefined, { kind: row.kind, title: row.title })
@@ -70,7 +71,7 @@ export async function updateActivity(ctx: Ctx, id: string, input: z.infer<typeof
       title: input.title, description: input.description, capacity: input.capacity,
       opensAt: input.opensAt === undefined ? undefined : input.opensAt ? new Date(input.opensAt) : null,
       closesAt: input.closesAt === undefined ? undefined : input.closesAt ? new Date(input.closesAt) : null,
-      forRoles: input.forRoles,
+      forRoles: input.forRoles, trackCohortId: input.trackCohortId,
     },
   })
   await audit(ctx.schoolId, ctx.actorId, 'update', 'activity', id, serializeActivity(before), serializeActivity(row))

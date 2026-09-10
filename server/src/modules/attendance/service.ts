@@ -47,6 +47,13 @@ function assertUnlocked(ctx: Ctx, s: { lockedAt: Date | null }) {
 // like a subject-scoped write (that subject's teacher, or the class teacher). A whole-day session
 // (periodIdx null) isn't tied to any one subject, so only the class teacher (or staff/admin) may write it —
 // previously any teacher who taught *anything* in the class could overwrite the whole day's attendance.
+//
+// Phase T10 §1 fix: attendance is a "who is physically in front of the class right now" record, so — unlike
+// syllabus pace (about content, not people) — it SHOULD reflect a T9 one-off `Substitution` for this exact
+// (entry, date): the substitute actually taught the period and is the one who can truthfully mark it, even
+// though they hold no `ClassSubject`/class-teacher relationship to this class. The regular teacher (via
+// canWriteClassSubject) keeps write access too — either of them being able to mark it is intentional, since
+// the regular teacher may reconcile the record later.
 async function assertWriteAttendance(ctx: Ctx, classId: string, date: Date, periodIdx: number | null) {
   if (isStaff(ctx)) return
   if (ctx.role !== 'teacher') throw new HttpError(403, 'You do not teach this class')
@@ -63,10 +70,12 @@ async function assertWriteAttendance(ctx: Ctx, classId: string, date: Date, peri
 
   const entry = await prisma.timetableEntry.findFirst({
     where: { schoolId: ctx.schoolId, classId, periodIdx, dayOfWeek: weekdayOf(date), term: { startDate: { lte: date }, endDate: { gte: date } } },
-    select: { classSubjectId: true },
+    select: { id: true, classSubjectId: true },
   })
   if (entry) {
     if (await canWriteClassSubject(ctx, entry.classSubjectId)) return
+    const covering = await prisma.substitution.findUnique({ where: { timetableEntryId_date: { timetableEntryId: entry.id, date } }, select: { substituteTeacherId: true } })
+    if (covering?.substituteTeacherId === ctx.actorId) return
     throw new HttpError(403, 'You do not teach this subject in this class')
   }
   // No timetable entry for that slot (e.g. an ad-hoc period) — fall back to class-teacher access.

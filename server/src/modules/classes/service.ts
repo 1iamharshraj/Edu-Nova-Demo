@@ -7,6 +7,7 @@ import type { Ctx } from '../../lib/rbac'
 import { syncUserTitle, usersTouchingClasses } from '../../lib/titleSync'
 import { toClientUser } from '../../serialize'
 import { serializeEnrollment } from '../enrollments/service'
+import { ensureSectionCohort, removeSectionCohortForClass } from '../cohorts/service'
 import { createClass, patchClass } from './schema'
 
 // Classes are always loaded with their board / grade / stream so the serializer can label them.
@@ -109,6 +110,10 @@ export async function create(ctx: Ctx, input: z.infer<typeof createClass>) {
     include: classInclude,
   })
   await applyCurriculum(row)
+  // Phase T1 (roadmap D2) — every Class gets an implicit 1:1 "section cohort", transparently, going
+  // forward. See modules/cohorts/service.ts#ensureSectionCohort and scripts/backfillCohorts.ts for the
+  // one-time backfill of classes created before this phase.
+  await ensureSectionCohort(row)
   if (row.classTeacherId) await syncUserTitle([row.classTeacherId])
   await audit(ctx.schoolId, ctx.actorId, 'create', 'class', row.id, undefined, serializeClass(row))
   return row
@@ -139,6 +144,9 @@ export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchCl
     },
     include: classInclude,
   })
+  // Keeps the auto-generated section cohort's denormalized name/gradeId/academicYearId in sync when a
+  // class is renamed/regraded/reyeared — its membership (still just this one class) never changes.
+  await ensureSectionCohort(row)
   await syncUserTitle([...affected, row.classTeacherId ?? ''])
   await audit(ctx.schoolId, ctx.actorId, 'update', 'class', id, serializeClass(before), serializeClass(row))
   return row
@@ -147,6 +155,9 @@ export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchCl
 export async function remove(ctx: Ctx, id: string) {
   const before = await get(ctx, id)
   const affected = await usersTouchingClasses([id])
+  // Must run before the class itself is deleted (removeSectionCohortForClass looks the cohort up via the
+  // still-existing CohortClass row); Class's own delete cascades CohortClass regardless.
+  await removeSectionCohortForClass(id)
   await prisma.class.delete({ where: { id } })
   await syncUserTitle(affected)
   await audit(ctx.schoolId, ctx.actorId, 'delete', 'class', id, serializeClass(before))

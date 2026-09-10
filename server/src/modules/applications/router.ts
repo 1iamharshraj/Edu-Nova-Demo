@@ -6,12 +6,25 @@ import { STAFF_ROLES } from '../../lib/scope'
 import { validate } from '../../lib/validate'
 import * as svc from './service'
 import { serializeApplication } from './service'
-import { createApplication, patchApplication, listQuery, declineBody, approveBody } from './schema'
+import { createApplication, patchApplication, listQuery, declineBody, approveBody, siblingSuggestQuery, transportHandledBody } from './schema'
 
 // /api/applications — admissions pipeline + TC / Bonafide / Character requests.
 export const applicationsRouter = Router()
 applicationsRouter.use(requireAuth)
 const staff = requireRole(...(STAFF_ROLES as any))
+
+// Part A — sibling lookup (derived from shared Guardian contact info, not a stored field) and the
+// transport-requirement staff to-do surface. Placed ahead of '/:id' so they aren't swallowed by it.
+applicationsRouter.get('/sibling-suggestions', staff, wrap(async (req, res) => {
+  res.json({ items: await svc.siblingSuggestions(ctxOf(req as AuthedRequest), validate(siblingSuggestQuery, req.query)) })
+}))
+applicationsRouter.get('/transport-todos', staff, wrap(async (req, res) => {
+  res.json({ items: await svc.transportTodos(ctxOf(req as AuthedRequest)) })
+}))
+applicationsRouter.post('/:id/transport-handled', staff, wrap(async (req, res) => {
+  validate(transportHandledBody, req.body ?? {})
+  res.json({ item: serializeApplication(await svc.markTransportHandled(ctxOf(req as AuthedRequest), req.params.id)) })
+}))
 
 applicationsRouter.get('/', wrap(async (req, res) => {
   res.json({ items: (await svc.list(ctxOf(req as AuthedRequest), validate(listQuery, req.query))).map(serializeApplication) })

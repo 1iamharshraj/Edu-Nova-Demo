@@ -36,7 +36,11 @@ leaveRouter.post('/requests', wrap(async (req, res) => {
   res.status(201).json({ item: serializeLeaveRequest(await svc.createRequest(ctxOf(req as AuthedRequest), validate(createLeaveRequest, req.body))) })
 }))
 leaveRouter.post('/requests/:id/approve', wrap(async (req, res) => {
-  res.json({ item: serializeLeaveRequest(await svc.approve(ctxOf(req as AuthedRequest), req.params.id, validate(decideBody, req.body))) })
+  const row = await svc.approve(ctxOf(req as AuthedRequest), req.params.id, validate(decideBody, req.body))
+  // Phase T9 §4 — see service.ts#approve's own doc comment: `_substitution` is an extra, non-schema
+  // property attached only when this leave actually touched a teaching period.
+  const substitution = (row as unknown as { _substitution?: unknown })._substitution
+  res.json({ item: serializeLeaveRequest(row), substitution: substitution ?? undefined })
 }))
 leaveRouter.post('/requests/:id/decline', wrap(async (req, res) => {
   res.json({ item: serializeLeaveRequest(await svc.decline(ctxOf(req as AuthedRequest), req.params.id, validate(decideBody, req.body))) })

@@ -13,12 +13,17 @@ import { genPassword, makeEmail, uid } from '../../userDefaults'
 import { assertFileIds } from '../files/service'
 import * as certificates from '../certificates/service'
 import * as alumni from '../alumni/service'
-import type { createApplication, patchApplication, listQuery, approveBody } from './schema'
+import * as admissionDocuments from '../admissionDocuments/service'
+import type { createApplication, patchApplication, listQuery, approveBody, healthFlags as healthFlagsSchema } from './schema'
 
-export const applicationInclude = { certificates: { select: { id: true } } } satisfies Prisma.ApplicationInclude
+export const applicationInclude = {
+  certificates: { select: { id: true } },
+  priorSubjectScores: true,
+} satisfies Prisma.ApplicationInclude
 export type ApplicationFull = Prisma.ApplicationGetPayload<{ include: typeof applicationInclude }>
 
 export interface GuardianInfo { name: string; phone?: string; email?: string; relation?: string }
+export type HealthFlags = z.infer<typeof healthFlagsSchema>
 
 export const serializeApplication = (a: ApplicationFull) => ({
   id: a.id,
@@ -38,6 +43,19 @@ export const serializeApplication = (a: ApplicationFull) => ({
   decidedAt: a.decidedAt?.toISOString(),
   createdAt: a.createdAt.toISOString(),
   certificateId: a.certificates[0]?.id,
+  // Part A additions
+  previousSchoolName: a.previousSchoolName ?? undefined,
+  previousBoardId: a.previousBoardId ?? undefined,
+  lastGradeCompleted: a.lastGradeCompleted ?? undefined,
+  priorSubjectScores: a.priorSubjectScores.map(s => ({ id: s.id, subjectName: s.subjectName, score: s.score, maxScore: s.maxScore })),
+  declaredTrackPreference: a.declaredTrackPreference ?? undefined,
+  siblingStudentId: a.siblingStudentId ?? undefined,
+  admissionCategoryId: a.admissionCategoryId ?? undefined,
+  admissionMode: a.admissionMode ?? undefined,
+  healthFlags: (a.healthFlags as HealthFlags | null) ?? undefined,
+  transportRequired: a.transportRequired,
+  transportPreferredArea: a.transportPreferredArea ?? undefined,
+  transportHandledAt: a.transportHandledAt?.toISOString(),
 })
 
 export async function get(ctx: Ctx, id: string) {
@@ -63,7 +81,10 @@ export async function list(ctx: Ctx, q: z.infer<typeof listQuery>) {
   })
 }
 
-async function assertTargets(ctx: Ctx, input: { targetClassId?: string | null; targetBoardId?: string | null }) {
+async function assertTargets(ctx: Ctx, input: {
+  targetClassId?: string | null; targetBoardId?: string | null; previousBoardId?: string | null
+  admissionCategoryId?: string | null; siblingStudentId?: string | null
+}) {
   if (input.targetClassId) {
     const cls = await prisma.class.findFirst({ where: { id: input.targetClassId, schoolId: ctx.schoolId } })
     if (!cls) throw notFound('Target class')
@@ -71,6 +92,18 @@ async function assertTargets(ctx: Ctx, input: { targetClassId?: string | null; t
   if (input.targetBoardId) {
     const b = await prisma.board.findFirst({ where: { id: input.targetBoardId, schoolId: ctx.schoolId } })
     if (!b) throw notFound('Target board')
+  }
+  if (input.previousBoardId) {
+    const b = await prisma.board.findFirst({ where: { id: input.previousBoardId, schoolId: ctx.schoolId } })
+    if (!b) throw notFound('Previous board')
+  }
+  if (input.admissionCategoryId) {
+    const c = await prisma.admissionCategory.findFirst({ where: { id: input.admissionCategoryId, schoolId: ctx.schoolId } })
+    if (!c) throw notFound('Admission category')
+  }
+  if (input.siblingStudentId) {
+    const s = await prisma.user.findFirst({ where: { id: input.siblingStudentId, schoolId: ctx.schoolId, role: 'student' } })
+    if (!s) throw notFound('Sibling student')
   }
 }
 
@@ -98,6 +131,13 @@ export async function create(ctx: Ctx, input: z.infer<typeof createApplication>)
       schoolId: ctx.schoolId, kind: input.kind, applicantName: applicantName!, dob: dob ? toDate(dob) : null, gender: input.gender ?? null,
       guardian: input.guardian ?? undefined, targetClassId: input.targetClassId ?? null, targetBoardId: input.targetBoardId ?? null,
       studentId: input.kind === 'Admission' ? null : input.studentId, documents: input.documents ?? [], notes: input.notes ?? null, submittedById: ctx.actorId,
+      previousSchoolName: input.previousSchoolName ?? null, previousBoardId: input.previousBoardId ?? null, lastGradeCompleted: input.lastGradeCompleted ?? null,
+      declaredTrackPreference: input.declaredTrackPreference ?? null, siblingStudentId: input.siblingStudentId ?? null,
+      admissionCategoryId: input.admissionCategoryId ?? null, admissionMode: input.admissionMode ?? null, healthFlags: input.healthFlags ?? undefined,
+      transportRequired: input.transportRequired ?? false, transportPreferredArea: input.transportPreferredArea ?? null,
+      priorSubjectScores: input.priorSubjectScores?.length
+        ? { create: input.priorSubjectScores.map(s => ({ schoolId: ctx.schoolId, subjectName: s.subjectName, score: s.score, maxScore: s.maxScore })) }
+        : undefined,
     },
     include: applicationInclude,
   })
@@ -119,10 +159,63 @@ export async function update(ctx: Ctx, id: string, input: z.infer<typeof patchAp
       applicantName: input.applicantName, dob: input.dob === undefined ? undefined : input.dob ? toDate(input.dob) : null, gender: input.gender,
       guardian: input.guardian === undefined ? undefined : input.guardian ?? Prisma.JsonNull, targetClassId: input.targetClassId, targetBoardId: input.targetBoardId,
       documents: input.documents, notes: input.notes,
+      previousSchoolName: input.previousSchoolName, previousBoardId: input.previousBoardId, lastGradeCompleted: input.lastGradeCompleted,
+      declaredTrackPreference: input.declaredTrackPreference, siblingStudentId: input.siblingStudentId,
+      admissionCategoryId: input.admissionCategoryId, admissionMode: input.admissionMode,
+      healthFlags: input.healthFlags === undefined ? undefined : input.healthFlags ?? Prisma.JsonNull,
+      transportRequired: input.transportRequired, transportPreferredArea: input.transportPreferredArea,
+      priorSubjectScores: input.priorSubjectScores
+        ? { deleteMany: {}, create: input.priorSubjectScores.map(s => ({ schoolId: ctx.schoolId, subjectName: s.subjectName, score: s.score, maxScore: s.maxScore })) }
+        : undefined,
     },
     include: applicationInclude,
   })
   await audit(ctx.schoolId, ctx.actorId, 'update', 'application', id, serializeApplication(before), serializeApplication(row))
+  return row
+}
+
+// Siblings are already derivable via shared Guardian contact info — this is a lookup/suggestion, not a
+// redundant stored relationship. Matches an existing active student whose Guardian.parent shares the
+// declared guardian's phone or email. Staff can then set siblingStudentId explicitly via update() if
+// they accept the suggestion.
+export async function siblingSuggestions(ctx: Ctx, q: { phone?: string; email?: string }) {
+  if (!q.phone && !q.email) return []
+  const rows = await prisma.guardian.findMany({
+    where: {
+      schoolId: ctx.schoolId,
+      parent: { OR: [q.phone ? { phone: q.phone } : undefined, q.email ? { email: q.email.toLowerCase() } : undefined].filter(Boolean) as Prisma.UserWhereInput[] },
+      student: { enrollments: { some: { status: 'active' } } },
+    },
+    include: { student: { include: { enrollments: { where: { status: 'active' }, include: { class: { include: { grade: true } } }, take: 1 } } } },
+    distinct: ['studentId'],
+  })
+  return rows.map(r => {
+    const enr = r.student.enrollments[0]
+    return { studentId: r.studentId, name: r.student.name, classLabel: enr ? `${enr.class.grade.label}-${enr.class.section}` : undefined }
+  })
+}
+
+// ── Phase T2 Part A — transport-requirement staff to-do surface. On approval, if an admission declared
+// transportRequired, it's surfaced here until staff either create the real StudentStopAssignment (Phase
+// 12) or explicitly dismiss it — this module never auto-matches a stop from free text.
+export async function transportTodos(ctx: Ctx) {
+  const apps = await prisma.application.findMany({
+    where: { schoolId: ctx.schoolId, kind: 'Admission', status: 'Approved', transportRequired: true, transportHandledAt: null, studentId: { not: null } },
+    orderBy: [{ decidedAt: 'desc' }],
+  })
+  if (apps.length === 0) return []
+  const studentIds = apps.map(a => a.studentId!)
+  const assigned = new Set((await prisma.studentStopAssignment.findMany({ where: { schoolId: ctx.schoolId, studentId: { in: studentIds } }, select: { studentId: true } })).map(a => a.studentId))
+  return apps.map(a => ({
+    applicationId: a.id, studentId: a.studentId!, applicantName: a.applicantName, transportPreferredArea: a.transportPreferredArea ?? undefined,
+    alreadyAssigned: assigned.has(a.studentId!),
+  }))
+}
+
+export async function markTransportHandled(ctx: Ctx, id: string) {
+  const before = await get(ctx, id)
+  const row = await prisma.application.update({ where: { id }, data: { transportHandledAt: new Date() }, include: applicationInclude })
+  await audit(ctx.schoolId, ctx.actorId, 'update', 'application', id, { transportHandledAt: before.transportHandledAt }, { transportHandledAt: row.transportHandledAt })
   return row
 }
 
@@ -208,15 +301,37 @@ async function approveAdmission(ctx: Ctx, app: ApplicationFull): Promise<{ row: 
     }
     await tx.guardian.create({ data: { schoolId: ctx.schoolId, parentId: parent.id, studentId: student.id, relation: guardian.relation ?? 'parent' } })
 
+    // Health handoff (Part A) — capture once at intake, hand off once here, in the same atomic
+    // transaction as student creation. NOT a duplicate of HealthRecord: only the small structured intake
+    // subset becomes seed rows; staff/nurse can expand on them normally afterward via modules/health.
+    const flags = (app.healthFlags ?? null) as HealthFlags | null
+    const healthRecordIds: string[] = []
+    if (flags) {
+      const now = fmtDate(new Date())
+      if (flags.allergies) {
+        const r = await tx.healthRecord.create({ data: { schoolId: ctx.schoolId, studentId: student.id, kind: 'Allergy', title: 'Reported at admission', detail: flags.allergies, date: toDate(now), addedById: ctx.actorId } })
+        healthRecordIds.push(r.id)
+      }
+      if (flags.conditions) {
+        const r = await tx.healthRecord.create({ data: { schoolId: ctx.schoolId, studentId: student.id, kind: 'Condition', title: 'Reported at admission', detail: flags.conditions, date: toDate(now), addedById: ctx.actorId } })
+        healthRecordIds.push(r.id)
+      }
+      if (flags.bloodGroup) {
+        const r = await tx.healthRecord.create({ data: { schoolId: ctx.schoolId, studentId: student.id, kind: 'Other', title: 'Blood group (from admission)', detail: `Blood group: ${flags.bloodGroup}`, date: toDate(now), addedById: ctx.actorId } })
+        healthRecordIds.push(r.id)
+      }
+    }
+
     const row = await tx.application.update({
       where: { id: app.id }, data: { status: 'Approved', studentId: student.id, decidedById: ctx.actorId, decidedAt: new Date() }, include: applicationInclude,
     })
-    return { row, student, parent, existing }
+    return { row, student, parent, existing, healthRecordIds }
   })
 
   await syncUserTitle([result.student.id, result.parent.id])
   await audit(ctx.schoolId, ctx.actorId, 'create', 'user', result.student.id, undefined, { role: 'student', name: result.student.name, email: result.student.email, applicationId: app.id })
   if (!result.existing) await audit(ctx.schoolId, ctx.actorId, 'create', 'user', result.parent.id, undefined, { role: 'parent', name: result.parent.name, email: result.parent.email, applicationId: app.id })
+  for (const id of result.healthRecordIds) await audit(ctx.schoolId, ctx.actorId, 'create', 'health-record', id, undefined, { studentId: result.student.id, applicationId: app.id, source: 'admission-intake' })
 
   // Credential delivery (Phase 9 — see phase-9-10-integrations-hardening.md → item 3). Best-effort;
   // the credentials are also returned in the API response for the admitting staff member to hand over.
@@ -253,11 +368,21 @@ export async function approve(ctx: Ctx, id: string, opts?: z.infer<typeof approv
   let created: Created | undefined
   let alumniProfile: ReturnType<typeof alumni.serializeProfile> | undefined
   if (before.kind === 'Admission') {
+    // Part B — completeness checklist can optionally hard-block approval (school-level setting). When
+    // off (the default), approval proceeds with the checklist left open for post-enrollment follow-up.
+    const check = await admissionDocuments.checklist(ctx, before.id)
+    if (check.admissionDocumentsBlockApproval && !check.complete) {
+      throw new HttpError(409, 'Required admission documents are missing', undefined, { missingRequired: check.missingRequired })
+    }
     ;({ row, created } = await approveAdmission(ctx, before))
   } else {
     const studentId = before.studentId
     if (!studentId) throw new HttpError(400, 'Application has no student')
     if (before.kind === 'TC') {
+      // Phase T2 Part B — TC-issuance document-return workflow. Resolved (and 409s, before any state
+      // changes below, if unresolved) ahead of ending the enrollment/issuing the certificate — see
+      // modules/admissionDocuments/service.ts#resolveHeldOriginalsForTc.
+      await admissionDocuments.resolveHeldOriginalsForTc(ctx, studentId, opts?.documentReturns)
       await prisma.enrollment.updateMany({ where: { studentId, status: 'active' }, data: { status: 'transferred' } })
       await syncUserTitle([studentId])
     }
