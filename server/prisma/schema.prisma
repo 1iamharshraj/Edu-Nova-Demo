@@ -161,6 +161,81 @@ model School {
   invigilationDuties InvigilationDuty[]
   studentWallets     StudentWallet[]
   walletTransactions WalletTransaction[]
+
+  // Phase T1 — advanced timetable generation, scheduling data-model foundations. See
+  // phase-t1-timetable-foundations.md. Purely additive: Cohort layers on top of Class (D2), Capability/
+  // RoomCapability is a normalized catalog on top of Room, TeacherQualification supersedes nothing (it
+  // sits alongside the existing ClassSubject.teacherId signal), WorkingDayPattern is new school/year config.
+  cohorts               Cohort[]
+  capabilities          Capability[]
+  teacherQualifications TeacherQualification[]
+  workingDayPatterns    WorkingDayPattern[]
+
+  // Phase T2 — strong admissions (Part A data expansion + Part B document/custody management). See
+  // phase-t2-strong-admissions.md. AdmissionCategory/RequiredDocumentType are school-editable catalogs;
+  // SubmittedDocument/PriorSubjectScore are per-application(/student) rows; AdmissionSettings is the usual
+  // 1:1 settings row (matches LibrarySettings/AnalyticsSettings/CounselingSettings convention).
+  admissionCategories   AdmissionCategory[]
+  requiredDocumentTypes RequiredDocumentType[]
+  submittedDocuments    SubmittedDocument[]
+  priorSubjectScores    PriorSubjectScore[]
+  admissionSettings     AdmissionSettings?
+
+  // Phase T3 — sectioning engine. See phase-t3-sectioning-engine.md. Purely additive on top of T1's
+  // Cohort: PerformanceBand/SectioningTemplate drive the 6 banding strategies; CohortMembership is the
+  // new student-level junction needed for TRACK-type cohorts (a track spans base classes but only some of
+  // their students, unlike the 1:1 SECTION cohort which is class-level via CohortClass); TrackEligibilityRule/
+  // TrackEligibilityException back the two-stage track pipeline (D5); SectioningVersion/SectioningAssignment
+  // are the versioned draft->approve pipeline (§4).
+  performanceBands           PerformanceBand[]
+  sectioningTemplates        SectioningTemplate[]
+  cohortMemberships          CohortMembership[]
+  trackEligibilityRules      TrackEligibilityRule[]
+  trackEligibilityExceptions TrackEligibilityException[]
+  sectioningVersions         SectioningVersion[]
+  sectioningAssignments      SectioningAssignment[]
+
+  // Phase T4 — Constraint Builder + solver core. See phase-t4-solver-core.md. Purely additive: extends
+  // T1's Cohort with a declared per-subject teaching need (TeachingRequirement), a Fixed-mode teacher
+  // assignment (TeachingAssignment), and a real queryable constraint table (Constraint) the new
+  // cohort-scoped generation path (modules/timetable/solver.ts) reads and applies.
+  teachingRequirements TeachingRequirement[]
+  teachingAssignments  TeachingAssignment[]
+  constraints          Constraint[]
+
+  // Phase T5 — full assignment modes + soft constraints. See phase-t5-full-solver.md. Purely additive:
+  // TeacherAvailability backfills the T1-promised-but-never-shipped per-day/period availability signal
+  // (confirmed missing from the actual T1 migration — see modules/timetable/constraints.ts's own note);
+  // TeachingAssignmentPool backs Mode 2 (Pool); Preference/PreferenceProfile back the soft-constraint
+  // scoring + SA refinement engine and the 7 named starting profiles.
+  teacherAvailabilities  TeacherAvailability[]
+  teachingAssignmentPool TeachingAssignmentPool[]
+  preferences            Preference[]
+  preferenceProfiles     PreferenceProfile[]
+
+  // Phase T6 — sessions, generation jobs, diagnostics. See phase-t6-sessions-jobs.md. Purely additive:
+  // TimetableSession/TimetableSessionEntry/SessionCohort formalize the "one session can satisfy multiple
+  // linked cohorts at once" SharedSession concept (roadmap D3); ElectiveBlock/ElectiveOffering/
+  // ElectiveChoice model a grade-wide reserved slot with parallel elective offerings students individually
+  // choose between (T3's Activity/registration pattern, reused in shape); TimetableGenerationJob wraps
+  // T4/T5's existing generate->refine pipeline as a first-class, reproducible, diagnosable object.
+  timetableSessions       TimetableSession[]
+  timetableGenerationJobs TimetableGenerationJob[]
+  electiveBlocks          ElectiveBlock[]
+
+  // Phase T7 — versioning, locks, override system. See phase-t7-versioning-override.md.
+  timetableVersions   TimetableVersion[]
+  timetableLocks      TimetableLock[]
+  timetableEditEvents TimetableEditEvent[]
+
+  // Phase T9 — substitution workflow. See phase-t9-substitution.md. Purely additive on top of the
+  // existing Phase 6 LeaveRequest (extended with a PENDING_SUBSTITUTION status value, not forked) and the
+  // existing Phase 2 Substitution (still the real "this date, this period, this substitute" record the
+  // rest of the app reads — see substitution.ts's own doc comment for why T9 writes Substitution rows
+  // rather than a parallel structure).
+  substitutionPolicy   SubstitutionPolicy?
+  substitutionRequests SubstitutionRequest[]
+  periodHolds          PeriodHold[]
 }
 
 model User {
@@ -202,6 +277,15 @@ model User {
   // role, this is an additive capability on top).
   isCounselor Boolean @default(false)
 
+  // Phase T1 — teacher band affinity (§4 / roadmap D2 groundwork for T5's Mode-4 optimizer). Teacher-role
+  // only in practice, but kept on the shared User table per this codebase's existing convention of
+  // role-conditional fields (see e.g. isCounselor above). Shape for both JSON fields:
+  // { support: 'STRONG'|'MEDIUM'|'NONE', mid: ..., advanced: ... }. `verifiedBandAffinity` stays null until
+  // the future T11 evaluation engine populates it; `affinitySource` records which one is authoritative.
+  declaredBandAffinity Json?
+  verifiedBandAffinity Json?
+  affinitySource       String @default("DECLARED")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -222,16 +306,19 @@ model User {
   homeworkCreated       Homework[]
   homeworkSubmissions   HomeworkSubmission[]
 
-  applicationsAsStudent Application[]        @relation("ApplicationStudent")
-  applicationsSubmitted Application[]        @relation("ApplicationSubmittedBy")
-  applicationsDecided   Application[]        @relation("ApplicationDecidedBy")
-  certificatesAsStudent Certificate[]        @relation("CertificateStudent")
-  certificatesIssued    Certificate[]        @relation("CertificateIssuedBy")
-  boardRegistrations    BoardRegistration[]  @relation("BoardRegStudent")
-  boardRegsValidated    BoardRegistration[]  @relation("BoardRegValidatedBy")
-  passwordResets        PasswordReset[]
-  parentVerification    ParentVerification?  @relation("VerificationParent")
-  verificationsDone     ParentVerification[] @relation("VerificationVerifiedBy")
+  applicationsAsStudent    Application[]        @relation("ApplicationStudent")
+  applicationsSubmitted    Application[]        @relation("ApplicationSubmittedBy")
+  applicationsDecided      Application[]        @relation("ApplicationDecidedBy")
+  applicationsAsSibling    Application[]        @relation("ApplicationSibling")
+  submittedDocuments       SubmittedDocument[]  @relation("SubmittedDocumentStudent")
+  submittedDocumentsLogged SubmittedDocument[]  @relation("SubmittedDocumentSubmittedBy")
+  certificatesAsStudent    Certificate[]        @relation("CertificateStudent")
+  certificatesIssued       Certificate[]        @relation("CertificateIssuedBy")
+  boardRegistrations       BoardRegistration[]  @relation("BoardRegStudent")
+  boardRegsValidated       BoardRegistration[]  @relation("BoardRegValidatedBy")
+  passwordResets           PasswordReset[]
+  parentVerification       ParentVerification?  @relation("VerificationParent")
+  verificationsDone        ParentVerification[] @relation("VerificationVerifiedBy")
 
   feeInvoices        FeeInvoice[]     @relation("FeeInvoiceStudent")
   paymentsRecorded   Payment[]        @relation("PaymentRecordedBy")
@@ -370,6 +457,16 @@ model User {
   examSeatsAsStudent          ExamSeat[]         @relation("ExamSeatStudent")
   invigilationDutiesAsTeacher InvigilationDuty[] @relation("InvigilationDutyTeacher")
 
+  // Phase T1 — teacher subject+grade-range qualifications (see phase-t1-timetable-foundations.md §3).
+  teacherQualifications TeacherQualification[] @relation("TeacherQualificationTeacher")
+
+  // Phase T4 — Fixed-mode teaching assignments (see phase-t4-solver-core.md §2).
+  teachingAssignments TeachingAssignment[] @relation("TeachingAssignmentTeacher")
+
+  // Phase T5 — per day/period availability + Mode-2 pool membership (see phase-t5-full-solver.md).
+  teacherAvailabilities  TeacherAvailability[]    @relation("TeacherAvailabilityTeacher")
+  teachingAssignmentPool TeachingAssignmentPool[] @relation("TeachingAssignmentPoolTeacher")
+
   // Phase 28 — multi-school/group management. A GroupAdmin grant is independent of this user's own
   // `schoolId` — see phase-28-multi-school-group.md §1 (a group-admin may be a trust-level employee with
   // no operational account at any single member school).
@@ -380,6 +477,32 @@ model User {
   // (non-students) never have one.
   studentWallet              StudentWallet?
   walletTransactionsRecorded WalletTransaction[] @relation("WalletTransactionRecordedBy")
+
+  // Phase T3 — sectioning engine. See phase-t3-sectioning-engine.md.
+  cohortMemberships              CohortMembership[]          @relation("CohortMembershipStudent")
+  trackExceptionsAsStudent       TrackEligibilityException[] @relation("TrackEligibilityExceptionStudent")
+  trackExceptionsApproved        TrackEligibilityException[] @relation("TrackEligibilityExceptionApprovedBy")
+  sectioningVersionsApproved     SectioningVersion[]         @relation("SectioningVersionApprovedBy")
+  sectioningAssignmentsAsStudent SectioningAssignment[]      @relation("SectioningAssignmentStudent")
+
+  // Phase T6 — sessions, generation jobs, diagnostics. See phase-t6-sessions-jobs.md.
+  timetableSessionsAsTeacher     TimetableSession[]       @relation("TimetableSessionTeacher")
+  timetableSessionsCreated       TimetableSession[]       @relation("TimetableSessionCreatedBy")
+  timetableGenerationJobsCreated TimetableGenerationJob[] @relation("TimetableGenerationJobCreatedBy")
+  electiveBlocksCreated          ElectiveBlock[]          @relation("ElectiveBlockCreatedBy")
+  electiveChoicesAsStudent       ElectiveChoice[]         @relation("ElectiveChoiceStudent")
+
+  // Phase T7 — versioning, locks, override system. See phase-t7-versioning-override.md.
+  timetableVersionsCreated   TimetableVersion[]   @relation("TimetableVersionCreatedBy")
+  timetableLocksCreated      TimetableLock[]      @relation("TimetableLockCreatedBy")
+  timetableEditEventsCreated TimetableEditEvent[] @relation("TimetableEditEventCreatedBy")
+
+  // Phase T9 — substitution workflow. See phase-t9-substitution.md.
+  substitutionRequestsAsOriginalTeacher SubstitutionRequest[] @relation("SubstitutionRequestOriginalTeacher")
+  substitutionRequestsAsSubstitute      SubstitutionRequest[] @relation("SubstitutionRequestSubstituteTeacher")
+  substitutionRequestsSent              SubstitutionRequest[] @relation("SubstitutionRequestSentBy")
+  substitutionRequestsDecided           SubstitutionRequest[] @relation("SubstitutionRequestDecidedBy")
+  periodHoldsAsTeacher                  PeriodHold[]          @relation("PeriodHoldTeacher")
 
   @@index([schoolId])
 }
@@ -400,6 +523,21 @@ model AcademicYear {
   scholarshipAwards ScholarshipAward[]
   classes           Class[]
   enrollments       Enrollment[]
+
+  // Phase T1 — see phase-t1-timetable-foundations.md §1, §5.
+  cohorts            Cohort[]
+  workingDayPatterns WorkingDayPattern[]
+
+  // Phase T3 — see phase-t3-sectioning-engine.md.
+  performanceBands    PerformanceBand[]
+  sectioningTemplates SectioningTemplate[]
+  sectioningVersions  SectioningVersion[]
+
+  // Phase T6 — see phase-t6-sessions-jobs.md §3.
+  timetableGenerationJobs TimetableGenerationJob[]
+
+  // Phase T7 — see phase-t7-versioning-override.md §1.
+  timetableVersions TimetableVersion[]
 
   @@index([schoolId])
 }
@@ -425,6 +563,17 @@ model Term {
   termSyllabusTargets  TermSyllabusTarget[]
   studentRiskSnapshots StudentRiskSnapshot[]
 
+  // Phase T6 — see phase-t6-sessions-jobs.md.
+  timetableSessions       TimetableSession[]
+  timetableGenerationJobs TimetableGenerationJob[]
+  electiveBlocks          ElectiveBlock[]
+
+  // Phase T7 — see phase-t7-versioning-override.md §1.
+  timetableVersions TimetableVersion[]
+
+  // Phase T9 — see phase-t9-substitution.md §3.
+  periodHolds PeriodHold[]
+
   @@index([schoolId])
   @@index([academicYearId])
 }
@@ -439,9 +588,10 @@ model Board {
   code      String
   createdAt DateTime @default(now())
 
-  curriculum  CurriculumSubject[]
-  classes     Class[]
-  gradeScales GradeScale[]
+  curriculum                  CurriculumSubject[]
+  classes                     Class[]
+  gradeScales                 GradeScale[]
+  applicationsAsPreviousBoard Application[]       @relation("ApplicationPreviousBoard")
 
   @@unique([schoolId, code])
   @@index([schoolId])
@@ -457,6 +607,16 @@ model Grade {
 
   curriculum CurriculumSubject[]
   classes    Class[]
+
+  // Phase T1 — a Cohort optionally scopes to one grade (§1). `order` is this schema's existing numeric
+  // grade-level field — TeacherQualification's gradeRangeMin/Max (§3) are validated against it too.
+  cohorts Cohort[]
+
+  // Phase T3 — a SectioningTemplate always scopes to one grade (§2).
+  sectioningTemplates SectioningTemplate[]
+
+  // Phase T6 — an ElectiveBlock always scopes to one grade (§1).
+  electiveBlocks ElectiveBlock[]
 
   @@unique([schoolId, label])
   @@index([schoolId])
@@ -539,6 +699,9 @@ model Class {
   termSyllabusTargets  TermSyllabusTarget[]
   studentRiskSnapshots StudentRiskSnapshot[]
 
+  // Phase T1 — every Class gets an implicit 1:1 "section cohort" (roadmap D2); see CohortClass.
+  cohortClasses CohortClass[]
+
   @@unique([schoolId, academicYearId, boardId, gradeId, section])
   @@index([schoolId])
   @@index([classTeacherId])
@@ -556,6 +719,15 @@ model Subject {
   classSubjects   ClassSubject[]
   curriculum      CurriculumSubject[]
   aiConversations AiConversation[]
+
+  // Phase T1 — see phase-t1-timetable-foundations.md §3.
+  teacherQualifications TeacherQualification[]
+
+  // Phase T4 — see phase-t4-solver-core.md §1.
+  teachingRequirements TeachingRequirement[]
+
+  // Phase T6 — see phase-t6-sessions-jobs.md §1.
+  timetableSessions TimetableSession[]
 
   @@unique([schoolId, name])
   @@index([schoolId])
@@ -599,6 +771,15 @@ model Room {
   // Phase 25 — exam operations.
   examSeatingPlans   ExamSeatingPlan[]
   invigilationDuties InvigilationDuty[]
+
+  // Phase T1 — normalized capability catalog (§2), additive on top of the existing `kind` field.
+  capabilities RoomCapability[]
+
+  // Phase T4 — a TeachingRequirement may pin to this specific room (roomRequirement=SPECIFIC_ROOM).
+  teachingRequirements TeachingRequirement[]
+
+  // Phase T6 — a TimetableSession may pin to this specific room.
+  timetableSessions TimetableSession[]
 
   @@unique([schoolId, name])
   @@index([schoolId])
@@ -669,6 +850,17 @@ model AuditLog {
 
 // periods: [{ idx, label, start "HH:MM", end "HH:MM", kind "class" | "break" }]. Exactly one isDefault
 // per school (service enforces); Class.periodTemplateId overrides it.
+// Phase T1 (roadmap D7) — day-of-week scoping, chosen as the smaller/cleaner extension over a new
+// PeriodTemplateDay child table (see phase-t1-timetable-foundations.md §5 and this server agent's report
+// for the full reasoning). Two nullable, additive columns:
+//   - `dayOfWeek` (1=Mon..6=Sat, null = whole-week/base template — every existing row stays null, so
+//     existing behaviour is byte-identical).
+//   - `baseTemplateId` — a self-relation. A day-specific OVERRIDE row sets both `dayOfWeek` and
+//     `baseTemplateId` (pointing at the base template whose Saturday, say, it replaces). A BASE template
+//     (what `Class.periodTemplateId` always points at — never at an override row directly) has both null.
+// Effective-periods lookup for (class, day) is: look for an override where baseTemplateId = class's base
+// template id AND dayOfWeek = day; else fall back to the base template's own `periods`. See
+// modules/periodTemplates/service.ts#resolveForDay.
 model PeriodTemplate {
   id        String   @id @default(cuid())
   schoolId  String
@@ -678,8 +870,162 @@ model PeriodTemplate {
   periods   Json
   createdAt DateTime @default(now())
 
+  dayOfWeek      Int?
+  baseTemplateId String?
+  baseTemplate   PeriodTemplate?  @relation("PeriodTemplateOverrides", fields: [baseTemplateId], references: [id], onDelete: Cascade)
+  overrides      PeriodTemplate[] @relation("PeriodTemplateOverrides")
+
   classes Class[]
 
+  @@index([schoolId])
+  @@index([baseTemplateId])
+}
+
+// ──────────────────────── Phase T1: advanced-timetable data-model foundations ────────────────────────
+// See .agents/edunova/phase-t1-timetable-foundations.md. Purely additive — nothing above this comment in
+// the file changed shape/semantics; this phase must be invisible to a school that never touches the new
+// config screens.
+
+// §1 (roadmap D2) — layers on top of Class, does not replace it. Every Class gets an implicit 1:1
+// `type=SECTION, autoGenerated=true` Cohort (see modules/cohorts/service.ts#ensureSectionCohort, called
+// from modules/classes/service.ts#create/update/remove). Schools that need cross-section grouping
+// (grade-wide, JEE/NEET, elective baskets) define additional Cohort rows referencing 2+ Class rows via
+// CohortClass. Every later phase's TeachingRequirement/TimetableSession references Cohort, never Class.
+model Cohort {
+  id             String       @id @default(cuid())
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  name           String
+  gradeId        String?
+  grade          Grade?       @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  type           String // SECTION | GRADE | CROSS_SECTION | TRACK | ELECTIVE
+  autoGenerated  Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  members CohortClass[]
+
+  // Phase T3 — student-level membership (needed for TRACK/sub-band cohorts that don't map 1:1 to a Class —
+  // see CohortMembership below) and the reverse side of Activity.trackCohortId.
+  studentMembers        CohortMembership[]
+  trackActivities       Activity[]
+  sectioningAssignments SectioningAssignment[]
+
+  // Phase T4 — declared per-subject teaching need (see phase-t4-solver-core.md §1).
+  teachingRequirements TeachingRequirement[]
+
+  // Phase T6 — a SharedSession links 2+ cohorts to one TimetableSession (see phase-t6-sessions-jobs.md §1).
+  sessionLinks SessionCohort[]
+
+  @@index([schoolId])
+  @@index([academicYearId])
+}
+
+// Phase T3 §3 — student-level cohort membership. T1's Cohort membership (CohortClass) is class-level,
+// which is exactly right for the auto-generated 1:1 SECTION cohort and for GRADE/CROSS_SECTION cohorts —
+// but a TRACK cohort (JEE aspirants) or a Stage-2 merit sub-cohort (JEE-A/JEE-B) is a subset of students
+// within one or more base classes, not "every student in these classes". This junction is additive and
+// only used for that case; SECTION cohorts keep working exactly as before via CohortClass + Enrollment.
+model CohortMembership {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  cohortId  String
+  cohort    Cohort   @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  studentId String
+  student   User     @relation("CohortMembershipStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([cohortId, studentId])
+  @@index([schoolId])
+  @@index([studentId])
+}
+
+// Join table (this codebase's normalized-junction-table convention, not an array column). A cohort's
+// member classes must all share the cohort's own academicYearId — enforced in modules/cohorts/service.ts,
+// not at the DB level (Prisma can't express a cross-row-consistency check declaratively here).
+model CohortClass {
+  id        String   @id @default(cuid())
+  cohortId  String
+  cohort    Cohort   @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  classId   String
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([cohortId, classId])
+  @@index([classId])
+}
+
+// §2 — normalized capability catalog + junction table (matches this codebase's existing convention, not a
+// JSON blob). Room.kind stays exactly as-is; capabilities are additive detail on top.
+model Capability {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name      String
+  code      String
+  createdAt DateTime @default(now())
+
+  rooms RoomCapability[]
+
+  @@unique([schoolId, code])
+  @@index([schoolId])
+}
+
+model RoomCapability {
+  id           String     @id @default(cuid())
+  roomId       String
+  room         Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  capabilityId String
+  capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+
+  @@unique([roomId, capabilityId])
+  @@index([capabilityId])
+}
+
+// §3 — a declared subject+grade-range+proficiency qualification, for scheduling purposes. Additive
+// alongside the existing informal signal (ClassSubject.teacherId implies capability but isn't a declared
+// qualification) — that keeps working completely unchanged; this table is what T4/T5's Constraint Builder
+// will actually read. gradeRangeMin/Max are grade-level numbers — this schema's numeric grade-level field
+// is Grade.order (there is no separate `Grade.level`; the phase spec's "existing Grade.level field"
+// reference maps onto `order`, the field that actually orders grades numerically).
+model TeacherQualification {
+  id               String   @id @default(cuid())
+  schoolId         String
+  school           School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  teacherId        String
+  teacher          User     @relation("TeacherQualificationTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  subjectId        String
+  subject          Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  gradeRangeMin    Int
+  gradeRangeMax    Int
+  proficiency      String // PRIMARY | SECONDARY
+  isPrimarySubject Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  @@unique([teacherId, subjectId, gradeRangeMin, gradeRangeMax])
+  @@index([schoolId])
+  @@index([teacherId])
+  @@index([subjectId])
+}
+
+// §5 (roadmap D7) — which weekdays teach at all, including alternating-Saturday patterns. One row per
+// (school, academic year). Existing schools have no row until they explicitly configure one — the implicit
+// default stays Mon-Fri, ALL working days, saturdayPattern NONE (Phase 26's own build notes: Saturday was
+// schema-legal on TimetableEntry.dayOfWeek but unused).
+model WorkingDayPattern {
+  id              String       @id @default(cuid())
+  schoolId        String
+  school          School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYearId  String
+  academicYear    AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  workingDays     Json // string[], subset of ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
+  saturdayPattern String       @default("NONE") // NONE | ALL | ALTERNATE_1_3 | ALTERNATE_2_4 | HALF_DAY_ALL
+  createdAt       DateTime     @default(now())
+
+  @@unique([schoolId, academicYearId])
   @@index([schoolId])
 }
 
@@ -703,10 +1049,29 @@ model TimetableEntry {
 
   substitutions Substitution[]
 
+  // Phase T6 — which TimetableSession (if any) materialized this row. Nullable/additive: every entry
+  // written by the manual builder or T4/T5's existing draft-commit path leaves this null, so
+  // service.ts#validateGrid's existing teacher/room collision check is completely unchanged for them. When
+  // set, it is what lets that SAME conflict engine treat 2+ rows from one SharedSession (same teacher/room/
+  // period, different classes, same sessionId) as non-colliding while still catching a genuine double-
+  // booking (different/absent sessionId) at that slot — see phase-t6-sessions-jobs.md §1/§2.
+  sessionId String?
+  session   TimetableSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  // Phase T7 — which TimetableVersion (if any) materialized this row live (see phase-t7-versioning-
+  // override.md §1). Nullable/additive: every entry written before this phase, and every entry written by
+  // a caller that never touches the version system (most of the app, still), leaves this null — completely
+  // unaffected. When set AND that version's status is PUBLISHED, service-layer + Prisma-extension guards
+  // (see lib/prismaGuards.ts) refuse any UPDATE/DELETE against the row — §2's enforced immutability.
+  timetableVersionId String?
+  timetableVersion   TimetableVersion? @relation(fields: [timetableVersionId], references: [id], onDelete: SetNull)
+
   @@unique([classId, termId, dayOfWeek, periodIdx])
   @@index([schoolId, termId])
   @@index([teacherId])
   @@index([roomId])
+  @@index([sessionId])
+  @@index([timetableVersionId])
 }
 
 model TimetablePublish {
@@ -760,6 +1125,7 @@ model File {
   employeeDocuments   EmployeeDocument[]
   bookCovers          Book[]
   chapterResources    ChapterResource[]
+  submittedDocuments  SubmittedDocument[]
 
   @@index([schoolId])
 }
@@ -937,8 +1303,137 @@ model Application {
 
   certificates Certificate[]
 
+  // ── Phase T2 Part A — admission data expansion. See phase-t2-strong-admissions.md. All additive/
+  // nullable: a school that never touches these fields gets byte-identical existing behavior, and the
+  // core approve() atomic student+parent+enrollment+guardian transaction is unchanged — these only add
+  // capture-before/handoff-at that point. Only meaningful for kind='Admission' rows, but kept on the same
+  // table (matches the existing kind-discriminated Application shape) rather than a satellite 1:1 table,
+  // since the field count and lack of any independent lifecycle didn't justify one.
+  previousSchoolName      String?
+  previousBoardId         String?
+  previousBoard           Board?             @relation("ApplicationPreviousBoard", fields: [previousBoardId], references: [id], onDelete: SetNull)
+  lastGradeCompleted      String?
+  declaredTrackPreference String? // free text for T2; T3's TrackEligibilityRule formalizes this against real Cohort/track data.
+  siblingStudentId        String? // set only when no shared-Guardian match was found/accepted — see modules/applications/service.ts#siblingSuggestions.
+  siblingStudent          User?              @relation("ApplicationSibling", fields: [siblingStudentId], references: [id], onDelete: SetNull)
+  admissionCategoryId     String?
+  admissionCategory       AdmissionCategory? @relation(fields: [admissionCategoryId], references: [id], onDelete: SetNull)
+  admissionMode           String? // e.g. Regular | RTE | Management | Staff-Ward — drives RequiredDocumentType.requiredIfAdmissionMode.
+  healthFlags             Json? // { allergies?, conditions?, bloodGroup? } — small intake subset, NOT a duplicate of HealthRecord; handed off once on approval.
+  transportRequired       Boolean            @default(false)
+  transportPreferredArea  String?
+  transportHandledAt      DateTime? // set once staff have actioned the post-approval transport to-do (assignment made, or explicitly dismissed).
+
+  priorSubjectScores PriorSubjectScore[]
+  submittedDocuments SubmittedDocument[]
+
   @@index([schoolId, status])
   @@index([studentId])
+}
+
+// Individual key-subject scores from the applicant's previous school (subject naming is free text since
+// it won't match this school's own Subject catalog) — feeds T3's TrackEligibilityRule subject thresholds.
+model PriorSubjectScore {
+  id            String      @id @default(cuid())
+  schoolId      String
+  school        School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  subjectName   String
+  score         Float
+  maxScore      Float
+  createdAt     DateTime    @default(now())
+
+  @@index([schoolId])
+  @@index([applicationId])
+}
+
+// School-editable reservation/quota catalog — names vary by state/school-type in India, so this is a
+// catalog, not a hardcoded enum. Seeded with a reasonable default set (see modules/admissionDocuments/seed.ts).
+model AdmissionCategory {
+  id                  String   @id @default(cuid())
+  schoolId            String
+  school              School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name                String
+  code                String
+  requiresCertificate Boolean  @default(false)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+
+  applications Application[]
+
+  @@unique([schoolId, code])
+  @@index([schoolId])
+}
+
+// School-configurable required-document catalog. Condition model is deliberately simple structured flags
+// (no expression parser) — see phase-t2-strong-admissions.md Part B. requiredIfCategoryIn stores
+// AdmissionCategory `code`s (not a relation) — matches the spec's plain-flag condition model exactly and
+// avoids coupling document-type rows to specific category row ids (a category rename-by-code stays valid).
+model RequiredDocumentType {
+  id                      String   @id @default(cuid())
+  schoolId                String
+  school                  School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name                    String
+  code                    String
+  requiredIfCategoryIn    String[] @default([]) // AdmissionCategory codes
+  requiredIfAdmissionMode String[] @default([]) // e.g. ["RTE"]
+  requiredIfBoardChanged  Boolean  @default(false)
+  alwaysRequired          Boolean  @default(false)
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now())
+
+  submittedDocuments SubmittedDocument[]
+
+  @@unique([schoolId, code])
+  @@index([schoolId])
+}
+
+// Links to the existing File model for a digital scan (reused, not duplicated) plus the physical-custody
+// fields the user explicitly asked for. applicationId and/or studentId — supports both pre-admission
+// (application) and post-enrollment (student) document capture; service layer enforces at least one is set.
+model SubmittedDocument {
+  id                     String                @id @default(cuid())
+  schoolId               String
+  school                 School                @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  applicationId          String?
+  application            Application?          @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  studentId              String?
+  student                User?                 @relation("SubmittedDocumentStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  requiredDocumentTypeId String?
+  requiredDocumentType   RequiredDocumentType? @relation(fields: [requiredDocumentTypeId], references: [id], onDelete: SetNull)
+  fileId                 String?
+  file                   File?                 @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  isOriginal             Boolean               @default(false)
+  // Simple structured location — deliberately NOT the same Room entity used for classrooms/labs, since a
+  // records room/cabinet/folder isn't a teaching space.
+  physicalLocationRoom   String?
+  physicalLocationShelf  String?
+  physicalLocationFolder String?
+  receivedDate           DateTime?             @db.Date
+  status                 String                @default("HELD") // HELD | RETURNED | LOST | NOT_APPLICABLE
+  returnedDate           DateTime?             @db.Date
+  returnedTo             String?
+  returnReason           String?
+  submittedById          String?
+  submittedBy            User?                 @relation("SubmittedDocumentSubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+  createdAt              DateTime              @default(now())
+
+  @@index([schoolId])
+  @@index([applicationId])
+  @@index([studentId])
+  @@index([status])
+}
+
+// Usual 1:1 school-settings row (matches LibrarySettings/AnalyticsSettings/CounselingSettings).
+model AdmissionSettings {
+  id       String @id @default(cuid())
+  schoolId String @unique
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  admissionDocumentsBlockApproval Boolean @default(false)
+
+  updatedAt DateTime @updatedAt
 }
 
 // serialNo: "EDN/TC/2026/0001" — sequential per school, kind and year (service allocates inside a transaction).
@@ -1229,6 +1724,15 @@ model LeaveRequest {
   decidedAt    DateTime?
   decisionNote String?
   createdAt    DateTime   @default(now())
+
+  // Phase T9 §3 — the substitution workflow attaches here rather than forking a parallel leave model. When
+  // one or more SubstitutionRequest rows are in flight for this leave request (SENT, not yet accepted/
+  // declined/expired), `status` is temporarily set to "PENDING_SUBSTITUTION" — the one new lifecycle value
+  // this phase adds, sitting strictly before the existing "Pending" (which is what leave/service.ts's
+  // approve()/decline() still gate on, unchanged) — and flips back to "Pending" once every outstanding
+  // request for it resolves (accepted, declined-with-no-further-attempt, or expired), so a leave that never
+  // touches a teaching period never sees this status at all. See substitution.ts.
+  substitutionRequests SubstitutionRequest[]
 
   @@index([schoolId])
   @@index([forUserId])
@@ -1631,6 +2135,14 @@ model Activity {
 
   registrations ActivityRegistration[]
   housePoints   HousePoints[]          @relation("HousePointsHouse")
+
+  // Phase T3 — sectioning engine, §3 (Track/Stream two-stage pipeline). Only set when this Activity is
+  // used as a track's choice-collection surface (typically kind='track'): links it to the T1 `Cohort`
+  // (type=TRACK) that actual membership is written into once a registration is confirmed. Nullable/
+  // additive — every existing Activity (club/house/exc/event/faculty) is completely unaffected.
+  trackCohortId    String?
+  trackCohort      Cohort?                @relation(fields: [trackCohortId], references: [id], onDelete: SetNull)
+  eligibilityRules TrackEligibilityRule[]
 
   @@index([schoolId])
 }
@@ -3260,4 +3772,804 @@ model WalletTransaction {
 
   @@index([schoolId])
   @@index([walletId, occurredAt])
+}
+
+// ───────────────────────── Phase T3 — sectioning engine ─────────────────────────
+// See phase-t3-sectioning-engine.md (and advanced-timetable-roadmap.md D2/D5/D9). Builds on T1's Cohort —
+// a "section" the engine assigns students into is always a Cohort id: for ordinary grade sectioning that's
+// the auto-generated 1:1 SECTION cohort per Class (so a re-section literally moves Enrollment.classId,
+// which is what "write section_id" cashes out to in this schema — there is no separate section_id column,
+// Class already *is* board+grade+stream+section); for a track's Stage-2 merit sub-groups (JEE-A/JEE-B)
+// it's an explicit multi-member TRACK-type Cohort with no backing Class, so membership is written to the
+// new student-level CohortMembership junction instead. Entirely optional/decoupled — a school that never
+// touches this module keeps working exactly as today (per the phase spec's own framing).
+
+// §1 — neutral-label performance bands. Never auto-surfaced as "slow/average/topper" anywhere.
+model PerformanceBand {
+  id             String       @id @default(cuid())
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  label          String
+  minScore       Float // inclusive, 0-100 percentage scale (see modules/sectioning/scoring.ts)
+  maxScore       Float // inclusive
+  createdAt      DateTime     @default(now())
+
+  @@index([schoolId])
+  @@index([academicYearId])
+}
+
+// §2 — a reusable, versioned recipe for one sectioning run. `scoreSource`/`subjectWeights` decide how a
+// student's single 0-100 score is computed from real Phase 3 Assessment/Mark data (or T2's
+// PriorSubjectScore for an external admit with no Mark history yet — see scoring.ts); `bandIds` selects
+// which PerformanceBand rows define the mix; `sectionOrder` is the ordered list of target Cohort ids the
+// strategy fills; `distributionConfig` carries strategy-specific knobs (tolerancePct, caps, skim spec, ...).
+model SectioningTemplate {
+  id                 String       @id @default(cuid())
+  schoolId           String
+  school             School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYearId     String
+  academicYear       AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  gradeId            String
+  grade              Grade        @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  name               String
+  strategy           String // BALANCED | RANKED | BANDED | STRATIFIED_CAPPED | RANDOM_PARITY | SKIM_THEN_BALANCE
+  scoreSource        String // LATEST_EXAM | EXAM_AVERAGE | CUSTOM_WEIGHTING
+  subjectWeights     Json? // { [subjectId]: weight } — only meaningful for CUSTOM_WEIGHTING
+  bandIds            String[]     @default([])
+  distributionConfig Json? // strategy-specific: tolerancePct, caps, skim[], remainderStrategy, broadGroups, siblingsTogether
+  sectionOrder       String[]     @default([]) // Cohort ids, fill order
+  respectExisting    Boolean      @default(true)
+  createdAt          DateTime     @default(now())
+
+  versions SectioningVersion[]
+
+  @@index([schoolId])
+  @@index([academicYearId])
+  @@index([gradeId])
+}
+
+// §3 — track eligibility rule. `subjectScoreRules` shape: [{ subjectId?, subjectName?, minScore }] — a
+// percentage (0-100) threshold checked against a continuing student's real Mark-derived subject % (by
+// subjectId) or, for an external admit with no Mark history, T2's PriorSubjectScore (matched by
+// subjectName) — see scoring.ts#evaluateSubjectRule. `enforcementMode` is a simple per-rule toggle (D5 —
+// "as simple as that"), nothing more elaborate.
+model TrackEligibilityRule {
+  id                String   @id @default(cuid())
+  schoolId          String
+  school            School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  trackActivityId   String
+  trackActivity     Activity @relation(fields: [trackActivityId], references: [id], onDelete: Cascade)
+  label             String
+  subjectScoreRules Json // [{ subjectId?, subjectName?, minScore }]
+  enforcementMode   String // STRICT | ADVISORY
+  createdAt         DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([trackActivityId])
+}
+
+// Every eligibility exception this term — both an ADVISORY auto-flag (no reason/approver required) and a
+// STRICT authorized override (reason + approver mandatory) land here, so the exceptions report (D5 —
+// visibility, not policing) is a plain query, not an audit-log scrape. `type` distinguishes the two.
+model TrackEligibilityException {
+  id              String   @id @default(cuid())
+  schoolId        String
+  school          School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  trackActivityId String
+  ruleId          String?
+  studentId       String
+  student         User     @relation("TrackEligibilityExceptionStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  type            String // ADVISORY_FLAG | STRICT_OVERRIDE
+  unmetDetails    Json // [{ subjectId?, subjectName?, minScore, actual }]
+  reason          String? // mandatory (enforced in service.ts) for STRICT_OVERRIDE, unused for ADVISORY_FLAG
+  approvedById    String?
+  approvedBy      User?    @relation("TrackEligibilityExceptionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([trackActivityId])
+  @@index([studentId])
+}
+
+// §4 — one run of a template = one version. DRAFT until approved; approving writes the real
+// Enrollment.classId / CohortMembership changes and flips status to APPROVED. `parentVersionId` gives a
+// simple lineage (re-runs of the same template/scope chain together) and `diffSummary` stores a
+// pre-computed before/after per student for display, matching this app's existing versioning conventions.
+model SectioningVersion {
+  id              String              @id @default(cuid())
+  schoolId        String
+  school          School              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  templateId      String
+  template        SectioningTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  academicYearId  String
+  academicYear    AcademicYear        @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  scopeCohortId   String? // set for a Stage-2 run scoped to one track cohort's population; null = whole grade
+  status          String              @default("DRAFT") // DRAFT | APPROVED | SUPERSEDED
+  parentVersionId String?
+  parentVersion   SectioningVersion?  @relation("SectioningVersionLineage", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  childVersions   SectioningVersion[] @relation("SectioningVersionLineage")
+  summary         Json // { scoredCount, unscoredStudentIds, warnings[], sectionBandMix, validation: {...} }
+  approvedAt      DateTime?
+  approvedById    String?
+  approvedBy      User?               @relation("SectioningVersionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  createdAt       DateTime            @default(now())
+
+  assignments SectioningAssignment[]
+
+  @@index([schoolId])
+  @@index([templateId])
+}
+
+model SectioningAssignment {
+  id               String            @id @default(cuid())
+  versionId        String
+  version          SectioningVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  schoolId         String
+  school           School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  studentId        String
+  student          User              @relation("SectioningAssignmentStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  cohortId         String // target section Cohort id
+  cohort           Cohort            @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  previousCohortId String? // for diffs — the section Cohort id the student was in immediately before this run, if any
+  band             String?
+  score            Float?
+  createdAt        DateTime          @default(now())
+
+  @@unique([versionId, studentId])
+  @@index([versionId])
+  @@index([schoolId])
+  @@index([studentId])
+}
+
+// ───────────────────────── Phase T4 — Constraint Builder + solver core ─────────────────────────
+// See .agents/edunova/phase-t4-solver-core.md. Purely additive on top of T1's Cohort/PeriodTemplate and
+// the existing ClassSubject/TimetableEntry — the shipped Phase 26 auto-generator (modules/timetable/
+// autogen.ts) keeps working completely unchanged; this phase adds a second, cohort-scoped generation path
+// alongside it (modules/timetable/solver.ts), selected only when the caller passes `cohortIds`.
+
+// §1 — a cohort's declared weekly teaching need for one subject, replacing the implicit
+// ClassSubject.periodsPerWeek signal for schools that adopt Cohort/TeachingRequirement (existing
+// ClassSubject rows are untouched and keep driving the legacy generator — see
+// modules/timetable/teachingRequirements.ts#seedFromClassSubjects, which migrates the existing data in
+// rather than asking a school to re-enter it).
+model TeachingRequirement {
+  id                     String   @id @default(cuid())
+  schoolId               String
+  school                 School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  cohortId               String
+  cohort                 Cohort   @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  subjectId              String
+  subject                Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  requiredPeriodsPerWeek Int
+  sessionDuration        String   @default("SINGLE") // SINGLE | DOUBLE | TRIPLE | BLOCK
+  roomRequirement        String   @default("ANY") // ANY | LAB_TYPE | SPECIFIC_ROOM
+  specificRoomId         String?
+  specificRoom           Room?    @relation(fields: [specificRoomId], references: [id], onDelete: SetNull)
+  labDoubleAllowed       Boolean  @default(true)
+  createdAt              DateTime @default(now())
+
+  // Phase T5 §1 — which of the 4 assignment modes resolves this requirement's teacher. FIXED (default,
+  // unchanged T4 behavior) keeps the admin-set TeachingAssignment as-is; POOL/RANDOM/OPTIMIZED are resolved
+  // by modules/timetable/assignmentModes.ts, writing/replacing the same TeachingAssignment row so the
+  // existing generation path (solver.ts) needs no changes to consume the result.
+  assignmentMode String @default("FIXED") // FIXED | POOL | RANDOM | OPTIMIZED
+
+  assignments TeachingAssignment[]
+  pool        TeachingAssignmentPool[]
+
+  // Phase T6 — which TimetableSession(s) this requirement's weekly need is satisfied by (a SharedSession
+  // satisfies 2+ requirements — one per linked cohort — with ONE session), and which ElectiveOffering (if
+  // any) wraps this requirement inside a grade-wide ElectiveBlock. See phase-t6-sessions-jobs.md §1/§1b.
+  sessionLinks     SessionRequirement[]
+  electiveOffering ElectiveOffering?
+
+  @@unique([cohortId, subjectId])
+  @@index([schoolId])
+  @@index([cohortId])
+}
+
+// Phase T5 §1 — Mode 2 (Pool): admin-defined set of teachers eligible for one requirement. The solver
+// (assignmentModes.ts) picks one member respecting every hard constraint, preferring lowest current
+// workload as a placement-detail tiebreaker (not the full Mode 4 optimizer).
+model TeachingAssignmentPool {
+  id                    String              @id @default(cuid())
+  schoolId              String
+  school                School              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  teachingRequirementId String
+  teachingRequirement   TeachingRequirement @relation(fields: [teachingRequirementId], references: [id], onDelete: Cascade)
+  teacherId             String
+  teacher               User                @relation("TeachingAssignmentPoolTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  createdAt             DateTime            @default(now())
+
+  @@unique([teachingRequirementId, teacherId])
+  @@index([schoolId])
+  @@index([teachingRequirementId])
+}
+
+// §2 — Mode 1 (FIXED) only this phase: one teacher assigned directly to a requirement. Modes 2-4
+// (Pool/Random/Optimized) are T5's job; the `@@unique([teachingRequirementId])` below is this phase's
+// narrow "exactly one Fixed assignment per requirement" rule, relaxed when Pool mode is added.
+model TeachingAssignment {
+  id                    String              @id @default(cuid())
+  schoolId              String
+  school                School              @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  teachingRequirementId String
+  teachingRequirement   TeachingRequirement @relation(fields: [teachingRequirementId], references: [id], onDelete: Cascade)
+  teacherId             String
+  teacher               User                @relation("TeachingAssignmentTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  assignmentMode        String              @default("FIXED") // FIXED only, this phase
+  selectionReason       String?
+  createdAt             DateTime            @default(now())
+  createdBy             String
+
+  // Phase T6 — a TimetableSession's `teachingAssignmentId` optionally names the canonical (teacher,
+  // requirement) pairing it materializes — see phase-t6-sessions-jobs.md §1.
+  timetableSessions TimetableSession[]
+
+  @@unique([teachingRequirementId])
+  @@index([schoolId])
+  @@index([teacherId])
+}
+
+// §3 — a real, queryable, school-configurable constraint row (data, not hardcoded logic — the Constraint
+// Builder in modules/timetable/constraints.ts reads active rows of this table and applies them; it does
+// not hardcode which constraints exist). `severity` is HARD only this phase (soft constraints/scoring are
+// T5). `scope`/`scopeId` let a row apply school-wide or narrow to one cohort/teacher/room.
+model Constraint {
+  id         String   @id @default(cuid())
+  schoolId   String
+  school     School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  type       String // TEACHER_COLLISION | ROOM_COLLISION | COHORT_COLLISION | TEACHER_AVAILABILITY | ROOM_CAPABILITY_MATCH | REQUIRED_WEEKLY_PERIODS | FIXED_SESSION
+  scope      String   @default("SCHOOL") // SCHOOL | COHORT | TEACHER | ROOM
+  scopeId    String?
+  severity   String   @default("HARD") // HARD only this phase
+  enabled    Boolean  @default(true)
+  parameters Json     @default("{}")
+  source     String   @default("SYSTEM") // SYSTEM | SCHOOL | MANUAL
+  createdAt  DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([schoolId, type])
+}
+
+// ───────────────────────── Phase T5 — full assignment modes + soft constraints ─────────────────────────
+// See .agents/edunova/phase-t5-full-solver.md. Purely additive on top of T1/T4: TeacherAvailability backs
+// both Mode 4's availability scoring and the UNPREFERRED_SLOT soft-constraint penalty; Preference/
+// PreferenceProfile turn T0's hardcoded example weights into real school-configurable data.
+
+// A per-(teacher, day, period) availability declaration. No row at all for a given slot defaults to
+// AVAILABLE (matches T1's original intent — a school only configures the exceptions). PREFERRED/
+// NOT_PREFERRED feed both Mode 4's teacher-preference scoring and the refinement engine's
+// UNPREFERRED_SLOT minor penalty; UNAVAILABLE is a hard constraint the solver must never place into.
+model TeacherAvailability {
+  id        String   @id @default(cuid())
+  schoolId  String
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  teacherId String
+  teacher   User     @relation("TeacherAvailabilityTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  dayOfWeek Int // 1=Mon..6=Sat, matches TimetableEntry.dayOfWeek
+  periodIdx Int
+  status    String // AVAILABLE | UNAVAILABLE | PREFERRED | NOT_PREFERRED
+  createdAt DateTime @default(now())
+
+  @@unique([teacherId, dayOfWeek, periodIdx])
+  @@index([schoolId])
+  @@index([teacherId])
+}
+
+// §2/§3 — one configurable weight row per soft-constraint or assignment-scoring signal. `scope` separates
+// the two use sites: REFINEMENT rows (weight applied within their `tier`'s W_HARD/MAJOR/WORKLOAD/MINOR
+// band — see refinement.ts) feed the SA scorer; ASSIGNMENT rows feed Mode 4's per-teacher selection score
+// (tier is meaningless there, always 0). Data, not hardcoded — seeded with T0's spike's own example weights
+// as sensible defaults (seedDefaults, idempotent, mirrors constraints.ts#seedDefaults).
+model Preference {
+  id         String   @id @default(cuid())
+  schoolId   String
+  school     School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  type       String // see refinement.ts REFINEMENT_TYPES / assignmentModes.ts ASSIGNMENT_TYPES
+  scope      String // REFINEMENT | ASSIGNMENT
+  weight     Float
+  priority   Int      @default(0) // REFINEMENT: 1=major 2=workload 3=minor; ASSIGNMENT: always 0
+  enabled    Boolean  @default(true)
+  parameters Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  @@unique([schoolId, type])
+  @@index([schoolId])
+  @@index([schoolId, scope])
+}
+
+// §3 — a named, reusable starting set of REFINEMENT-scope weight overrides. A school selects one as
+// `active`; the refinement engine merges `weightOverrides` on top of the school's base `Preference` rows
+// (an override present here always wins; a type absent here falls back to the base row's weight).
+model PreferenceProfile {
+  id              String   @id @default(cuid())
+  schoolId        String
+  school          School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  name            String // DEFAULT | BALANCED | TEACHER_FRIENDLY | STUDENT_FRIENDLY | EXAM_PREP | PRIMARY_SCHOOL | LAB_HEAVY
+  description     String?
+  weightOverrides Json // { [type]: weight }
+  active          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  @@unique([schoolId, name])
+  @@index([schoolId])
+}
+
+// ───────────────────────── Phase T6 — sessions, generation jobs, diagnostics ─────────────────────────
+// See .agents/edunova/phase-t6-sessions-jobs.md. Wraps T4/T5's working solver core (TeachingRequirement/
+// TeachingAssignment/Constraint/generateForCohorts/refineDraft, all unchanged) in the session/job model the
+// original spec described. TimetableEntry (D3) stays the real, populated compatibility table every existing
+// consumer reads — every TimetableSessionEntry still materializes into it, this phase just formalizes
+// TimetableSession as the layer that documents WHAT was generated/declared and WHY, on top of the same
+// materialized-write path (service.ts#replaceGrid/validateGrid) T4's commit already used.
+
+// §1 — one scheduled occurrence. A SINGLE/DOUBLE/etc. session normally belongs to exactly one cohort (one
+// SessionCohort row, one SessionRequirement row); a SharedSession is the SAME kind of row with 2+
+// SessionCohort/SessionRequirement rows — it satisfies EVERY linked cohort's requirement for that slot and
+// is never treated as a collision between them (see modules/timetable/sessions.ts#materializeSession, which
+// writes one TimetableEntry per underlying Class every linked cohort touches, all sharing this session's
+// single teacher/room/period — exactly D3's "12-A + 12-B combined English" example).
+model TimetableSession {
+  id                   String                  @id @default(cuid())
+  schoolId             String
+  school               School                  @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  termId               String
+  term                 Term                    @relation(fields: [termId], references: [id], onDelete: Cascade)
+  subjectId            String
+  subject              Subject                 @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  teachingAssignmentId String?
+  teachingAssignment   TeachingAssignment?     @relation(fields: [teachingAssignmentId], references: [id], onDelete: SetNull)
+  teacherId            String?
+  teacher              User?                   @relation("TimetableSessionTeacher", fields: [teacherId], references: [id], onDelete: SetNull)
+  roomId               String?
+  room                 Room?                   @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  sessionType          String                  @default("SINGLE") // SINGLE|DOUBLE|TRIPLE|LAB_BLOCK|ASSEMBLY|LUNCH|ACTIVITY|STUDY|FREE|SHARED|FIXED
+  durationPeriods      Int                     @default(1)
+  isSplittable         Boolean                 @default(false)
+  timetableVersionId   String? // reserved for T7 versioning (no TimetableVersion table exists yet)
+  jobId                String? // the TimetableGenerationJob that produced this session, if any (explicit
+  job                  TimetableGenerationJob? @relation(fields: [jobId], references: [id], onDelete: SetNull) // admin-declared SharedSessions/ElectiveOfferings have no job)
+  createdById          String
+  createdBy            User                    @relation("TimetableSessionCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt            DateTime                @default(now())
+  committedAt          DateTime? // set once materializeSession has written its TimetableEntry rows
+
+  entries             TimetableSessionEntry[]
+  cohorts             SessionCohort[]
+  requirements        SessionRequirement[]
+  electiveOffering    ElectiveOffering?
+  materializedEntries TimetableEntry[]
+
+  @@index([schoolId])
+  @@index([schoolId, termId])
+  @@index([jobId])
+}
+
+// One row per period a session occupies (durationPeriods=2 → 2 rows on the same day, contiguous periods).
+model TimetableSessionEntry {
+  id        String           @id @default(cuid())
+  sessionId String
+  session   TimetableSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  dayOfWeek Int
+  periodIdx Int
+  createdAt DateTime         @default(now())
+
+  @@unique([sessionId, dayOfWeek, periodIdx])
+  @@index([sessionId])
+}
+
+// A session with 2+ rows here is a genuine SharedSession (§1) — every linked cohort's own
+// TeachingRequirement for the session's subject is satisfied by this ONE session, not by independent
+// per-cohort sessions that happen to share a slot (that would reintroduce the false-positive collision the
+// original spec warns about, since two truly independent sessions at the same slot for different cohorts
+// that happen to share a teacher ARE a real conflict — SharedSession is the deliberate exception).
+model SessionCohort {
+  id        String           @id @default(cuid())
+  sessionId String
+  session   TimetableSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  cohortId  String
+  cohort    Cohort           @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  createdAt DateTime         @default(now())
+
+  @@unique([sessionId, cohortId])
+  @@index([cohortId])
+}
+
+// Which TeachingRequirement(s) this session counts against, for "remaining need" bookkeeping — a normal
+// session has exactly one; a SharedSession has one per linked cohort (each cohort's OWN requirement for the
+// same subject, e.g. 12-A's English requirement AND 12-B's English requirement, both satisfied by this one
+// session's periods).
+model SessionRequirement {
+  id                    String              @id @default(cuid())
+  sessionId             String
+  session               TimetableSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  teachingRequirementId String
+  teachingRequirement   TeachingRequirement @relation(fields: [teachingRequirementId], references: [id], onDelete: Cascade)
+  createdAt             DateTime            @default(now())
+
+  @@unique([sessionId, teachingRequirementId])
+  @@index([teachingRequirementId])
+}
+
+// §1b — a grade-wide reserved slot where N parallel elective offerings run at once so students can choose
+// between them without a schedule clash. NOT a SharedSession (which merges cohorts into one session) — the
+// inverse: one slot, multiple parallel sessions, students individually bucketed by choice.
+model ElectiveBlock {
+  id              String   @id @default(cuid())
+  schoolId        String
+  school          School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  termId          String
+  term            Term     @relation(fields: [termId], references: [id], onDelete: Cascade)
+  gradeId         String
+  grade           Grade    @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  name            String
+  dayOfWeek       Int
+  periodIdx       Int
+  durationPeriods Int      @default(1)
+  createdById     String
+  createdBy       User     @relation("ElectiveBlockCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+
+  offerings ElectiveOffering[]
+
+  @@index([schoolId])
+  @@index([schoolId, termId])
+}
+
+// One elective subject offered within a block, e.g. "Psychology" vs "Fine Arts" both offered at the same
+// grade-wide slot. Each offering wraps its own TeachingRequirement (scoped to an ELECTIVE-type Cohort whose
+// student-level membership, via CohortMembership, is exactly the students who chose it — populated from
+// ElectiveChoice below, mirroring T3's Activity-registration→CohortMembership pattern) and, once a
+// teacher/room is resolved, its own TimetableSession locked to the block's exact day/period.
+model ElectiveOffering {
+  id                    String              @id @default(cuid())
+  electiveBlockId       String
+  electiveBlock         ElectiveBlock       @relation(fields: [electiveBlockId], references: [id], onDelete: Cascade)
+  teachingRequirementId String              @unique
+  teachingRequirement   TeachingRequirement @relation(fields: [teachingRequirementId], references: [id], onDelete: Cascade)
+  sessionId             String?             @unique
+  session               TimetableSession?   @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  capacity              Int?
+  createdAt             DateTime            @default(now())
+
+  choices ElectiveChoice[]
+
+  @@index([electiveBlockId])
+}
+
+// Which student picked which elective offering — the T3 Activity/ActivityRegistration shape, reused
+// (status default "Registered", same convention), scoped here to elective offerings rather than the general
+// club/house/event Activity catalog since offerings are tied to TeachingRequirement/Cohort, not Activity.
+model ElectiveChoice {
+  id                 String           @id @default(cuid())
+  electiveOfferingId String
+  electiveOffering   ElectiveOffering @relation(fields: [electiveOfferingId], references: [id], onDelete: Cascade)
+  studentId          String
+  student            User             @relation("ElectiveChoiceStudent", fields: [studentId], references: [id], onDelete: Cascade)
+  status             String           @default("Registered") // Registered | Waitlisted | Cancelled
+  registeredAt       DateTime         @default(now())
+
+  @@unique([electiveOfferingId, studentId])
+  @@index([electiveOfferingId])
+  @@index([studentId])
+}
+
+// §3 — TimetableGenerationJob: wraps T4/T5's existing generateForCohorts→refineDraft pipeline as a
+// first-class, reproducible object rather than a bare request/response. For the realistic problem sizes T0
+// benchmarked (single-grade generation in low single-digit seconds), the job runs synchronously within the
+// request that creates it — status/progress/currentStage are still recorded faithfully (QUEUED is skipped;
+// the row transitions BUILDING_MODEL→SOLVING→VALIDATING→COMPLETED|FAILED in place before the response
+// returns) so the SAME row shape is ready for genuine async execution later without a breaking change.
+model TimetableGenerationJob {
+  id                 String       @id @default(cuid())
+  schoolId           String
+  school             School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYearId     String
+  academicYear       AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  termId             String
+  term               Term         @relation(fields: [termId], references: [id], onDelete: Cascade)
+  scopeCohortIds     Json // string[]
+  status             String       @default("QUEUED") // QUEUED|BUILDING_MODEL|SOLVING|VALIDATING|COMPLETED|FAILED|CANCELLED
+  progress           Int          @default(0) // 0-100
+  currentStage       String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  solverVersion      String // e.g. "t4-greedy+t5-sa@1" — bumped whenever generateForCohorts/refineDraft's
+  // actual algorithm changes, so an old job's reproducibility claim is honestly scoped to "same solver version".
+  timeLimit          Int // ms SA budget per cohort-group, mirrors refineBody.timeBudgetMsPerGroup
+  inputSnapshot      Json // { cohortIds, mode, requirementIds, requirementFingerprint } — see jobs.ts
+  constraintSnapshot Json // the active Constraint rows at generation time (type/scope/parameters/enabled)
+  preferenceSnapshot Json // the active Preference rows + active/selected PreferenceProfile at generation time
+  randomSeed         Int
+  solverParameters   Json         @default("{}") // { timeBudgetMsPerGroup }
+  resultVersionId    String? // reserved for T7 versioning; no TimetableVersion table exists yet
+  outputHash         String? // sha256 of the canonicalized post-refinement draft — reproducibility check
+  draftEntries       Json? // the generated (post-refinement) draft, stored so /commit and reproducibility
+  // diffing don't require re-running generation
+  diagnostics        Json? // structured infeasibility diagnostics (see diagnostics.ts) — null when feasible
+  errorCode          String? // e.g. "INFEASIBLE" | "NO_COHORTS" | "INTERNAL"
+  errorDetails       Json?
+  createdById        String
+  createdBy          User         @relation("TimetableGenerationJobCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt          DateTime     @default(now())
+
+  sessions       TimetableSession[]
+  resultVersions TimetableVersion[]
+
+  @@index([schoolId])
+  @@index([schoolId, termId])
+}
+
+// ───────────────────────── Phase T7 — versioning + locks + a real override system ─────────────────────────
+// See phase-t7-versioning-override.md (roadmap D10 — this is the centerpiece of the whole Advanced
+// Timetable Generation project: it's what makes retiring Phase 26's simple generator in T10 acceptable).
+//
+// Design note (why a version's own entries live in a JSON snapshot, not always as real TimetableEntry
+// rows): the pre-existing TimetableEntry table has `@@unique([classId, termId, dayOfWeek, periodIdx])` —
+// only one row can occupy a given class/term/slot at all, regardless of version. That is exactly right for
+// D3 (TimetableEntry is the single materialized "what's actually live" compatibility layer every existing
+// consumer reads). It also means a DRAFT/MODIFIED version being hand-edited cannot coexist, slot-for-slot,
+// with the currently-PUBLISHED version's own live rows in that same table — so, matching the pattern T4/T6
+// already established for in-progress generation (TimetableGenerationJob.draftEntries is a JSON snapshot,
+// never written to TimetableEntry until commit), a TimetableVersion always carries its own full `entries`
+// snapshot; only a PUBLISHED version's snapshot is ever materialized into real, live TimetableEntry rows
+// (tagged with timetableVersionId), and only at the moment it becomes PUBLISHED. This is what makes
+// enforced immutability tractable: a PUBLISHED version's live rows are written exactly once and never
+// updated/deleted in place again — superseding it always means publishing a NEW version (parent = the old
+// one), which replaces the live rows and flips the old version to ARCHIVED; the old version's OWN `entries`
+// snapshot is untouched by that and stays queryable forever, satisfying "old version stays archived intact".
+model TimetableVersion {
+  id             String       @id @default(cuid())
+  schoolId       String
+  school         School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  termId         String
+  term           Term         @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  // Scope: a version governs either a set of cohorts (the T4+ solver-scoped path) or a flat set of classes
+  // (the pre-cohort Phase 2 manual-edit path this phase upgrades in place) — whichever the caller used to
+  // create it. Both default to `[]`, additive/optional so nothing pre-T7 needs either.
+  scopeCohortIds Json @default("[]") // string[]
+  scopeClassIds  Json @default("[]") // string[]
+
+  status String @default("DRAFT") // DRAFT|GENERATED|MODIFIED|APPROVED|PUBLISHED|ARCHIVED
+
+  parentVersionId String?
+  parentVersion   TimetableVersion?  @relation("VersionLineage", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  children        TimetableVersion[] @relation("VersionLineage")
+
+  generationJobId String? // the TimetableGenerationJob that produced this version's initial entries, if any
+  generationJob   TimetableGenerationJob? @relation(fields: [generationJobId], references: [id], onDelete: SetNull)
+
+  changeReason String? // why this version was created as a modification of its parent (§1)
+
+  // The version's own full entry snapshot: { classId, dayOfWeek, periodIdx, classSubjectId, roomId,
+  // teacherId, sessionId }[] — the source of truth for this version regardless of whether it is currently
+  // materialized live. Kept in sync by every override action (§4) that touches this version while it is
+  // still editable (DRAFT/GENERATED/MODIFIED).
+  entries Json
+
+  // Computed once at creation time when parentVersionId is set (manual fork, or a future T8 partial-
+  // reoptimization result) — { added: Entry[], removed: Entry[], changed: { before: Entry, after: Entry }[] }
+  // — so "what changed vs. the version this replaces" never requires a full-entry-set diff on demand (§1).
+  diffFromParent Json?
+
+  publishedAt DateTime?
+  archivedAt  DateTime?
+
+  createdById String
+  createdBy   User     @relation("TimetableVersionCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  locks        TimetableLock[]
+  editEvents   TimetableEditEvent[]
+  materialized TimetableEntry[] // live rows this version currently owns (only ever non-empty while PUBLISHED)
+
+  @@index([schoolId, termId])
+  @@index([schoolId, status])
+  @@index([parentVersionId])
+  @@index([generationJobId])
+}
+
+// A generic lock, exactly per the spec's own examples of how the granularities differ: a whole-DAY lock
+// (targetId null, dayOfWeek set) is a different, broader constraint than a specific TEACHER lock (targetId
+// = teacherId, day/period null — that teacher untouchable anywhere in this version) which is itself
+// different from one exact slot's ASSIGNMENT lock (targetId = classSubjectId, both day/period set). T8
+// (not this phase) is what makes every lock type actually respected mid-solve; this phase's solver
+// integration is intentionally minimal (see solver.ts/refinement.ts — full-regenerate/refine skip anything
+// in an active lock's scope) and the override system (§4) always blocks a hand-edit into a locked target.
+model TimetableLock {
+  id                 String           @id @default(cuid())
+  schoolId           String
+  school             School           @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  timetableVersionId String
+  version            TimetableVersion @relation(fields: [timetableVersionId], references: [id], onDelete: Cascade)
+
+  lockType   String // SESSION|TEACHER|ROOM|COHORT|DAY|PERIOD|ASSIGNMENT
+  targetType String // what targetId names: sessionId|teacherId|roomId|cohortId|classSubjectId|none (DAY/PERIOD-only locks)
+  targetId   String?
+  dayOfWeek  Int? // set for DAY/PERIOD/ASSIGNMENT-style slot-scoped locks
+  periodIdx  Int? // set for PERIOD/ASSIGNMENT-style slot-scoped locks
+
+  reason String?
+
+  createdById String
+  createdBy   User     @relation("TimetableLockCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  releasedAt   DateTime? // set by unlock (§4) — rows are kept, not deleted, so a lock's own history is auditable
+  releasedById String?
+
+  @@index([schoolId, timetableVersionId])
+  @@index([timetableVersionId, lockType])
+}
+
+// Per-version, ordered hand-edit log with real before/after entry snapshots — this is what makes Undo
+// (§4: at minimum last-change, and here also revert-to-any-prior-point) a real replay rather than a hope.
+// Every row here is written alongside (never instead of) a normal audit() call to the school's generic
+// AuditLog — this table exists purely to carry the structured diff undo needs; AuditLog stays the single
+// inspectable "who/when/what/why" record every override produces, exactly per the ground rules.
+model TimetableEditEvent {
+  id                 String           @id @default(cuid())
+  schoolId           String
+  school             School           @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  timetableVersionId String
+  version            TimetableVersion @relation(fields: [timetableVersionId], references: [id], onDelete: Cascade)
+
+  seq    Int // 1-based, increasing per version — the undo/redo ordering
+  action String // MOVE|SWAP|LOCK|UNLOCK|REGENERATE_SLOT|UNDO
+
+  before Json // the affected entries' state immediately before this action (possibly [])
+  after  Json // the affected entries' state immediately after this action (possibly [])
+
+  reason String?
+
+  createdById String
+  createdBy   User     @relation("TimetableEditEventCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  undone   Boolean   @default(false) // true once a later UNDO has reverted this event
+  undoneAt DateTime?
+
+  @@unique([timetableVersionId, seq])
+  @@index([schoolId, timetableVersionId])
+}
+
+// ───────────────────────── Phase T9 — Substitution Workflow ─────────────────────────
+// See .agents/edunova/phase-t9-substitution.md and roadmap D6. Extends the existing Phase 6 LeaveRequest
+// (new "PENDING_SUBSTITUTION" status value, added as a plain string — LeaveRequest.status was never a DB
+// enum, just a documented convention, so no column change was needed there) rather than forking a parallel
+// leave model. The Substitute Finder (modules/timetable/substitution.ts) reuses T4's Constraint model
+// (activeTypes) plus the same TeacherQualification/TeacherAvailability/TimetableEntry primitives every
+// other T4/T5/T8 solver file queries directly — there is no shared "checkCollision()" function to import in
+// this codebase; each consumer applies the same active-constraint-type gate to its own domain queries, and
+// this phase follows that exact convention rather than inventing a new abstraction.
+//
+// Design note on PeriodHold vs TimetableLock (required by the phase spec): kept SEPARATE, not merged.
+// TimetableLock protects a slot within ONE TimetableVersion's editable draft (day-of-week/recurring-
+// template semantics — "this slot, every week, in this draft"), and its LOCKED-vs-not is binary with no
+// TENTATIVE concept. PeriodHold guards a substitute TEACHER's real-world availability for a specific
+// CALENDAR DATE (not a version draft, not day-of-week-recurring — a substitution is a one-off exception,
+// exactly why the pre-existing Substitution model already keyed off `date` rather than a recurring
+// TimetableEntry-style day-of-week), and it has a genuine two-stage lifecycle (TENTATIVE on accept, LOCKED
+// only on the teacher's leave being approved — D6's core invariant) that TimetableLock was never designed
+// to express. Reusing TimetableLock would mean bolting a TENTATIVE state and a calendar-date scope onto a
+// model whose every other consumer (T7 override system, T8 what-if) assumes version-draft/day-of-week
+// semantics — a worse fit than a small, purpose-built table.
+
+// One row per school (a singleton, `schoolId` unique) — the D6 policy configuration. No row at all defaults
+// to TEACHER_INITIATED / 12h notice / cross-subject substitution disabled / 4h tentative-hold expiry (see
+// substitution.ts#effectivePolicy), matching this codebase's existing "absence of a row = the documented
+// default" convention (e.g. TeacherAvailability, WorkingDayPattern).
+model SubstitutionPolicy {
+  id       String @id @default(cuid())
+  schoolId String @unique
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  mode                          String  @default("TEACHER_INITIATED") // TEACHER_INITIATED | ADMIN_ASSIGNED | HYBRID
+  minNoticeHoursForSubstitution Int     @default(12)
+  allowCrossSubject             Boolean @default(false)
+  maxWeeklySubstitutePeriods    Int     @default(30) // hard workload cap the Finder excludes candidates over
+  tentativeHoldExpiryMinutes    Int     @default(240)
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+// One configurable weight row per Finder ranking signal — mirrors T5's Preference(scope='ASSIGNMENT')
+// pattern exactly (see assignmentModes.ts), just a distinct `scope` value so the two tables never collide:
+// PATCH /preferences/:type (existing T5 endpoint) already works against this table unmodified since scope
+// is just another string value it accepts.
+
+// §2 — a teacher's absence, decomposed into the specific covered periods a substitute is sought for.
+// `periods` is { date, dayOfWeek, periodIdx, timetableEntryId, classId, classSubjectId, subjectName }[] —
+// captured once at send time so a later change to the underlying TimetableEntry can never retroactively
+// alter what a substitute actually agreed to cover.
+model SubstitutionRequest {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  leaveRequestId String
+  leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+
+  originalTeacherId   String
+  originalTeacher     User   @relation("SubstitutionRequestOriginalTeacher", fields: [originalTeacherId], references: [id], onDelete: Cascade)
+  substituteTeacherId String
+  substituteTeacher   User   @relation("SubstitutionRequestSubstituteTeacher", fields: [substituteTeacherId], references: [id], onDelete: Cascade)
+
+  periods Json // see doc comment above
+
+  status String @default("SENT") // SENT | ACCEPTED | DECLINED | EXPIRED
+
+  // Which policy path produced this row (§1/§5) — TEACHER_INITIATED/HYBRID go through SENT->accept;
+  // ADMIN_ASSIGNED and EMERGENCY (minimum-notice routing) are created directly ACCEPTED, no round-trip.
+  mode String // TEACHER_INITIATED | ADMIN_ASSIGNED | HYBRID | EMERGENCY
+
+  score        Float? // Finder's ranking score for this candidate at send time (admin visibility, §2)
+  isOverride   Boolean @default(false) // §4 — admin forced a soft-constraint-failing candidate through
+  overrideNote String?
+
+  sentById String
+  sentBy   User     @relation("SubstitutionRequestSentBy", fields: [sentById], references: [id], onDelete: Cascade)
+  sentAt   DateTime @default(now())
+
+  decidedById String?
+  decidedBy   User?     @relation("SubstitutionRequestDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  acceptedAt  DateTime?
+  declinedAt  DateTime?
+  expiredAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  holds PeriodHold[]
+
+  @@index([schoolId])
+  @@index([leaveRequestId])
+  @@index([substituteTeacherId, status])
+  @@index([originalTeacherId])
+}
+
+// §3 — the race-condition guard. One row per (substitute teacher, calendar date, period) a SubstitutionRequest
+// currently holds. TENTATIVE the moment a substitute accepts; promoted to LOCKED only when the teacher's
+// leave is actually admin-approved (D6's invariant — never before); auto-expires (see substitution.ts#
+// expireStaleHolds, called lazily wherever this codebase already calls opportunistic expiry checks — see
+// leave/service.ts#deactivateIfPastLastWorkingDate for the exact precedent this follows) after
+// `SubstitutionPolicy.tentativeHoldExpiryMinutes` if still TENTATIVE, so a dead request can't block a
+// teacher's real availability indefinitely.
+model PeriodHold {
+  id       String @id @default(cuid())
+  schoolId String
+  school   School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  teacherId String
+  teacher   User   @relation("PeriodHoldTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+
+  date      DateTime @db.Date
+  dayOfWeek Int
+  periodIdx Int
+  termId    String
+  term      Term     @relation(fields: [termId], references: [id], onDelete: Cascade)
+
+  holdType String // TENTATIVE | LOCKED
+
+  sourceSubstitutionRequestId String?
+  sourceSubstitutionRequest   SubstitutionRequest? @relation(fields: [sourceSubstitutionRequestId], references: [id], onDelete: SetNull)
+
+  expiresAt  DateTime? // set for TENTATIVE holds only; null once promoted to LOCKED
+  releasedAt DateTime? // set on expiry, decline, or supersession — rows are kept, mirrors TimetableLock's own releasedAt convention
+
+  createdAt DateTime @default(now())
+
+  // A substitute can be TENTATIVE- or LOCKED-held at most once per (teacher, date, period) among ACTIVE
+  // (releasedAt null) rows — enforced in substitution.ts (a DB-level partial-unique-index would need raw
+  // SQL this codebase's migration convention avoids elsewhere; every other race-guard here, e.g.
+  // Contract/Resignation's "already pending" checks, is likewise enforced in the service layer).
+  @@index([schoolId])
+  @@index([teacherId, date, periodIdx])
+  @@index([sourceSubstitutionRequestId])
 }
