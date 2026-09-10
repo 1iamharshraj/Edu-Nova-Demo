@@ -20,6 +20,9 @@ const COLLECTION: Record<keyof AcademicState, string> = {
   enrollments: 'enrollments',
   guardians: 'guardians',
   periodTemplates: '/timetable/period-templates',
+  cohorts: 'cohorts',
+  capabilities: 'capabilities',
+  teacherQualifications: 'teacher-qualifications',
 }
 
 /**

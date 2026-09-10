@@ -18,9 +18,13 @@ export function useLeaveTypes(enabled = true) {
 
 /* ── leave requests ─────────────────────────────────────── */
 
+// 'PENDING_SUBSTITUTION' deliberately omitted from this list (and from `requestsQuery`'s own status enum
+// server-side) — it's a transient in-flight state the UI surfaces via the row itself, not a status an admin
+// filters the list by.
 export const LEAVE_STATUSES: LeaveRequestStatus[] = ['Pending', 'Approved', 'Declined', 'Cancelled']
-export const leaveTone = (s: LeaveRequestStatus): 'green' | 'amber' | 'rose' | 'slate' =>
-  s === 'Approved' ? 'green' : s === 'Pending' ? 'amber' : s === 'Declined' ? 'rose' : 'slate'
+export const leaveTone = (s: LeaveRequestStatus): 'green' | 'amber' | 'rose' | 'slate' | 'indigo' =>
+  s === 'Approved' ? 'green' : s === 'Pending' ? 'amber' : s === 'PENDING_SUBSTITUTION' ? 'indigo' : s === 'Declined' ? 'rose' : 'slate'
+export const leaveStatusLabel = (s: LeaveRequestStatus) => s === 'PENDING_SUBSTITUTION' ? 'Arranging substitute' : s
 
 /**
  * `/leave/requests?forUserId&status&scope`. `scope: 'mine'` — own/wards' requests (student self, parent wards,

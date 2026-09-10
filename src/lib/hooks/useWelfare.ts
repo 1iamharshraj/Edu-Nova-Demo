@@ -112,8 +112,8 @@ export function useCallLog(studentId?: string, enabled = true) {
 
 /* ── activities ─────────────────────────────────────────── */
 
-export const ACTIVITY_KINDS: ActivityKind[] = ['club', 'house', 'exc', 'event', 'faculty']
-export const ACTIVITY_KIND_LABEL: Record<ActivityKind, string> = { club: 'Club / Chapter', house: 'Inter-house', exc: 'Extra-curricular', event: 'Event', faculty: 'Faculty' }
+export const ACTIVITY_KINDS: ActivityKind[] = ['club', 'house', 'exc', 'event', 'faculty', 'track']
+export const ACTIVITY_KIND_LABEL: Record<ActivityKind, string> = { club: 'Club / Chapter', house: 'Inter-house', exc: 'Extra-curricular', event: 'Event', faculty: 'Faculty', track: 'Track / Stream (T3)' }
 
 /** `/activities?kind` */
 export function useActivities(kind?: ActivityKind, enabled = true) {
