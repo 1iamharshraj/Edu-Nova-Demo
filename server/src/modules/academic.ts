@@ -14,6 +14,9 @@ import { classSubjectsRouter } from './classSubjects/router'
 import { roomsRouter } from './rooms/router'
 import { enrollmentsRouter } from './enrollments/router'
 import { guardiansRouter } from './guardians/router'
+import { cohortsRouter } from './cohorts/router'
+import { capabilitiesRouter } from './capabilities/router'
+import { teacherQualificationsRouter } from './teacherQualifications/router'
 import * as years from './years/service'
 import * as terms from './terms/service'
 import * as boards from './boards/service'
@@ -27,6 +30,9 @@ import * as rooms from './rooms/service'
 import * as enrollments from './enrollments/service'
 import * as guardians from './guardians/service'
 import * as periodTemplates from './periodTemplates/service'
+import * as cohorts from './cohorts/service'
+import * as capabilities from './capabilities/service'
+import * as teacherQualifications from './teacherQualifications/service'
 
 // Everything under /api/academic. Reads: any authenticated role; writes gated per router.
 export const academicRouter = Router()
@@ -35,10 +41,10 @@ academicRouter.use(requireAuth)
 // Returns the full AcademicState for the school (see contract + phase-1b + phase-2).
 academicRouter.get('/bootstrap', wrap(async (req, res) => {
   const ctx = ctxOf(req as AuthedRequest)
-  const [y, t, b, gr, st, cu, c, s, cs, r, e, g, pt] = await Promise.all([
+  const [y, t, b, gr, st, cu, c, s, cs, r, e, g, pt, co, cap, tq] = await Promise.all([
     years.list(ctx), terms.list(ctx), boards.list(ctx), grades.list(ctx), streams.list(ctx), curriculum.list(ctx),
     classes.list(ctx), subjects.list(ctx), classSubjects.list(ctx), rooms.list(ctx), enrollments.list(ctx), guardians.list(ctx),
-    periodTemplates.list(ctx),
+    periodTemplates.list(ctx), cohorts.list(ctx), capabilities.list(ctx), teacherQualifications.list(ctx),
   ])
   res.json({
     years: y.map(years.serializeYear),
@@ -54,6 +60,11 @@ academicRouter.get('/bootstrap', wrap(async (req, res) => {
     enrollments: e.map(enrollments.serializeEnrollment),
     guardians: g.map(guardians.serializeGuardian),
     periodTemplates: pt.map(periodTemplates.serializePeriodTemplate),
+    // Phase T1 additions — see phase-t1-timetable-foundations.md. Purely additive keys; every field above
+    // is unchanged, so an existing frontend that doesn't read these keys sees byte-identical bootstrap data.
+    cohorts: co.map(cohorts.serializeCohort),
+    capabilities: cap.map(capabilities.serializeCapability),
+    teacherQualifications: tq.map(teacherQualifications.serializeTeacherQualification),
   })
 }))
 
@@ -69,3 +80,6 @@ academicRouter.use('/class-subjects', classSubjectsRouter)
 academicRouter.use('/rooms', roomsRouter)
 academicRouter.use('/enrollments', enrollmentsRouter)
 academicRouter.use('/guardians', guardiansRouter)
+academicRouter.use('/cohorts', cohortsRouter)
+academicRouter.use('/capabilities', capabilitiesRouter)
+academicRouter.use('/teacher-qualifications', teacherQualificationsRouter)

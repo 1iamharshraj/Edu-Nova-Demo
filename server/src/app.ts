@@ -15,6 +15,7 @@ import { attendanceRouter } from './modules/attendance/router'
 import { assessmentsRouter } from './modules/assessments/router'
 import { homeworkRouter } from './modules/homework/router'
 import { applicationsRouter } from './modules/applications/router'
+import { admissionDocumentsRouter } from './modules/admissionDocuments/router'
 import { certificatesRouter } from './modules/certificates/router'
 import { boardRegistrationsRouter } from './modules/boardRegistrations/router'
 import { verificationRouter } from './modules/verification/router'
@@ -58,6 +59,7 @@ import { cultureRouter } from './modules/culture/router'
 import { groupRouter } from './modules/group/router'
 import { complianceRouter } from './modules/compliance/router'
 import { canteenRouter } from './modules/canteen/router'
+import { sectioningRouter } from './modules/sectioning/router'
 import { errorHandler } from './lib/errors'
 
 export function createApp() {
@@ -93,6 +95,7 @@ export function createApp() {
   app.use('/api/assessments', assessmentsRouter)
   app.use('/api/homework', homeworkRouter)
   app.use('/api/applications', applicationsRouter)
+  app.use('/api/admission-documents', admissionDocumentsRouter)
   app.use('/api/certificates', certificatesRouter)
   app.use('/api/board-registrations', boardRegistrationsRouter)
   app.use('/api/verification', verificationRouter)
@@ -139,6 +142,7 @@ export function createApp() {
   app.use('/api/group', groupRouter)
   app.use('/api/compliance', complianceRouter)
   app.use('/api/canteen', canteenRouter)
+  app.use('/api/sectioning', sectioningRouter)
 
   app.use(errorHandler)
   return app

@@ -270,6 +270,27 @@ usersRouter.patch('/me', wrap(async (req, res) => {
   res.json({ user: toClientUser(fresh) })
 }))
 
+// ═══════════════════════════ Phase T1 §4 — teacher band affinity (self-service) ═══════════════════════════
+// PATCH /me/band-affinity — teacher-role only (requireRole gate; the row itself lives on the shared User
+// table per this codebase's role-conditional-field convention, see schema.prisma). `verifiedBandAffinity`
+// has no write path here at all — it stays null until the future T11 evaluation engine populates it.
+const bandLevel = z.enum(['STRONG', 'MEDIUM', 'NONE'])
+const bandAffinityBody = z.object({
+  declaredBandAffinity: z.object({ support: bandLevel, mid: bandLevel, advanced: bandLevel }),
+})
+
+usersRouter.patch('/me/band-affinity', requireRole('teacher'), wrap(async (req, res) => {
+  const ctx = ctxOf(req as AuthedRequest)
+  const body = validate(bandAffinityBody, req.body)
+  const before = await prisma.user.findUniqueOrThrow({ where: { id: ctx.actorId } })
+  const user = await prisma.user.update({
+    where: { id: ctx.actorId },
+    data: { declaredBandAffinity: body.declaredBandAffinity, affinitySource: 'DECLARED' },
+  })
+  await audit(ctx.schoolId, ctx.actorId, 'update', 'user', user.id, toClientUser(before), toClientUser(user))
+  res.json({ user: toClientUser(user) })
+}))
+
 // ═══════════════════════════ Phase 11 · A2 team / org chart ═══════════════════════════
 
 // GET /org-chart — HR/admin only. The whole school's employee-role users as a tree (roots = no manager,

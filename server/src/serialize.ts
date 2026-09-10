@@ -27,5 +27,11 @@ export function toClientUser(u: PrismaUser, plainPassword?: string) {
     lastLoginAt: u.lastLoginAt?.toISOString(),
     isCounselor: u.isCounselor,
     active: u.active,
+    // Phase T1 §4 — teacher band affinity (roadmap D2 groundwork for T5). Present on every role's
+    // serialized user (declaredBandAffinity is null for non-teachers, same as any unused optional field);
+    // only teachers can actually set it, via PATCH /api/users/me/band-affinity.
+    declaredBandAffinity: (u.declaredBandAffinity as Record<string, string> | null) ?? undefined,
+    verifiedBandAffinity: (u.verifiedBandAffinity as Record<string, string> | null) ?? undefined,
+    affinitySource: u.affinitySource,
   }
 }
