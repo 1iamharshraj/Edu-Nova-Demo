@@ -4,7 +4,7 @@ import { requireRole, ctxOf, WRITE_ROLES } from '../../lib/rbac'
 import { validate } from '../../lib/validate'
 import type { AuthedRequest } from '../../auth'
 import * as svc from './service'
-import { createRoom, patchRoom } from './schema'
+import { createRoom, patchRoom, setRoomCapabilities } from './schema'
 
 export const roomsRouter = Router()
 const write = requireRole(...WRITE_ROLES)
@@ -21,6 +21,12 @@ roomsRouter.post('/', write, wrap(async (req, res) => {
 
 roomsRouter.patch('/:id', write, wrap(async (req, res) => {
   const item = await svc.update(ctxOf(req as AuthedRequest), req.params.id, validate(patchRoom, req.body))
+  res.json({ item: svc.serializeRoom(item) })
+}))
+
+// Phase T1 §2 — dedicated set-replace endpoint for the capability multi-select on the Room admin screen.
+roomsRouter.put('/:id/capabilities', write, wrap(async (req, res) => {
+  const item = await svc.setCapabilities(ctxOf(req as AuthedRequest), req.params.id, validate(setRoomCapabilities, req.body))
   res.json({ item: svc.serializeRoom(item) })
 }))
 
