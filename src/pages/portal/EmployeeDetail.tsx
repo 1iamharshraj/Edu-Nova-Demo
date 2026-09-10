@@ -6,7 +6,7 @@ import { ThemeToggle } from '@/lib/theme'
 import { useStore } from '@/lib/store'
 import { isAdmin } from '@/lib/access'
 import { Card, Empty, PageHead, Pill } from '@/portal/ui'
-import { EmployeeDocumentsSection, EmploymentHistoryTimeline, IdCardButton } from '@/portal/modules/employee'
+import { EmployeeDocumentsSection, EmploymentHistoryTimeline, IdCardButton, TeacherQualificationsSection } from '@/portal/modules/employee'
 
 // Converted from the old `EmployeeDetailModal` (modal-as-mini-app with internal tab state) into a real routed
 // page — see .agents/edunova/ui-architecture-fix.md, Phase C #1. The 3 tabs (Overview/History/Documents) stay
@@ -14,7 +14,7 @@ import { EmployeeDocumentsSection, EmploymentHistoryTimeline, IdCardButton } fro
 // deep-linkable state worth bookmarking on their own, so nested routes would only add routing surface without
 // real benefit. Reused from `MyTeamMod` (employee.tsx) and the People & Roles screen (office.tsx).
 
-type DetailTab = 'overview' | 'history' | 'documents'
+type DetailTab = 'overview' | 'history' | 'documents' | 'qualifications'
 
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)
 
@@ -24,6 +24,10 @@ export default function EmployeeDetail() {
   const { user: viewer, db } = useStore()
   const user = useMemo(() => db.users.find(u => u.id === id) ?? null, [db.users, id])
   const canSeeDocuments = isAdmin(viewer)
+  // Phase T1 §3 — qualifications editor is admin-visible, teacher-role-only (matches canSeeDocuments'
+  // admin gate; a teacher's own qualifications are declared by the school, not self-service, unlike band
+  // affinity on the Profile screen).
+  const canSeeQualifications = canSeeDocuments && user?.role === 'teacher'
   const [tab, setTab] = useState<DetailTab>('overview')
 
   const managerName = user?.reportsTo ? (db.users.find(u => u.id === user.reportsTo)?.name ?? user.reportsTo) : undefined
@@ -33,6 +37,7 @@ export default function EmployeeDetail() {
     { id: 'overview', label: 'Overview' },
     { id: 'history', label: 'History' },
     ...(canSeeDocuments ? [{ id: 'documents' as const, label: 'Documents' }] : []),
+    ...(canSeeQualifications ? [{ id: 'qualifications' as const, label: 'Qualifications' }] : []),
   ]
 
   return (
@@ -93,6 +98,7 @@ export default function EmployeeDetail() {
                 )}
                 {tab === 'history' && <EmploymentHistoryTimeline userId={user.id} />}
                 {tab === 'documents' && canSeeDocuments && <EmployeeDocumentsSection userId={user.id} />}
+                {tab === 'qualifications' && canSeeQualifications && <TeacherQualificationsSection teacherId={user.id} />}
               </div>
             </Card>
           </>
