@@ -1,136 +1,208 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { seedDB } from './data'
-import { canManage } from './access'
-import type { DB, Role, User } from './data'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { api, getToken, getRefreshToken, setTokens } from './api'
+import { compareClasses, emptyAcademic } from './data'
+import type { AcademicState, DB, Role, User } from './data'
 
-const DB_KEY = 'edunova_db_v1'
-const SESSION_KEY = 'edunova_session_v1'
+export { API_BASE } from './api'
 
-function uid(prefix: string) {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+function emptyDB(): DB {
+  return {
+    users: [], terms: [], subjects: [], timetable: {}, attendance: {}, marks: {}, feed: [], threads: [],
+    homework: [], receipts: [], events: [], slips: [], leaves: [], achievements: [], ranks: {}, health: [],
+    directory: [], applications: [], workAssign: [], marksheets: [], contracts: [], resignations: [],
+    meetings: [], workUploads: [], attendanceRecords: [], boardDetails: {}, aiParentCalls: [],
+    disciplinaryCases: [], studentProfileReports: [],
+  }
 }
 
-function makeEmail(name: string, role: Role) {
-  const base = name.toLowerCase().replace(/[^a-z]+/g, '.').replace(/(^\.|\.$)/g, '')
-  if (role === 'student') return `${base}@edunova.in`
-  if (role === 'parent') return `parent.${base}@edunova.in`
-  if (role === 'teacher') return `${base}@edunova.in`
-  if (role === 'staff') return `${base}@edunova.in`
-  if (role === 'admin') return `${base}@edunova.in`
-  return `${base}@edunova.in`
+async function fetchFullDB(): Promise<DB> {
+  const [usersRes, dataRes] = await Promise.all([api.get('/users'), api.get('/data')])
+  return { ...emptyDB(), ...dataRes.data, users: usersRes.users } as DB
 }
 
-function rolePassword(role: Role) {
-  if (role === 'superadmin') return 'principal123'
-  if (role === 'admin') return 'admin123'
-  if (role === 'staff') return 'staff123'
-  if (role === 'teacher') return 'teacher123'
-  if (role === 'parent') return 'parent123'
-  return 'student123'
+async function fetchAcademic(): Promise<AcademicState> {
+  const res = await api.get<AcademicState>('/academic/bootstrap')
+  return { ...emptyAcademic(), ...res }
 }
 
-function loadDB(): DB {
-  try {
-    const raw = localStorage.getItem(DB_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw) as DB
-      if (parsed && parsed.users && parsed.terms) return parsed
-    }
-  } catch { /* fall through to reseed */ }
-  const fresh = seedDB()
-  localStorage.setItem(DB_KEY, JSON.stringify(fresh))
-  return fresh
+export interface CreateUserInput extends Omit<Partial<User>, 'id' | 'password'> {
+  name: string
+  role: Role
+  password?: string
+  classId?: string
+  rollNo?: string
+  studentIds?: string[]
+  classTeacherOf?: string
+}
+export type UpdateUserInput = Partial<CreateUserInput>
+
+// Phase 28 — multi-school/group membership. Orthogonal to `role`/`schoolId`: fetched once per session
+// (right alongside `/auth/me`) and cached here, the same global app-state the current `user` lives in —
+// see src/lib/hooks/useGroup.ts for the read hook and mutation helpers that build on this.
+export type GroupRole = 'GroupAdmin' | 'GroupViewer'
+export interface GroupMembership { groupId: string; groupName: string; role: GroupRole }
+export interface GroupMineResponse {
+  memberships: GroupMembership[]
+  school: { id: string; groupId: string | null; groupName: string | null }
+}
+
+async function fetchGroupMine(): Promise<GroupMineResponse | null> {
+  try { return await api.get<GroupMineResponse>('/group/mine') } catch { return null }
 }
 
 interface StoreCtx {
   db: DB
-  update: (fn: (db: DB) => DB) => void
+  academic: AcademicState
   user: User | null
-  login: (email: string, password: string) => User | null
+  login: (email: string, password: string) => Promise<User | null>
   logout: () => void
   setUser: (u: User) => void
-  resetAll: () => void
-  createUser: (partial: Omit<Partial<User>, 'id'> & { name: string; role: Role }) => User
-  deleteUser: (id: string) => boolean
+  refreshDB: () => Promise<void>
+  refreshAcademic: () => Promise<void>
+  /** Re-reads `/auth/me` (after a profile edit, password change or verification) and updates `user`. */
+  refreshMe: () => Promise<User | null>
+  createUser: (input: CreateUserInput) => Promise<{ user: User; password: string }>
+  updateUser: (id: string, input: UpdateUserInput) => Promise<User>
+  deleteUser: (id: string) => Promise<boolean>
+  /** Bug A fix: soft-deactivate/reactivate instead of hard-delete. Reversible — sets User.active. */
+  setUserActive: (id: string, active: boolean) => Promise<boolean>
+  loadSampleData: () => Promise<void>
+  resetSchool: () => Promise<void>
+  loading: boolean
+  /** Phase 28: this session's group memberships + own school's group, or `null` before boot/on fetch failure. */
+  groupMine: GroupMineResponse | null
+  /** Re-reads `/group/mine` — call after creating/joining a group or being granted a new membership. */
+  refreshGroupMine: () => Promise<void>
 }
 
 const Ctx = createContext<StoreCtx | null>(null)
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [db, setDb] = useState<DB>(loadDB)
-  const [user, setUserState] = useState<User | null>(() => {
-    try {
-      const id = localStorage.getItem(SESSION_KEY)
-      if (!id) return null
-      return loadDB().users.find(u => u.id === id) ?? null
-    } catch { return null }
-  })
+  const [db, setDb] = useState<DB>(emptyDB)
+  const [academic, setAcademic] = useState<AcademicState>(emptyAcademic)
+  const [user, setUserState] = useState<User | null>(null)
+  const [groupMine, setGroupMine] = useState<GroupMineResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const dbRef = useRef(db)
+  dbRef.current = db
+
+  const loadAll = useCallback(async () => {
+    const [fresh, acad] = await Promise.all([fetchFullDB(), fetchAcademic()])
+    setDb(fresh)
+    setAcademic(acad)
+  }, [])
 
   useEffect(() => {
-    localStorage.setItem(DB_KEY, JSON.stringify(db))
-  }, [db])
-
-  const api = useMemo<StoreCtx>(() => ({
-    db,
-    update: (fn) => setDb(prev => fn(structuredClone(prev))),
-    user,
-    login: (email, password) => {
-      const found = db.users.find(u => u.email.toLowerCase() === email.trim().toLowerCase() && u.password === password)
-      if (found) {
-        localStorage.setItem(SESSION_KEY, found.id)
-        setUserState(found)
-        return found
+    let cancelled = false
+    async function boot() {
+      if (!getToken()) { setLoading(false); return }
+      try {
+        const me = await api.get('/auth/me')
+        if (cancelled) return
+        setUserState(me.user)
+        await loadAll()
+        if (cancelled) return
+        setGroupMine(await fetchGroupMine())
+      } catch {
+        setTokens(null)
+        setUserState(null)
+      } finally {
+        if (!cancelled) setLoading(false)
       }
+    }
+    boot()
+    return () => { cancelled = true }
+  }, [loadAll])
+
+  const refreshDB = useCallback(async () => { setDb(await fetchFullDB()) }, [])
+  const refreshAcademic = useCallback(async () => { setAcademic(await fetchAcademic()) }, [])
+  const refreshGroupMine = useCallback(async () => { setGroupMine(await fetchGroupMine()) }, [])
+  const refreshMe = useCallback(async () => {
+    try {
+      const me = await api.get<{ user: User }>('/auth/me')
+      setUserState(me.user)
+      return me.user
+    } catch {
       return null
+    }
+  }, [])
+
+  const value: StoreCtx = useMemo(() => ({
+    db,
+    academic,
+    loading,
+    user,
+    groupMine,
+    login: async (email, password) => {
+      const res = await api.post('/auth/login', { email, password })
+      setTokens({ token: res.token, refreshToken: res.refreshToken })
+      setUserState(res.user)
+      await loadAll()
+      setGroupMine(await fetchGroupMine())
+      return res.user
     },
     logout: () => {
-      localStorage.removeItem(SESSION_KEY)
+      api.post('/auth/logout', { refreshToken: getRefreshToken() }).catch(() => {})
+      setTokens(null)
       setUserState(null)
+      setDb(emptyDB())
+      setAcademic(emptyAcademic())
+      setGroupMine(null)
     },
     setUser: (u) => setUserState(u),
-    resetAll: () => {
-      const fresh = seedDB()
-      setDb(fresh)
-      localStorage.setItem(DB_KEY, JSON.stringify(fresh))
+    refreshDB,
+    refreshAcademic,
+    refreshMe,
+    refreshGroupMine,
+    createUser: async (input) => {
+      const res = await api.post<{ user: User; password: string }>('/users', input)
+      await loadAll()
+      return res
     },
-    createUser: (partial) => {
-      const id = uid(partial.role === 'student' ? 'u-s' : partial.role === 'parent' ? 'u-p' : partial.role === 'teacher' ? 'u-t' : partial.role === 'staff' ? 'u-st' : 'u-a')
-      const email = partial.email ?? makeEmail(partial.name, partial.role)
-      const password = rolePassword(partial.role)
-      const user: User = {
-        id,
-        role: partial.role,
-        name: partial.name,
-        email,
-        password,
-        title: partial.title ?? `${partial.role} · onboarded`,
-        avatarHue: partial.avatarHue ?? Math.floor(Math.random() * 360),
-        verified: partial.verified ?? true,
-        class: partial.class,
-        section: partial.section,
-        roll: partial.roll,
-        subjects: partial.subjects,
-        department: partial.department,
-        designation: partial.designation,
-        joinDate: partial.joinDate ?? new Date().toISOString().slice(0, 10),
-        phone: partial.phone,
-        parentEmail: partial.parentEmail,
-        board: partial.board,
+    updateUser: async (id, input) => {
+      const res = await api.patch<{ user: User }>(`/users/${id}`, input)
+      await loadAll()
+      if (user && user.id === id) setUserState(res.user)
+      return res.user
+    },
+    deleteUser: async (id) => {
+      try {
+        await api.del(`/users/${id}`)
+        await loadAll()
+        return true
+      } catch {
+        return false
       }
-      setDb(prev => ({ ...prev, users: [...prev.users, user] }))
-      return user
     },
-    deleteUser: (id) => {
-      const current = user
-      const target = db.users.find(u => u.id === id)
-      if (!current || !target) return false
-      if (!canManage(current, target, db.users)) return false
-      setDb(prev => ({ ...prev, users: prev.users.filter(u => u.id !== id) }))
-      return true
+    setUserActive: async (id, active) => {
+      try {
+        await api.patch(`/users/${id}/active`, { active })
+        await loadAll()
+        return true
+      } catch {
+        return false
+      }
     },
-  }), [db, user])
+    loadSampleData: async () => {
+      await api.post('/admin/load-sample-data')
+      await loadAll()
+    },
+    resetSchool: async () => {
+      await api.post('/admin/reset', { confirm: 'RESET' })
+      await loadAll()
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [db, academic, user, groupMine, loading, loadAll, refreshDB, refreshAcademic, refreshMe, refreshGroupMine])
 
-  return <Ctx.Provider value={api}>{children}</Ctx.Provider>
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#f6f6f4] text-[14px] text-black/50 dark:bg-[#090911] dark:text-white/50">
+        Loading EduNova…
+      </div>
+    )
+  }
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 
 export function useStore() {
@@ -139,7 +211,45 @@ export function useStore() {
   return ctx
 }
 
-// per-user scratch persistence (verification state, uploads, etc.)
+/** Convenience selectors over the academic slice. */
+export function useAcademic() {
+  const { academic } = useStore()
+  return useMemo(() => {
+    const currentYear = academic.years.find(y => y.isCurrent) ?? academic.years[0]
+    const currentTerm = academic.terms.find(t => t.isCurrent) ?? academic.terms[0]
+    const gradeById = new Map(academic.grades.map(g => [g.id, g]))
+    // Sorted once here, in true grade order (Grade.order, not the Roman-numeral label string) — every
+    // consumer that reads `classes` off this hook gets the correct order for free.
+    const classes = [...academic.classes].sort(compareClasses(gradeById))
+    const classById = new Map(classes.map(c => [c.id, c]))
+    const subjectById = new Map(academic.subjects.map(s => [s.id, s]))
+    const boardById = new Map(academic.boards.map(b => [b.id, b]))
+    const streamById = new Map(academic.streams.map(s => [s.id, s]))
+    /** Curriculum rows that apply to a class: its board + grade, for its stream or no stream. */
+    const curriculumFor = (c: { boardId: string; gradeId: string; streamId?: string }) =>
+      academic.curriculum.filter(r => r.boardId === c.boardId && r.gradeId === c.gradeId && (!r.streamId || r.streamId === c.streamId))
+    const classOf = (studentId: string) => {
+      const e = academic.enrollments.find(x => x.studentId === studentId && x.status === 'active' && (!currentYear || x.academicYearId === currentYear.id))
+        ?? academic.enrollments.find(x => x.studentId === studentId)
+      return e ? classById.get(e.classId) : undefined
+    }
+    const wardsOf = (parentId: string) => academic.guardians.filter(g => g.parentId === parentId).map(g => g.studentId)
+    const classesTaughtBy = (teacherId: string) => {
+      const ids = new Set(academic.classSubjects.filter(cs => cs.teacherId === teacherId).map(cs => cs.classId))
+      academic.classes.filter(c => c.classTeacherId === teacherId).forEach(c => ids.add(c.id))
+      return classes.filter(c => ids.has(c.id))
+    }
+    const defaultTemplate = academic.periodTemplates.find(t => t.isDefault) ?? academic.periodTemplates[0]
+    /** Effective period template for a class: its override, else the school default (else the first template). */
+    const templateFor = (classId?: string) => {
+      const c = classId ? classById.get(classId) : undefined
+      return (c?.periodTemplateId ? academic.periodTemplates.find(t => t.id === c.periodTemplateId) : undefined) ?? defaultTemplate
+    }
+    return { ...academic, classes, currentYear, currentTerm, classById, subjectById, boardById, gradeById, streamById, curriculumFor, classOf, wardsOf, classesTaughtBy, defaultTemplate, templateFor }
+  }, [academic])
+}
+
+// per-user scratch persistence (browser-only conveniences)
 export function useLocalState<T>(key: string, initial: T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const full = 'edunova_x_' + key
   const [val, setVal] = useState<T>(() => {

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { ArrowDownToLine, CheckCircle2, Share, Smartphone, X } from 'lucide-react'
+import { toast } from 'sonner'
+import { ApiError, api, errorMessage } from './api'
 
 /* ── install prompt hook ───────────────────────────────── */
 
@@ -144,5 +146,130 @@ export function InstallButton({ variant = 'pill', className = '' }: { variant?: 
       )}
       <InstallModal open={modal} onClose={() => setModal(false)} isIOS={isIOS && !canPrompt} />
     </>
+  )
+}
+
+/* ── push notifications (Phase 9) ──────────────────────────
+ * Reuses the service worker already registered by main.tsx (`/sw.js`) — this hook only asks it to subscribe
+ * to a push endpoint via the browser's PushManager, using the VAPID public key the server hands out.
+ * `POST /push/subscribe` persists the subscription; `DELETE /push/subscribe` drops it. See
+ * .agents/edunova/phase-9-10-integrations-hardening.md. */
+
+/** Converts a base64url VAPID public key (the format `web-push`/servers hand out) into the `Uint8Array` `PushManager.subscribe` expects. */
+function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4)
+  const base64Safe = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = atob(base64Safe)
+  const out = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i)
+  return out
+}
+
+export type PushState = 'checking' | 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed'
+
+/**
+ * Per-account push-notification preference. `state` reflects the browser's actual subscription (re-checked
+ * on mount), so this stays correct across devices/reinstalls rather than trusting a stored flag.
+ */
+export function usePushNotifications() {
+  const supported = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
+  const [state, setState] = useState<PushState>(supported ? 'checking' : 'unsupported')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (!supported) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        if (Notification.permission === 'denied') { if (!cancelled) setState('denied'); return }
+        const reg = await navigator.serviceWorker.ready
+        const sub = await reg.pushManager.getSubscription()
+        if (!cancelled) setState(sub ? 'subscribed' : 'unsubscribed')
+      } catch { if (!cancelled) setState('unsupported') }
+    })()
+    return () => { cancelled = true }
+  }, [supported])
+
+  const subscribe = useCallback(async () => {
+    if (!supported || busy) return
+    setBusy(true)
+    try {
+      const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission()
+      if (permission !== 'granted') { setState('denied'); return }
+      let key: string | undefined
+      try {
+        const keyRes = await api.get<{ key?: string; publicKey?: string } | string>('/push/vapid-public-key')
+        key = typeof keyRes === 'string' ? keyRes : (keyRes.key ?? keyRes.publicKey)
+      } catch (e) {
+        // The server doesn't expose a VAPID key endpoint yet in this environment — friendly disabled
+        // state rather than a raw 404 toast (see final report: this is a noted server-shape gap).
+        if (e instanceof ApiError && e.status === 404) { toast.error('Push notifications aren’t set up on the server yet.'); return }
+        throw e
+      }
+      if (!key) { toast.error('Push notifications aren’t set up on the server yet.'); return }
+      const reg = await navigator.serviceWorker.ready
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) })
+      await api.post('/push/subscribe', sub.toJSON())
+      setState('subscribed')
+      toast.success('Notifications enabled on this device')
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }, [supported, busy])
+
+  const unsubscribe = useCallback(async () => {
+    if (!supported || busy) return
+    setBusy(true)
+    try {
+      const reg = await navigator.serviceWorker.ready
+      const sub = await reg.pushManager.getSubscription()
+      if (sub) {
+        await api.del('/push/subscribe', { endpoint: sub.endpoint }).catch(() => { /* best-effort server cleanup */ })
+        await sub.unsubscribe()
+      }
+      setState('unsubscribed')
+      toast.success('Notifications turned off on this device')
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setBusy(false)
+    }
+  }, [supported, busy])
+
+  return { state, busy, supported, subscribe, unsubscribe }
+}
+
+/** Small settings-style row for the Profile screen: toggles this device's push subscription. */
+export function PushToggle() {
+  const { state, busy, supported, subscribe, unsubscribe } = usePushNotifications()
+
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-2xl bg-black/[.03] dark:bg-white/[.05] px-4 py-3.5">
+      <div className="min-w-0">
+        <p className="text-[13.5px] font-semibold">Push notifications</p>
+        <p className="mt-0.5 text-[12px] text-black/50 dark:text-white/50">
+          {!supported && 'Not supported in this browser.'}
+          {supported && state === 'checking' && 'Checking…'}
+          {supported && state === 'denied' && 'Blocked — allow notifications for this site in your browser settings.'}
+          {supported && state === 'subscribed' && 'Enabled on this device.'}
+          {supported && state === 'unsubscribed' && 'Get notified here for messages, approvals and alerts.'}
+        </p>
+      </div>
+      {supported && state !== 'denied' && (
+        <button
+          onClick={() => (state === 'subscribed' ? unsubscribe() : subscribe())}
+          disabled={busy || state === 'checking'}
+          className={`shrink-0 rounded-full px-4 py-2 text-[12.5px] font-semibold transition disabled:opacity-50 ${
+            state === 'subscribed'
+              ? 'bg-black/[.06] dark:bg-white/[.08] hover:bg-black/10 dark:hover:bg-white/15'
+              : 'bg-black text-white hover:bg-black/85 dark:bg-white dark:text-black dark:hover:bg-white/85'
+          }`}
+        >
+          {busy ? 'Working…' : state === 'subscribed' ? 'Disable' : 'Enable'}
+        </button>
+      )}
+    </div>
   )
 }
