@@ -1,373 +1,88 @@
-import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, AlertTriangle, BadgeCheck, Briefcase, CalendarPlus, Check, FileBadge, FileText, Pencil, Plus, Save, School, ScrollText, Search, Send, ShieldAlert, Trash2, UserPlus, X } from 'lucide-react'
-import { useStore } from '@/lib/store'
-import { canManage, isSuperAdmin } from '@/lib/access'
-import { fmtINR, type Application, type AttendanceStatus, type Board, type BoardDetail, type BoardDetailStatus, type CalEvent, type Contract, type ContractStatus, type Resignation, type Role, type Term, type User } from '@/lib/data'
-import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, TermTabs, inputCls, statusTone } from '../ui'
-import { StudentReportMod } from './studentReport'
-import { useTerm } from '../Portal'
+import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router'
+import {
+  AlertCircle, AlertTriangle, BadgeCheck, CalendarPlus, Check, Copy, Download, FileBadge, HeartHandshake, History, Paperclip, Pencil, Plus,
+  School, Search, Send, ShieldAlert, Sparkles, Trash2, UserCheck, UserPlus, UserX, X,
+} from 'lucide-react'
+import { useAcademic, useStore } from '@/lib/store'
+import { api, downloadFile, downloadPath, errorMessage } from '@/lib/api'
+import { canManage, isAdmin, isStaffOrAdmin, isSuperAdmin } from '@/lib/access'
+import {
+  compareClasses,
+  type ActivityKind, type ActivityRec, type AdmissionCreated, type ApplicationKind, type ApplicationRec, type ApplicationStatus,
+  type BoardRegistration, type BoardRegistrationStatus, type CalendarEventRec, type Certificate, type CertificateKind,
+  type ParentVerification, type PriorSubjectScore, type Role, type User, type VerificationStatus,
+} from '@/lib/data'
+import {
+  APPLICATION_KINDS, APPLICATION_STATUSES, BOARD_REG_STATUSES, CERTIFICATE_KINDS, KIND_LABEL, boardRegLabel, boardRegTone, certificateFileName,
+  isCertificateKind, kindTone, useApplications, useBoardRegistrations, useFileUrl, useVerifications, verificationTone,
+} from '@/lib/hooks/useIdentity'
+import { useAdmissionCategories, useChecklist, useSiblingSuggestions } from '@/lib/hooks/useDocuments'
+import { fmtDate, qs, useFetchMany } from '@/lib/hooks/useAcademics'
+import { useCalendarEvents } from '@/lib/hooks/useComms'
+import { ACTIVITY_KIND_LABEL, ACTIVITY_KINDS, activityRegTone, useActivities, useActivityRegistrations } from '@/lib/hooks/useWelfare'
+import { useBoardReadiness } from '@/lib/hooks/useExams'
+import { Avatar, Card, Empty, Field, Modal, PageHead, Pill, UploadField, inputCls, statusTone, type UploadedFile } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
+import { useViewedStudents } from './viewer'
 import { toast } from 'sonner'
 
-const MONTH_ABBR: Record<string, number> = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-}
-function parseMonthAbbr(s: string): number {
-  return MONTH_ABBR[s.trim().toLowerCase().slice(0, 3)] ?? 0
-}
+// Phase 3 classroom screens live in classroom.tsx; re-exported here so the Portal registry keeps one import.
+export { AttendanceMgmtMod, CreateAssignmentMod, GradebookMod, TakeAttendanceMod } from './classroom'
 
-function termBounds(term: Term): { start: string; end: string } {
-  const parts = term.range.split('–').map(s => s.trim())
-  if (parts.length !== 2) return { start: '2025-01-01', end: '2026-12-31' }
-  const [startStr, endStr] = parts
-  const endMatch = endStr.match(/^([A-Za-z]+)\s+(\d{4})$/)
-  if (!endMatch) return { start: '2025-01-01', end: '2026-12-31' }
-  const endMonth = parseMonthAbbr(endMatch[1])
-  const endYear = parseInt(endMatch[2])
-  const end = new Date(endYear, endMonth + 1, 0).toISOString().slice(0, 10)
-  const startMonth = parseMonthAbbr(startStr)
-  const startYear = startMonth > endMonth ? endYear - 1 : endYear
-  const start = `${startYear}-${String(startMonth + 1).padStart(2, '0')}-01`
-  return { start, end }
-}
+const todayISO = () => new Date().toISOString().slice(0, 10)
 
-export function TakeAttendanceMod() {
-  const { db, user } = useStore()
-  const classStudents = db.users
-    .filter(u => u.role === 'student' && u.class === user?.class)
-    .sort((a, b) => a.name.localeCompare(b.name))
-  const defaults = useMemo(() => Object.fromEntries(classStudents.map(s => [s.name, true])), [classStudents])
-  const [overrides, setOverrides] = useState<Record<string, boolean>>({})
-  const [saved, setSaved] = useState(false)
-  const marks = useMemo(() => ({ ...defaults, ...overrides }), [defaults, overrides])
-  const present = Object.values(marks).filter(Boolean).length
-  const setMark = (name: string, value: boolean) => { setOverrides(o => ({ ...o, [name]: value })); setSaved(false) }
-  const markAllPresent = () => { setOverrides(Object.fromEntries(classStudents.map(s => [s.name, true]))); setSaved(false) }
-  const save = () => { setSaved(true); toast.success(`Attendance saved — ${present}/${classStudents.length} present`) }
-  return (
-    <div>
-      <PageHead title="Take Attendance" sub={`${user?.class ?? 'Class'} · ${classStudents.length} students · Period 1 · today`} />
-      <Card className="p-0">
-        <div className="flex items-center justify-between border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
-          <p className="text-[14px] font-semibold">{present} of {classStudents.length} present</p>
-          <button onClick={markAllPresent} className="text-[12.5px] font-semibold text-indigo-600 hover:underline">Mark all present</button>
-        </div>
-        {classStudents.map((s, i) => (
-          <div key={s.id} className="flex items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3.5 last:border-0">
-            <span className="w-7 text-[13px] font-semibold text-black/35 dark:text-white/35">{i + 1}</span>
-            <Avatar name={s.name} hue={s.avatarHue} size={34} />
-            <span className="flex-1 text-[14.5px] font-medium">{s.name}</span>
-            <div className="flex rounded-full bg-black/[.05] dark:bg-white/[.07] p-1">
-              {([true, false] as const).map(v => (
-                <button key={String(v)} onClick={() => setMark(s.name, v)}
-                  className={`rounded-full px-4 py-1.5 text-[12.5px] font-bold transition-all ${marks[s.name] === v ? (v ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white') : 'text-black/40 dark:text-white/40'}`}>
-                  {v ? 'P' : 'A'}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-        {classStudents.length === 0 && <div className="p-6"><Empty text="No students found for your class." /></div>}
-        <div className="p-5">
-          <button onClick={save} className="btn-ink flex w-full items-center justify-center gap-2 py-3.5 text-[14.5px] font-semibold">
-            {saved ? <Check size={17} /> : <Save size={16} />} {saved ? 'Saved' : 'Save attendance'}
-          </button>
-        </div>
-      </Card>
-    </div>
-  )
-}
-
-/* ── Teacher: upload grades ────────────────────────────── */
-
-export function GradeUploadMod() {
-  const { db, update, user } = useStore()
-  const { term, setTerm } = useTerm()
-  const classStudents = db.users
-    .filter(u => u.role === 'student' && u.class === user?.class)
-    .sort((a, b) => a.name.localeCompare(b.name))
-  const [subject, setSubject] = useState('Mathematics')
-  const [assessment, setAssessment] = useState('Term Exam')
-  const [max, setMax] = useState(80)
-  const [scores, setScores] = useState<Record<string, string>>({})
-
-  const save = () => {
-    let count = 0
-    update(d => {
-      const row = d.marks[term].find(r => r.subject === subject)
-      if (!row) return d
-      classStudents.forEach(s => {
-        const val = parseInt(scores[s.name] || '')
-        if (isNaN(val)) return
-        const a = row.assessments.find(x => x.name === assessment)
-        if (a) { a.score = Math.min(val, max); a.max = max }
-        else row.assessments.push({ name: assessment, score: Math.min(val, max), max })
-        count++
-      })
-      return d
-    })
-    toast.success(`Grades published for ${subject} · ${assessment} · ${count} students`)
-  }
-
-  return (
-    <div>
-      <PageHead title="Upload Grades" sub={`Publish marks for ${user?.class ?? 'your class'}`}>
-        <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
-      </PageHead>
-      <Card>
-        <div className="mb-6 grid gap-3 sm:grid-cols-3">
-          <Field label="Subject">
-            <select value={subject} onChange={e => setSubject(e.target.value)} className={inputCls}>
-              {db.subjects.map(s => <option key={s.id}>{s.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Assessment">
-            <select value={assessment} onChange={e => setAssessment(e.target.value)} className={inputCls}>
-              {['Unit Test', 'Mid Term', 'Term Exam'].map(a => <option key={a}>{a}</option>)}
-            </select>
-          </Field>
-          <Field label="Max marks"><input type="number" value={max} onChange={e => setMax(+e.target.value)} className={inputCls} /></Field>
-        </div>
-        <div className="space-y-2.5">
-          {classStudents.map((s) => (
-            <div key={s.id} className="flex items-center gap-4">
-              <Avatar name={s.name} hue={s.avatarHue} size={32} />
-              <span className="flex-1 text-[14px] font-medium">{s.name}</span>
-              <input value={scores[s.name] ?? ''} onChange={e => setScores(sc => ({ ...sc, [s.name]: e.target.value.replace(/\D/g, '') }))}
-                placeholder={`/ ${max}`} className={`${inputCls} w-24 text-center`} inputMode="numeric" />
-            </div>
-          ))}
-          {classStudents.length === 0 && <Empty text="No students found for your class." />}
-        </div>
-        <button onClick={save} className="btn-ink mt-6 w-full py-3.5 text-[14.5px] font-semibold">Publish grades</button>
-      </Card>
-    </div>
-  )
-}
-
-/* ── Teacher: create assignment ────────────────────────── */
-
-export function CreateAssignmentMod() {
-  const { db, update } = useStore()
-  const { term, setTerm } = useTerm()
-  const [subject, setSubject] = useState('Mathematics')
-  const [title, setTitle] = useState('')
-  const [desc, setDesc] = useState('')
-  const [due, setDue] = useState('2026-04-20')
-
-  const create = () => {
-    update(d => {
-      d.homework.unshift({ id: 'h' + Date.now(), subject, title, due, term, status: 'Pending', description: desc || '—' })
-      return d
-    })
-    setTitle(''); setDesc('')
-    toast.success('Assignment posted to Class X-A')
-  }
-
-  return (
-    <div>
-      <PageHead title="Create Assignment" sub="Homework lands instantly in parent & student portals">
-        <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
-      </PageHead>
-      <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
-        <Card>
-          <div className="space-y-4">
-            <Field label="Subject">
-              <select value={subject} onChange={e => setSubject(e.target.value)} className={inputCls}>
-                {db.subjects.map(s => <option key={s.id}>{s.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Title"><input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Circle theorems — worksheet 3" className={inputCls} /></Field>
-            <Field label="Instructions"><textarea value={desc} onChange={e => setDesc(e.target.value)} rows={3} className={inputCls} /></Field>
-            <Field label="Due date"><input type="date" value={due} onChange={e => setDue(e.target.value)} className={inputCls} /></Field>
-            <button onClick={create} disabled={!title.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Post assignment</button>
-          </div>
-        </Card>
-        <Card>
-          <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Live for this term</p>
-          <div className="space-y-3">
-            {db.homework.filter(h => h.term === term).map(h => (
-              <div key={h.id} className="flex items-center gap-3 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
-                <div className="flex-1">
-                  <p className="text-[13.5px] font-semibold">{h.title}</p>
-                  <p className="text-[11.5px] text-black/45 dark:text-white/45">{h.subject} · due {new Date(h.due).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
-                </div>
-                <Pill tone={statusTone(h.status)}>{h.status}</Pill>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-    </div>
-  )
-}
-
-/* ── Teacher: contract & notice period ─────────────────── */
-
-export function ContractMod() {
-  const { db, user } = useStore()
-  const [notice, setNotice] = useState(false)
-  const [declared, setDeclared] = useState(false)
-  const contract = db.contracts.find(c => c.userId === user?.id)
-  return (
-    <div>
-      <PageHead title="My Contract" sub="Employment terms and declarations" />
-      <div className="grid gap-5 lg:grid-cols-2">
-        <Card>
-          <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><ScrollText size={15} /> Current contract</p>
-          {contract ? (
-            <div>
-              {[
-                ['Employee', `${user?.name} · ${contract.userId.toUpperCase()}`],
-                ['Designation', contract.designation],
-                ['Department', contract.department || '—'],
-                ['Tenure', `${contract.startDate} → ${contract.endDate}`],
-                ['Base salary', fmtINR(contract.salary) + ' / month'],
-                ['Leave policy', '18 paid days / year · deductions per day beyond'],
-                ['Notice period', '60 days, either side'],
-              ].map(([k, v]) => (
-                <div key={k} className="flex justify-between border-b border-black/[.05] dark:border-white/[.07] py-3 text-[14px] last:border-0">
-                  <span className="text-black/50 dark:text-white/50">{k}</span><span className="font-semibold">{v}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <Empty text="No contract on file. Contact the admin office." />
-          )}
-        </Card>
-        <Card>
-          <p className="mb-4 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><FileBadge size={15} /> Notice period declaration</p>
-          {declared ? (
-            <div className="rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 p-5 text-center">
-              <BadgeCheck size={36} className="mx-auto text-emerald-600" />
-              <p className="mt-3 text-[15px] font-semibold text-emerald-700 dark:text-emerald-400">Declaration submitted</p>
-              <p className="mt-1 text-[13px] text-emerald-600/80 dark:text-emerald-400/80">Your 60-day notice clock started on {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}. HR has been notified.</p>
-            </div>
-          ) : (
-            <>
-              <p className="text-[13.5px] leading-relaxed text-black/55 dark:text-white/55">
-                Declaring notice starts your formal exit process. Your timetable duties stay assigned until HR assigns a handover.
-              </p>
-              <label className="mt-4 flex items-start gap-3 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-4 text-[13px] text-black/60 dark:text-white/60">
-                <input type="checkbox" checked={notice} onChange={e => setNotice(e.target.checked)} className="mt-0.5" />
-                I understand this begins a 60-day notice period as per my contract.
-              </label>
-              <button onClick={() => { setDeclared(true); toast.success('Notice period declared') }} disabled={!notice}
-                className="btn-ink mt-4 w-full py-3 text-[14px] font-semibold disabled:opacity-40">Declare notice period</button>
-            </>
-          )}
-        </Card>
-      </div>
-    </div>
-  )
-}
 
 /* ── Teacher/staff: work assignments ───────────────────── */
 
-export function WorkAssignMod({ manage = false }: { manage?: boolean }) {
-  const { db, update } = useStore()
-  const [open, setOpen] = useState(false)
-  const [title, setTitle] = useState('')
-  const [event, setEvent] = useState('Tech Fest ‘26')
-  const toggle = (id: string) => {
-    update(d => { const w = d.workAssign.find(x => x.id === id)!; w.status = w.status === 'Done' ? 'Assigned' : 'Done'; return d })
-  }
-  const create = () => {
-    update(d => { d.workAssign.unshift({ id: 'w' + Date.now(), title, event, due: '2026-04-30', status: 'Assigned' }); return d })
-    setOpen(false); setTitle(''); toast.success('Work assignment generated')
-  }
-  return (
-    <div>
-      <PageHead title={manage ? 'Faculty Work Assignment' : 'My Event Duties'} sub={manage ? 'Generate duties from the event seed' : 'Everything you’re rostered for, in one place'}>
-        {manage && <button onClick={() => setOpen(true)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><Plus size={15} /> Generate duty</button>}
-      </PageHead>
-      <div className="grid gap-4 md:grid-cols-2">
-        {db.workAssign.map(w => (
-          <Card key={w.id} className="flex items-center gap-4">
-            <button onClick={() => toggle(w.id)}
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors ${w.status === 'Done' ? 'bg-emerald-500 text-white' : 'bg-black/[.06] dark:bg-white/[.08] text-black/30 dark:text-white/30 hover:bg-black/10 dark:hover:bg-white/15'}`}>
-              <Check size={18} />
-            </button>
-            <div className="flex-1">
-              <p className={`text-[14.5px] font-semibold ${w.status === 'Done' ? 'text-black/40 dark:text-white/40 line-through' : ''}`}>{w.title}</p>
-              <p className="text-[12.5px] text-black/45 dark:text-white/45">{w.event} · due {new Date(w.due).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
-            </div>
-            <Pill tone={statusTone(w.status)}>{w.status}</Pill>
-          </Card>
-        ))}
-      </div>
-      <Modal open={open} onClose={() => setOpen(false)} title="Generate duty">
-        <div className="space-y-4">
-          <Field label="Duty"><input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Stage lights coordination" className={inputCls} /></Field>
-          <Field label="Event">
-            <select value={event} onChange={e => setEvent(e.target.value)} className={inputCls}>
-              {['Tech Fest ‘26', 'Annual Sports Day', 'Science Exhibition', 'Founders’ Day'].map(e => <option key={e}>{e}</option>)}
-            </select>
-          </Field>
-          <button onClick={create} disabled={!title.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Assign</button>
-        </div>
-      </Modal>
-    </div>
-  )
-}
 
-/* ── Student: registrations (FFCS / events / IHA / EXC) ── */
+/* ── Student/teacher: activity registrations (clubs / IHA / EXC / events / faculty) ── */
+// Real /api/activities-backed registration with capacity + waitlist. See .agents/edunova/phase-8-welfare.md
 
-const CATALOG: Record<string, { name: string; detail: string; tag: string }[]> = {
-  ffcs: [
-    { name: 'Robotics Chapter', detail: 'Tue & Fri · CS Lab · 24 seats', tag: 'Chapter' },
-    { name: 'Astronomy Club', detail: 'Wed · Observatory deck', tag: 'Club' },
-    { name: 'Debate Society', detail: 'Mon · Seminar Hall', tag: 'Club' },
-    { name: 'Photography Circle', detail: 'Thu · Media room', tag: 'Club' },
-  ],
-  iha: [
-    { name: 'Inter-house Basketball', detail: 'Trials 12 Apr · Main court', tag: 'Sport' },
-    { name: 'Inter-house Quiz', detail: 'Prelims 15 Apr', tag: 'Literary' },
-    { name: 'House Choir', detail: 'Auditions 9 Apr', tag: 'Arts' },
-  ],
-  exc: [
-    { name: 'Classical Dance', detail: 'Sat 9 AM · Arts block', tag: 'EXC' },
-    { name: 'Chess Coaching', detail: 'Sat 10 AM · Library annexe', tag: 'EXC' },
-    { name: 'Swimming', detail: 'Sun 7 AM · Aquatic centre', tag: 'EXC' },
-  ],
-  events: [
-    { name: 'Tech Fest ‘26', detail: '24 Apr · Senior block · team of 3', tag: 'Event' },
-    { name: 'Inter-school MUN', detail: '10 May · Kochi · delegate slots', tag: 'Event' },
-    { name: 'Art Exhibition “Chromatic”', detail: 'Open entries till 20 Apr', tag: 'Event' },
-  ],
-  faculty: [
-    { name: 'Tech Fest ‘26 — Judges panel', detail: '24 Apr · Senior block', tag: 'Faculty' },
-    { name: 'STEM Teaching Workshop', detail: '3 May · Kochi convention centre', tag: 'Faculty' },
-  ],
-}
-
-export function RegistrationsMod({ kind, title, sub }: { kind: keyof typeof CATALOG; title: string; sub: string }) {
+export function RegistrationsMod({ kind, title, sub }: { kind: ActivityKind; title: string; sub: string }) {
   const { user } = useStore()
-  const key = 'regs_' + kind + '_' + (user?.id ?? 'x')
-  const [regs, setRegs] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem('edunova_x_' + key) ?? '[]') } catch { return [] }
-  })
-  const toggle = (name: string) => {
-    const next = regs.includes(name) ? regs.filter(r => r !== name) : [...regs, name]
-    setRegs(next); localStorage.setItem('edunova_x_' + key, JSON.stringify(next))
-    toast.success(regs.includes(name) ? 'Registration withdrawn' : `Registered for ${name}`)
+  const { items, loading, error, reload } = useActivities(kind, !!user)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const register = async (a: ActivityRec) => {
+    setBusy(a.id)
+    try { await api.post(`/activities/${a.id}/register`); await reload(); toast.success(`Registered for ${a.title}`) }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
   }
+  const cancel = async (a: ActivityRec) => {
+    setBusy(a.id)
+    try { await api.post(`/activities/${a.id}/cancel`); await reload(); toast.success('Registration withdrawn') }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+  }
+
+  const rows = items ?? []
   return (
     <div>
       <PageHead title={title} sub={sub} />
+      {loading && <p className="text-[13px] text-black/40 dark:text-white/40">Loading…</p>}
+      {error && <p className="text-[13px] text-rose-500">{error}</p>}
+      {!loading && !error && rows.length === 0 && <Empty text="Nothing open for registration right now." />}
       <div className="grid gap-4 md:grid-cols-2">
-        {CATALOG[kind].map(c => {
-          const on = regs.includes(c.name)
+        {rows.map(a => {
+          const full = !!a.capacity && (a.registered ?? 0) >= a.capacity
+          const on = a.myStatus === 'Registered' || a.myStatus === 'Waitlisted'
           return (
-            <Card key={c.name} className="card-lift">
-              <div className="flex items-start justify-between">
+            <Card key={a.id} className="card-lift">
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <Pill tone="indigo">{c.tag}</Pill>
-                  <p className="font-display mt-2.5 text-[16.5px] font-medium">{c.name}</p>
-                  <p className="mt-1 text-[13px] text-black/50 dark:text-white/50">{c.detail}</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Pill tone="indigo">{ACTIVITY_KIND_LABEL[a.kind]}</Pill>
+                    {full && a.myStatus !== 'Registered' && <Pill tone="rose">Full — waitlist</Pill>}
+                  </div>
+                  <p className="font-display mt-2.5 text-[16.5px] font-medium">{a.title}</p>
+                  <p className="mt-1 text-[13px] text-black/50 dark:text-white/50">{a.description}</p>
+                  <p className="mt-1 text-[12px] text-black/40 dark:text-white/40">
+                    {a.capacity ? `${a.registered ?? 0}/${a.capacity} registered` : `${a.registered ?? 0} registered`}
+                  </p>
                 </div>
-                <button onClick={() => toggle(c.name)}
-                  className={`rounded-full px-4 py-2 text-[12.5px] font-semibold transition-colors ${on ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-black text-white hover:bg-black/85'}`}>
-                  {on ? '✓ Registered' : 'Register'}
+                <button onClick={() => (on ? cancel(a) : register(a))} disabled={busy === a.id}
+                  className={`shrink-0 rounded-full px-4 py-2 text-[12.5px] font-semibold transition-colors disabled:opacity-50 ${on ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-black text-white hover:bg-black/85'}`}>
+                  {a.myStatus === 'Registered' ? '✓ Registered' : a.myStatus === 'Waitlisted' ? 'On waitlist — Cancel' : 'Register'}
                 </button>
               </div>
             </Card>
@@ -378,125 +93,716 @@ export function RegistrationsMod({ kind, title, sub }: { kind: keyof typeof CATA
   )
 }
 
-/* ── Applications: admissions / TC / bonafide / discipline ─ */
+/* ── Staff/admin: manage activities & view registrations ── */
 
-export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
-  const { db, update, user } = useStore()
-  const [open, setOpen] = useState(false)
-  const [kind, setKind] = useState<Application['kind']>('Bonafide')
-  const [detail, setDetail] = useState('')
-  const [kindFilter, setKindFilter] = useState<'All' | Application['kind']>('All')
-  const [notes, setNotes] = useState<Record<string, string>>({})
+function ActivityForm({ onDone }: { onDone: () => void }) {
+  const { academic } = useStore()
+  const [f, setF] = useState({ kind: 'club' as ActivityKind, title: '', description: '', capacity: '', opensAt: '', closesAt: '', trackCohortId: '' })
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    setBusy(true)
+    try {
+      await api.post('/activities', {
+        kind: f.kind, title: f.title.trim(), description: f.description.trim(),
+        capacity: f.capacity ? Number(f.capacity) : undefined,
+        opensAt: f.opensAt || undefined, closesAt: f.closesAt || undefined,
+        forRoles: f.kind === 'faculty' ? ['teacher', 'staff'] : ['student'],
+        trackCohortId: f.kind === 'track' ? (f.trackCohortId || undefined) : undefined,
+      })
+      toast.success('Activity created')
+      onDone()
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Kind">
+          <select value={f.kind} onChange={e => setF(x => ({ ...x, kind: e.target.value as ActivityKind }))} className={inputCls}>
+            {ACTIVITY_KINDS.map(k => <option key={k} value={k}>{ACTIVITY_KIND_LABEL[k]}</option>)}
+          </select>
+        </Field>
+        <Field label="Capacity (optional)"><input type="number" min={1} value={f.capacity} onChange={e => setF(x => ({ ...x, capacity: e.target.value }))} className={inputCls} /></Field>
+      </div>
+      {f.kind === 'track' && (
+        <Field label="Track cohort (Phase T3)">
+          <select value={f.trackCohortId} onChange={e => setF(x => ({ ...x, trackCohortId: e.target.value }))} className={inputCls}>
+            <option value="">Select a cohort to link this track's registrations to…</option>
+            {academic.cohorts?.map(c => <option key={c.id} value={c.id}>{c.name} · {c.type}</option>)}
+          </select>
+        </Field>
+      )}
+      <Field label="Title"><input value={f.title} onChange={e => setF(x => ({ ...x, title: e.target.value }))} className={inputCls} autoFocus /></Field>
+      <Field label="Description"><textarea value={f.description} onChange={e => setF(x => ({ ...x, description: e.target.value }))} rows={3} className={inputCls} /></Field>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Opens (optional)"><input type="date" value={f.opensAt} onChange={e => setF(x => ({ ...x, opensAt: e.target.value }))} className={inputCls} /></Field>
+        <Field label="Closes (optional)"><input type="date" value={f.closesAt} onChange={e => setF(x => ({ ...x, closesAt: e.target.value }))} className={inputCls} /></Field>
+      </div>
+      <button onClick={submit} disabled={!f.title.trim() || !f.description.trim() || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Creating…' : 'Create activity'}</button>
+    </div>
+  )
+}
 
-  const mine = useMemo(() => {
-    if (approver) return db.applications
-    if (!user) return []
-    return db.applications.filter(a => {
-      if (user.role === 'student') return a.name.includes(user.name)
-      if (user.role === 'parent') {
-        const wards = (user.wards || '').split(',').map(w => w.trim()).filter(Boolean)
-        return wards.some(w => a.name.includes(w))
-      }
-      return false
-    })
-  }, [db.applications, approver, user])
+export function ActivityRegistrationsList({ activity }: { activity: ActivityRec }) {
+  const { db } = useStore()
+  const { items, loading } = useActivityRegistrations(activity.id)
+  const nameOf = (id: string) => db.users.find(u => u.id === id)?.name ?? id
+  if (loading) return <p className="text-[13px] text-black/40 dark:text-white/40">Loading…</p>
+  const rows = items ?? []
+  if (rows.length === 0) return <Empty text="No one has registered yet." />
+  return (
+    <div className="divide-y divide-black/[.05] dark:divide-white/[.07]">
+      {rows.map(r => (
+        <div key={r.id} className="flex items-center justify-between py-2.5 text-[13.5px]">
+          <span className="font-medium">{r.userName ?? nameOf(r.userId)}</span>
+          <Pill tone={activityRegTone(r.status)}>{r.status}</Pill>
+        </div>
+      ))}
+    </div>
+  )
+}
 
-  const rows = useMemo(() => {
-    if (kindFilter === 'All') return mine
-    return mine.filter(a => a.kind === kindFilter)
-  }, [mine, kindFilter])
+export function ActivitiesAdminMod() {
+  const navigate = useNavigate()
+  const [kindFilter, setKindFilter] = useState<ActivityKind | ''>('')
+  const { items, loading, reload } = useActivities(kindFilter || undefined)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
 
-  const setStatus = (id: string, status: Application['status']) => {
-    update(d => {
-      const a = d.applications.find(x => x.id === id)!
-      a.status = status
-      a.notes = notes[id] ?? a.notes
-      return d
-    })
-    toast.success(`Application ${status.toLowerCase()}`)
+  const remove = async (a: ActivityRec) => {
+    if (!window.confirm(`Delete "${a.title}"? This cannot be undone.`)) return
+    setBusy(a.id)
+    try { await api.del(`/activities/${a.id}`); await reload(); toast.success('Activity deleted') }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
   }
 
-  const apply = () => {
-    if (!user) return
-    update(d => {
-      const label = user.role === 'student' ? `${user.name} — ${user.class}${user.section ? '-' + user.section : ''}` : `${user.name} — ${user.title || user.role}`
-      d.applications.unshift({ id: 'ap' + Date.now(), kind, name: label, detail, date: new Date().toISOString().slice(0, 10), status: 'Pending', notes: '' })
-      return d
-    })
-    setOpen(false); setDetail(''); toast.success(`${kind} application submitted`)
-  }
-
-  const toneFor = (k: string) => k === 'Admission' ? 'indigo' : k === 'TC' ? 'sky' : k === 'Bonafide' ? 'green' : 'rose'
+  const rows = items ?? []
   return (
     <div>
-      <PageHead title={approver ? 'Applications & Certificates' : 'TC & Bonafide Applications'}
-        sub={approver ? 'Admissions, transfer & bonafide certificates, disciplinary records' : 'Apply and track certificate requests'}>
-        {!approver && (
-          <button onClick={() => setOpen(true)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><Plus size={15} /> New application</button>
-        )}
-        {approver && (
-          <select value={kindFilter} onChange={e => setKindFilter(e.target.value as 'All' | Application['kind'])} className={`${inputCls} w-auto py-1.5 text-[12.5px]`}>
-            <option value="All">All types</option>
-            <option value="Admission">Admission</option>
-            <option value="TC">TC</option>
-            <option value="Bonafide">Bonafide</option>
-            <option value="Disciplinary">Disciplinary</option>
-          </select>
-        )}
+      <PageHead title="Activities Admin" sub="Create clubs, houses, EXC slots, events and faculty programmes; watch capacity fill up">
+        <button onClick={() => setCreateOpen(true)} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><Plus size={15} /> New activity</button>
       </PageHead>
+      <div className="mb-4 inline-flex flex-wrap rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] p-1">
+        {(['', ...ACTIVITY_KINDS] as const).map(k => (
+          <button key={k || 'all'} onClick={() => setKindFilter(k)} className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-all ${kindFilter === k ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>
+            {k ? ACTIVITY_KIND_LABEL[k] : 'All'}
+          </button>
+        ))}
+      </div>
       <Card className="p-0 divide-y divide-black/[.05] dark:divide-white/[.07]">
+        {loading && <div className="p-6 text-center text-[13px] text-black/40 dark:text-white/40">Loading…</div>}
+        {!loading && rows.length === 0 && <div className="p-6"><Empty text="No activities yet." /></div>}
         {rows.map(a => (
-          <div key={a.id} className="px-6 py-4">
-            <div className="flex flex-wrap items-center gap-4">
-              <Pill tone={toneFor(a.kind)}>{a.kind}</Pill>
-              <div className="min-w-52 flex-1">
-                <p className="text-[14.5px] font-semibold">{a.name}</p>
-                <p className="text-[12.5px] text-black/45 dark:text-white/45">{a.detail} · {new Date(a.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
-              </div>
-              <Pill tone={statusTone(a.status)}>{a.status}</Pill>
-              {approver && (
-                <div className="flex flex-wrap items-center gap-2">
-                  {a.status === 'Pending' && (
-                    <>
-                      <button onClick={() => setStatus(a.id, 'Verified')} className="rounded-full bg-sky-600 px-4 py-1.5 text-[12.5px] font-semibold text-white hover:bg-sky-700">Verify</button>
-                      <button onClick={() => setStatus(a.id, 'Declined')} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-1.5 text-[12.5px] font-semibold">Decline</button>
-                    </>
-                  )}
-                  {a.status === 'Verified' && (
-                    <>
-                      <button onClick={() => setStatus(a.id, 'Approved')} className="rounded-full bg-emerald-600 px-4 py-1.5 text-[12.5px] font-semibold text-white hover:bg-emerald-700">Approve</button>
-                      <button onClick={() => setStatus(a.id, 'Declined')} className="rounded-full bg-black/[.06] dark:bg-white/[.08] px-4 py-1.5 text-[12.5px] font-semibold">Decline</button>
-                    </>
-                  )}
-                  {a.status === 'Approved' && <span className="text-[12px] font-semibold text-emerald-600">Queued for issue</span>}
-                  {a.status === 'Declined' && <span className="text-[12px] font-semibold text-rose-500">Declined</span>}
-                </div>
-              )}
+          <div key={a.id} className="flex flex-wrap items-center gap-4 px-6 py-4">
+            <Pill tone="indigo">{ACTIVITY_KIND_LABEL[a.kind]}</Pill>
+            <div className="min-w-52 flex-1">
+              <p className="text-[14.5px] font-semibold">{a.title}</p>
+              <p className="text-[12.5px] text-black/45 dark:text-white/45">{a.capacity ? `${a.registered ?? 0}/${a.capacity} registered` : `${a.registered ?? 0} registered`}</p>
             </div>
-            {approver && (
-              <div className="mt-3">
-                <Field label="Admin/staff note">
-                  <textarea value={notes[a.id] ?? a.notes ?? ''} onChange={e => setNotes(n => ({ ...n, [a.id]: e.target.value }))} placeholder="Add a note before acting..." className={`${inputCls} min-h-[60px] text-[13px]`} />
-                </Field>
-              </div>
-            )}
-            {!approver && a.notes && <p className="mt-2 text-[12.5px] text-black/50 dark:text-white/50">Note: {a.notes}</p>}
+            <button onClick={() => navigate(`/portal/activities/${a.id}/registrations`)} className={ghostPill}>View registrations</button>
+            <button onClick={() => remove(a)} disabled={busy === a.id} className="rounded-full p-1.5 text-black/35 hover:bg-rose-50 hover:text-rose-500 dark:text-white/35" title="Delete activity"><Trash2 size={14} /></button>
           </div>
         ))}
-        {rows.length === 0 && <div className="p-6"><Empty text="No applications yet." /></div>}
       </Card>
-      <Modal open={open} onClose={() => setOpen(false)} title="New application">
-        <div className="space-y-4">
-          <Field label="Type">
-            <select value={kind} onChange={e => setKind(e.target.value as Application['kind'])} className={inputCls}>
-              <option value="Bonafide">Bonafide certificate</option>
-              <option value="TC">Transfer certificate</option>
-            </select>
-          </Field>
-          <Field label="Reason"><textarea value={detail} onChange={e => setDetail(e.target.value)} rows={3} placeholder="Why do you need this document?" className={inputCls} /></Field>
-          <button onClick={apply} disabled={!detail.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Submit application</button>
-        </div>
+
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New activity">
+        {createOpen && <ActivityForm onDone={() => { setCreateOpen(false); reload() }} />}
       </Modal>
+    </div>
+  )
+}
+
+/* ── Applications: admissions & certificates (Phase 4) ── */
+// Staff/admin run the pipeline (Pending → Verified → Approved / Declined); parents and students apply for
+// TC / Bonafide / Character certificates for themselves or their wards and download the PDF once issued.
+// See .agents/edunova/phase-4-admissions-identity.md
+
+type AppTab = 'All' | ApplicationKind | 'Issued'
+type AppModal =
+  | { t: 'cert' } | { t: 'issue' }
+  | { t: 'decline'; app: ApplicationRec } | { t: 'approve'; app: ApplicationRec }
+
+const pillBtn = 'rounded-full px-4 py-1.5 text-[12.5px] font-semibold disabled:opacity-40'
+const ghostPill = `${pillBtn} bg-black/[.06] dark:bg-white/[.08] hover:bg-black/10 dark:hover:bg-white/15`
+const unwrapList = <T,>(d: { items?: T[] } | T[] | undefined) => (!d ? [] : Array.isArray(d) ? d : d.items ?? [])
+
+function DocumentLinks({ ids }: { ids: string[] }) {
+  if (!ids.length) return null
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      {ids.map((id, i) => (
+        <button key={id} onClick={() => downloadFile(id, `document-${i + 1}`).catch(e => toast.error(errorMessage(e)))}
+          className="flex items-center gap-1 rounded-full bg-black/[.05] dark:bg-white/[.07] px-2.5 py-1 text-[11.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
+          <Paperclip size={11} /> Doc {i + 1}
+        </button>
+      ))}
+    </span>
+  )
+}
+
+function CertificateDownload({ cert, studentName, compact = false }: { cert: Certificate; studentName?: string; compact?: boolean }) {
+  const [busy, setBusy] = useState(false)
+  const run = async () => {
+    setBusy(true)
+    try { await downloadPath(`/certificates/${cert.id}/pdf`, certificateFileName(cert, studentName)) }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <button onClick={run} disabled={busy} title={cert.serialNo}
+      className={`flex items-center gap-1.5 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 ${compact ? 'px-3 py-1.5 text-[12px]' : 'px-4 py-2 text-[13px]'} font-semibold`}>
+      <Download size={13} /> {busy ? 'Preparing…' : compact ? 'PDF' : 'Download certificate'}
+    </button>
+  )
+}
+
+export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
+  const navigate = useNavigate()
+  const { db, user } = useStore()
+  const { classById, classOf, boardById } = useAcademic()
+  const viewed = useViewedStudents()
+  const adminRole = isAdmin(user)
+  const [tab, setTab] = useState<AppTab>('All')
+  const [status, setStatus] = useState<ApplicationStatus | ''>('')
+  const [modal, setModal] = useState<AppModal | null>(null)
+  const apps = useApplications({ kind: tab === 'All' || tab === 'Issued' ? '' : tab, status })
+
+  // Certificates: staff/admin see the school's; parents/students fetch per viewed student (the list endpoint is keyed by studentId).
+  const [certNonce, setCertNonce] = useState(0)
+  const certPaths = useMemo(() => {
+    const suffix = certNonce ? `${approver ? '?' : '&'}r=${certNonce}` : ''
+    return approver ? [`/certificates${suffix}`] : viewed.map(s => `/certificates?studentId=${encodeURIComponent(s.id)}${suffix}`)
+  }, [approver, viewed, certNonce])
+  const certsQ = useFetchMany<{ items?: Certificate[] } | Certificate[]>(certPaths)
+  const certs = useMemo(() => (certsQ.data ?? []).flatMap(unwrapList).sort((a, b) => b.issuedAt.localeCompare(a.issuedAt)), [certsQ.data])
+  const reloadAll = () => { apps.reload(); setCertNonce(n => n + 1) }
+
+  const nameOf = (id?: string | null) => db.users.find(u => u.id === id)?.name
+  const certFor = (a: ApplicationRec) => {
+    if (a.status !== 'Approved' || !isCertificateKind(a.kind)) return undefined
+    return certs.find(c => c.applicationId === a.id) ?? certs.find(c => c.studentId === a.studentId && c.kind === a.kind)
+  }
+  const subOf = (a: ApplicationRec) => {
+    if (a.kind === 'Admission') {
+      const cls = a.targetClassId ? classById.get(a.targetClassId) : undefined
+      return [cls ? `for ${cls.label}` : 'class not set', a.guardian?.name ? `guardian ${a.guardian.name}` : undefined, a.dob ? `DOB ${fmtDate(a.dob, { day: 'numeric', month: 'short', year: 'numeric' })}` : undefined].filter(Boolean).join(' · ')
+    }
+    const cls = a.studentId ? classOf(a.studentId) : undefined
+    return [cls?.label, a.notes ? a.notes : undefined].filter(Boolean).join(' · ')
+  }
+  const counts = useMemo(() => {
+    const c: Partial<Record<ApplicationStatus, number>> = {}
+    for (const a of apps.items ?? []) c[a.status] = (c[a.status] ?? 0) + 1
+    return c
+  }, [apps.items])
+
+  const [acting, setActing] = useState<string | null>(null)
+  const verify = async (a: ApplicationRec) => {
+    setActing(a.id)
+    try { await api.post(`/applications/${a.id}/verify`); apps.reload(); toast.success('Application verified') }
+    catch (e) { toast.error(errorMessage(e)) } finally { setActing(null) }
+  }
+  const remove = async (a: ApplicationRec) => {
+    if (!window.confirm(`Delete this ${a.kind} application for ${a.applicantName}?`)) return
+    setActing(a.id)
+    try { await api.del(`/applications/${a.id}`); apps.reload(); toast.success('Application deleted') }
+    catch (e) { toast.error(errorMessage(e)) } finally { setActing(null) }
+  }
+
+  const tabs: AppTab[] = approver ? ['All', ...APPLICATION_KINDS, 'Issued'] : ['All', ...CERTIFICATE_KINDS]
+  const rows = apps.items ?? []
+  const applyStudents = approver ? db.users.filter(u => u.role === 'student').sort(byName) : viewed
+
+  return (
+    <div>
+      <PageHead title={approver ? 'Admissions & Certificates' : 'Certificates'}
+        sub={approver ? 'Admission pipeline, transfer / bonafide / character certificates' : user?.role === 'parent' ? 'Apply for certificates for your wards and download them once issued' : 'Apply for certificates and download them once issued'}>
+        <div className="flex flex-wrap items-center gap-2">
+          {approver && (
+            <>
+              <button onClick={() => setModal({ t: 'issue' })} className="flex items-center gap-1.5 rounded-full border border-black/10 dark:border-white/15 px-4 py-2.5 text-[13px] font-semibold hover:bg-black/[.04] dark:hover:bg-white/[.06]"><FileBadge size={14} /> Issue certificate</button>
+              <button onClick={() => navigate('/portal/admissions/new')} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><UserPlus size={15} /> New admission</button>
+            </>
+          )}
+          <button onClick={() => setModal({ t: 'cert' })} disabled={applyStudents.length === 0} title={applyStudents.length === 0 ? 'No student linked to this account yet' : undefined}
+            className={approver ? 'flex items-center gap-1.5 rounded-full border border-black/10 dark:border-white/15 px-4 py-2.5 text-[13px] font-semibold hover:bg-black/[.04] dark:hover:bg-white/[.06] disabled:opacity-40' : 'btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold disabled:opacity-40'}>
+            <Plus size={15} /> {approver ? 'Certificate request' : 'New application'}
+          </button>
+        </div>
+      </PageHead>
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="inline-flex flex-wrap rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] p-1">
+          {tabs.map(t => (
+            <button key={t} onClick={() => setTab(t)} className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-all ${tab === t ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>
+              {t === 'Issued' ? `Issued (${certs.length})` : t}
+            </button>
+          ))}
+        </div>
+        {tab !== 'Issued' && (
+          <select value={status} onChange={e => setStatus(e.target.value as ApplicationStatus | '')} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Status">
+            <option value="">All statuses</option>
+            {APPLICATION_STATUSES.map(s => <option key={s} value={s}>{s}{counts[s] ? ` (${counts[s]})` : ''}</option>)}
+          </select>
+        )}
+      </div>
+
+      {tab === 'Issued' ? (
+        <Card className="p-0 divide-y divide-black/[.05] dark:divide-white/[.07]">
+          {certsQ.loading && <div className="p-6 text-center text-[13px] text-black/40 dark:text-white/40">Loading…</div>}
+          {!certsQ.loading && certs.length === 0 && <div className="p-6"><Empty text="No certificates issued yet." /></div>}
+          {certs.map(c => (
+            <div key={c.id} className="flex flex-wrap items-center gap-4 px-6 py-4">
+              <Pill tone={kindTone(c.kind)}>{c.kind}</Pill>
+              <div className="min-w-52 flex-1">
+                <p className="text-[14.5px] font-semibold">{nameOf(c.studentId) ?? 'Student'}</p>
+                <p className="text-[12.5px] text-black/45 dark:text-white/45"><span className="font-mono">{c.serialNo}</span> · issued {fmtDate(c.issuedAt, { day: 'numeric', month: 'short', year: 'numeric' })}{nameOf(c.issuedById) ? ` by ${nameOf(c.issuedById)}` : ''}</p>
+              </div>
+              <CertificateDownload cert={c} studentName={nameOf(c.studentId)} />
+            </div>
+          ))}
+        </Card>
+      ) : (
+        <Card className="p-0 divide-y divide-black/[.05] dark:divide-white/[.07]">
+          {apps.loading && <div className="p-6 text-center text-[13px] text-black/40 dark:text-white/40">Loading…</div>}
+          {apps.error && <div className="p-6 text-center text-[13px] text-rose-500">{apps.error}</div>}
+          {!apps.loading && !apps.error && rows.length === 0 && <div className="p-6"><Empty text={approver ? 'No applications in this view.' : 'No applications yet — start one with “New application”.'} /></div>}
+          {rows.map(a => {
+            const cert = certFor(a)
+            const busy = acting === a.id
+            return (
+              <div key={a.id} className="px-6 py-4">
+                <div className="flex flex-wrap items-center gap-4">
+                  <Pill tone={kindTone(a.kind)}>{a.kind}</Pill>
+                  <div className="min-w-52 flex-1">
+                    <p className="text-[14.5px] font-semibold">{a.applicantName}</p>
+                    <p className="text-[12.5px] text-black/45 dark:text-white/45">{subOf(a)}{subOf(a) ? ' · ' : ''}{fmtDate(a.createdAt, { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                  </div>
+                  <DocumentLinks ids={a.documents ?? []} />
+                  <Pill tone={statusTone(a.status)}>{a.status}</Pill>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {approver && a.kind === 'Admission' && (
+                      <button onClick={() => navigate(`/portal/admissions/${a.id}`)} className={ghostPill}>Documents</button>
+                    )}
+                    {approver && a.status === 'Pending' && (
+                      <button onClick={() => verify(a)} disabled={busy} className={`${pillBtn} bg-sky-600 text-white hover:bg-sky-700`}>Verify</button>
+                    )}
+                    {approver && a.status === 'Verified' && (
+                      <button
+                        onClick={() => a.kind === 'TC' && a.studentId ? navigate(`/portal/tc-issuance/${a.studentId}?applicationId=${a.id}`) : setModal({ t: 'approve', app: a })}
+                        disabled={busy} className={`${pillBtn} bg-emerald-600 text-white hover:bg-emerald-700`}>
+                        {a.kind === 'TC' ? 'Approve → return checklist' : 'Approve'}
+                      </button>
+                    )}
+                    {approver && (a.status === 'Pending' || a.status === 'Verified') && (
+                      <button onClick={() => setModal({ t: 'decline', app: a })} disabled={busy} className={ghostPill}>Decline</button>
+                    )}
+                    {cert && <CertificateDownload cert={cert} studentName={nameOf(a.studentId)} compact={approver} />}
+                    {a.status === 'Approved' && a.kind === 'Admission' && <span className="text-[12px] font-semibold text-emerald-600">Accounts created{a.studentId && nameOf(a.studentId) ? ` · ${nameOf(a.studentId)}` : ''}</span>}
+                    {a.status === 'Approved' && !cert && isCertificateKind(a.kind) && <span className="text-[12px] font-semibold text-emerald-600">Approved</span>}
+                    {adminRole && (
+                      <button onClick={() => remove(a)} disabled={busy} className="rounded-full p-1.5 text-black/35 hover:bg-rose-50 hover:text-rose-500 dark:text-white/35" title="Delete application"><Trash2 size={14} /></button>
+                    )}
+                  </div>
+                </div>
+                {(a.status === 'Declined' && a.notes) && <p className="mt-2 text-[12.5px] text-rose-600 dark:text-rose-400">Reason: {a.notes}</p>}
+                {a.decidedAt && a.status !== 'Pending' && (
+                  <p className="mt-1 text-[12px] text-black/40 dark:text-white/40">{a.status} {nameOf(a.decidedById) ? `by ${nameOf(a.decidedById)} ` : ''}on {fmtDate(a.decidedAt, { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                )}
+              </div>
+            )
+          })}
+        </Card>
+      )}
+
+      <Modal open={modal?.t === 'cert'} onClose={() => setModal(null)} title="Apply for a certificate">
+        {modal?.t === 'cert' && <CertificateApplicationForm students={applyStudents} wholeSchool={approver} onDone={() => { setModal(null); reloadAll() }} />}
+      </Modal>
+      <Modal open={modal?.t === 'issue'} onClose={() => setModal(null)} title="Issue a certificate directly">
+        {modal?.t === 'issue' && <IssueCertificateForm students={applyStudents} wholeSchool={approver} onDone={() => { setModal(null); setTab('Issued'); reloadAll() }} />}
+      </Modal>
+      <Modal open={modal?.t === 'decline'} onClose={() => setModal(null)} title="Decline application">
+        {modal?.t === 'decline' && <DeclineForm app={modal.app} onDone={() => { setModal(null); apps.reload() }} />}
+      </Modal>
+      <Modal open={modal?.t === 'approve'} onClose={() => setModal(null)} title={modal?.t === 'approve' && modal.app.kind === 'Admission' ? 'Approve admission' : 'Approve & issue certificate'} wide={modal?.t === 'approve' && modal.app.kind === 'Admission'}>
+        {modal?.t === 'approve' && <ApproveDialog app={modal.app} onClose={() => setModal(null)} onChanged={reloadAll} boardName={modal.app.targetBoardId ? boardById.get(modal.app.targetBoardId)?.name : undefined} />}
+      </Modal>
+    </div>
+  )
+}
+
+/** One prior-school subject score row (Part A — feeds T3's TrackEligibilityRule thresholds). */
+function PriorScoreRows({ rows, onChange }: { rows: PriorSubjectScore[]; onChange: (rows: PriorSubjectScore[]) => void }) {
+  const patch = (i: number, p: Partial<PriorSubjectScore>) => onChange(rows.map((r, j) => j === i ? { ...r, ...p } : r))
+  return (
+    <div className="space-y-2">
+      {rows.map((r, i) => (
+        <div key={i} className="grid grid-cols-[1fr_90px_90px_auto] items-center gap-2">
+          <input value={r.subjectName} onChange={e => patch(i, { subjectName: e.target.value })} placeholder="Subject (e.g. Mathematics)" className={inputCls} />
+          <input type="number" min={0} value={r.score || ''} onChange={e => patch(i, { score: Number(e.target.value) })} placeholder="Score" className={inputCls} />
+          <input type="number" min={1} value={r.maxScore || ''} onChange={e => patch(i, { maxScore: Number(e.target.value) })} placeholder="Out of" className={inputCls} />
+          <button type="button" onClick={() => onChange(rows.filter((_, j) => j !== i))} className="rounded-full p-2 text-black/35 hover:bg-rose-50 hover:text-rose-500 dark:text-white/35" aria-label="Remove subject"><X size={14} /></button>
+        </div>
+      ))}
+      <button type="button" onClick={() => onChange([...rows, { subjectName: '', score: 0, maxScore: 100 }])} className="flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400">
+        <Plus size={13} /> Add subject score
+      </button>
+    </div>
+  )
+}
+
+const ADMISSION_MODE_OPTIONS = ['Regular', 'RTE', 'Management', 'Staff-Ward'] as const
+
+export function AdmissionForm({ onDone }: { onDone: () => void }) {
+  const { classes, classById, currentYear, gradeById, boards } = useAcademic()
+  const options = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort(compareClasses(gradeById)), [classes, currentYear, gradeById])
+  const [f, setF] = useState({
+    applicantName: '', dob: '', gender: '', gName: '', gPhone: '', gEmail: '', gRelation: 'Parent', targetClassId: options[0]?.id ?? '',
+    previousSchoolName: '', previousBoardId: '', lastGradeCompleted: '', declaredTrackPreference: '', admissionCategoryId: '', admissionMode: '',
+    allergies: '', conditions: '', bloodGroup: '', transportNeeded: false, transportArea: '',
+  })
+  const [priorScores, setPriorScores] = useState<PriorSubjectScore[]>([])
+  const [siblingId, setSiblingId] = useState('')
+  const [siblingLabel, setSiblingLabel] = useState('')
+  const [docs, setDocs] = useState<UploadedFile[]>([])
+  const [busy, setBusy] = useState(false)
+  const categories = useAdmissionCategories()
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setF(x => ({ ...x, [k]: e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value }))
+  const valid = f.applicantName.trim() && f.dob && f.gName.trim() && f.targetClassId
+
+  const suggestions = useSiblingSuggestions(f.gPhone, f.gEmail)
+
+  const submit = async () => {
+    setBusy(true)
+    try {
+      await api.post('/applications', {
+        kind: 'Admission', applicantName: f.applicantName.trim(), dob: f.dob, gender: f.gender || undefined,
+        guardian: { name: f.gName.trim(), phone: f.gPhone.trim() || undefined, email: f.gEmail.trim() || undefined, relation: f.gRelation },
+        targetClassId: f.targetClassId, targetBoardId: classById.get(f.targetClassId)?.boardId, documents: docs.map(d => d.id),
+        previousSchoolName: f.previousSchoolName.trim() || undefined,
+        previousBoardId: f.previousBoardId || undefined,
+        lastGradeCompleted: f.lastGradeCompleted.trim() || undefined,
+        priorSubjectScores: priorScores.filter(r => r.subjectName.trim()).map(r => ({ subjectName: r.subjectName.trim(), score: r.score, maxScore: r.maxScore })),
+        declaredTrackPreference: f.declaredTrackPreference.trim() || undefined,
+        siblingStudentId: siblingId || undefined,
+        admissionCategoryId: f.admissionCategoryId || undefined,
+        admissionMode: f.admissionMode || undefined,
+        healthFlags: (f.allergies || f.conditions || f.bloodGroup) ? { allergies: f.allergies.trim() || undefined, conditions: f.conditions.trim() || undefined, bloodGroup: f.bloodGroup.trim() || undefined } : undefined,
+        transportRequired: f.transportNeeded || undefined,
+        transportPreferredArea: f.transportNeeded ? (f.transportArea.trim() || undefined) : undefined,
+      })
+      toast.success('Admission application recorded')
+      onDone()
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Applicant name"><input value={f.applicantName} onChange={set('applicantName')} className={inputCls} autoFocus /></Field>
+        <Field label="Date of birth"><input type="date" value={f.dob} onChange={set('dob')} className={inputCls} /></Field>
+        <Field label="Gender">
+          <select value={f.gender} onChange={set('gender')} className={inputCls}>
+            <option value="">Prefer not to say</option><option>Female</option><option>Male</option><option>Other</option>
+          </select>
+        </Field>
+        <Field label="Admit to class">
+          <select value={f.targetClassId} onChange={set('targetClassId')} className={inputCls}>
+            {options.length === 0 && <option value="">No classes in the current year</option>}
+            {options.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
+          </select>
+        </Field>
+        <Field label="Admission category / quota (optional)">
+          <select value={f.admissionCategoryId} onChange={set('admissionCategoryId')} className={inputCls}>
+            <option value="">General / not specified</option>
+            {categories.items.filter(c => c.isActive !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Declared track / stream preference (optional, 11th entry)">
+          <input value={f.declaredTrackPreference} onChange={set('declaredTrackPreference')} placeholder="e.g. Science — JEE, Commerce…" className={inputCls} />
+        </Field>
+        <Field label="Admission mode (how the seat was allotted)">
+          <select value={f.admissionMode} onChange={set('admissionMode')} className={inputCls}>
+            <option value="">Regular</option>
+            {ADMISSION_MODE_OPTIONS.filter(m => m !== 'Regular').map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <p className="text-[12.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Guardian</p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Name"><input value={f.gName} onChange={set('gName')} className={inputCls} /></Field>
+        <Field label="Relation">
+          <select value={f.gRelation} onChange={set('gRelation')} className={inputCls}><option>Parent</option><option>Mother</option><option>Father</option><option>Guardian</option></select>
+        </Field>
+        <Field label="Phone"><input value={f.gPhone} onChange={set('gPhone')} placeholder="+91 …" className={inputCls} /></Field>
+        <Field label="Email (links an existing parent account if it matches)"><input type="email" value={f.gEmail} onChange={set('gEmail')} className={inputCls} /></Field>
+      </div>
+      {(suggestions.items ?? []).length > 0 && !siblingId && (
+        <div className="rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 p-4">
+          <p className="text-[12.5px] font-semibold text-indigo-700 dark:text-indigo-300">Possible sibling{(suggestions.items ?? []).length > 1 ? 's' : ''} — same guardian contact already on file</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {(suggestions.items ?? []).map(s => (
+              <button key={s.studentId} type="button" onClick={() => { setSiblingId(s.studentId); setSiblingLabel(s.name) }}
+                className="flex items-center gap-1.5 rounded-full bg-white dark:bg-[#14141f] px-3 py-1.5 text-[12.5px] font-semibold ring-1 ring-indigo-200 dark:ring-indigo-500/30 hover:bg-indigo-100 dark:hover:bg-indigo-500/20">
+                Link {s.name}{s.classLabel ? ` · ${s.classLabel}` : ''}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {siblingId && (
+        <div className="flex items-center justify-between rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 px-4 py-2.5 text-[13px] font-semibold text-emerald-700 dark:text-emerald-300">
+          <span>Linked as sibling of {siblingLabel}</span>
+          <button type="button" onClick={() => { setSiblingId(''); setSiblingLabel('') }} className="rounded-full p-1 hover:bg-emerald-100 dark:hover:bg-emerald-500/20"><X size={13} /></button>
+        </div>
+      )}
+      {!siblingId && (
+        <Field label="Or search for a sibling directly (optional)">
+          <AsyncEntityPicker role="student" value={siblingId} onChange={(id, label) => { setSiblingId(id); setSiblingLabel(label) }} placeholder="Search enrolled students…" />
+        </Field>
+      )}
+
+      <p className="text-[12.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Prior academics</p>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Field label="Previous school"><input value={f.previousSchoolName} onChange={set('previousSchoolName')} className={inputCls} /></Field>
+        <Field label="Previous board">
+          <select value={f.previousBoardId} onChange={set('previousBoardId')} className={inputCls}>
+            <option value="">Not applicable / unknown</option>
+            {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Last grade completed"><input value={f.lastGradeCompleted} onChange={set('lastGradeCompleted')} placeholder="e.g. Grade 9" className={inputCls} /></Field>
+      </div>
+      <Field label="Subject-wise marks (previous school)"><PriorScoreRows rows={priorScores} onChange={setPriorScores} /></Field>
+
+      <p className="text-[12.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Health & transport (optional — captured once, handed off on approval)</p>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Field label="Known allergies"><input value={f.allergies} onChange={set('allergies')} className={inputCls} /></Field>
+        <Field label="Known conditions"><input value={f.conditions} onChange={set('conditions')} className={inputCls} /></Field>
+        <Field label="Blood group"><input value={f.bloodGroup} onChange={set('bloodGroup')} placeholder="e.g. O+" className={inputCls} /></Field>
+      </div>
+      <div className="flex flex-wrap items-center gap-4">
+        <label className="flex items-center gap-2 text-[13.5px] font-medium">
+          <input type="checkbox" checked={f.transportNeeded} onChange={set('transportNeeded')} className="h-4 w-4 rounded border-black/20" /> Needs school transport
+        </label>
+        {f.transportNeeded && <input value={f.transportArea} onChange={set('transportArea')} placeholder="Preferred area / stop (if known)" className={inputCls + ' max-w-xs'} />}
+      </div>
+
+      <Field label="Documents (birth certificate, previous TC, marksheet, ID…)">
+        <UploadField files={docs} onChange={setDocs} multiple accept=".pdf,.png,.jpg,.jpeg,.docx" hint="PDF, images or DOCX · up to 10 MB each — tag these against specific required document types from the application once recorded" />
+      </Field>
+      <button onClick={submit} disabled={!valid || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Saving…' : 'Record application'}</button>
+    </div>
+  )
+}
+
+// `wholeSchool` (approver flow, applying/issuing for any student in the school) swaps the bounded flat
+// `<select>` for an AsyncEntityPicker over the whole roster; the non-approver flow keeps the flat select
+// over `students` since that's already bounded to the caller's own viewed wards (parent/student), never the
+// full school. See ui-architecture-fix.md Phase B.
+function CertificateApplicationForm({ students, wholeSchool, onDone }: { students: User[]; wholeSchool?: boolean; onDone: () => void }) {
+  const { classOf } = useAcademic()
+  const [kind, setKind] = useState<CertificateKind>('Bonafide')
+  const [studentId, setStudentId] = useState(wholeSchool ? '' : (students[0]?.id ?? ''))
+  const [studentName, setStudentName] = useState('')
+  const [notes, setNotes] = useState('')
+  const [docs, setDocs] = useState<UploadedFile[]>([])
+  const [busy, setBusy] = useState(false)
+  const student = students.find(s => s.id === studentId)
+  const applicantName = wholeSchool ? studentName : (student?.name ?? '')
+  const submit = async () => {
+    if (!studentId || !applicantName) return
+    setBusy(true)
+    try {
+      await api.post('/applications', { kind, studentId, applicantName, notes: notes.trim() || undefined, documents: docs.map(d => d.id) })
+      toast.success(`${KIND_LABEL[kind]} requested`)
+      onDone()
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-4">
+      <Field label="Certificate">
+        <select value={kind} onChange={e => setKind(e.target.value as CertificateKind)} className={inputCls}>
+          {CERTIFICATE_KINDS.map(k => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+        </select>
+      </Field>
+      {wholeSchool ? (
+        <Field label="Student">
+          <AsyncEntityPicker role="student" value={studentId} onChange={(id, label) => { setStudentId(id); setStudentName(label) }} placeholder="Search students…" />
+        </Field>
+      ) : students.length > 1 ? (
+        <Field label="Student">
+          <select value={studentId} onChange={e => setStudentId(e.target.value)} className={inputCls}>
+            {students.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
+          </select>
+        </Field>
+      ) : student && <p className="text-[13.5px] text-black/60 dark:text-white/60">For <b>{student.name}</b>{classOf(student.id) ? ` · ${classOf(student.id)!.label}` : ''}</p>}
+      <Field label="Reason / notes"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder={kind === 'TC' ? 'Where is the student moving to, and when?' : 'What is the certificate needed for?'} className={inputCls} /></Field>
+      <Field label="Supporting documents (optional)"><UploadField files={docs} onChange={setDocs} multiple accept=".pdf,.png,.jpg,.jpeg" /></Field>
+      <button onClick={submit} disabled={!studentId || !applicantName || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Submitting…' : 'Submit application'}</button>
+    </div>
+  )
+}
+
+function IssueCertificateForm({ students, wholeSchool, onDone }: { students: User[]; wholeSchool?: boolean; onDone: () => void }) {
+  const navigate = useNavigate()
+  const { classOf } = useAcademic()
+  const [kind, setKind] = useState<CertificateKind>('Bonafide')
+  const [studentId, setStudentId] = useState(wholeSchool ? '' : (students[0]?.id ?? ''))
+  const [busy, setBusy] = useState(false)
+  const isTC = kind === 'TC'
+  const submit = async () => {
+    if (isTC) { onDone(); navigate(`/portal/tc-issuance/${studentId}`); return }
+    setBusy(true)
+    try {
+      const res = await api.post<{ item: Certificate }>('/certificates', { kind, studentId })
+      toast.success(`Issued ${res?.item?.serialNo ?? 'certificate'}`)
+      onDone()
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-4">
+      <p className="text-[13.5px] text-black/60 dark:text-white/60">Issues a numbered certificate straight away, without an application.{isTC ? ' A TC first walks through the held-original-documents return checklist.' : ''}</p>
+      <Field label="Certificate">
+        <select value={kind} onChange={e => setKind(e.target.value as CertificateKind)} className={inputCls}>
+          {CERTIFICATE_KINDS.map(k => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+        </select>
+      </Field>
+      <Field label="Student">
+        {wholeSchool ? (
+          <AsyncEntityPicker role="student" value={studentId} onChange={id => setStudentId(id)} placeholder="Search students…" />
+        ) : (
+          <select value={studentId} onChange={e => setStudentId(e.target.value)} className={inputCls}>
+            {students.length === 0 && <option value="">No students yet</option>}
+            {students.map(s => <option key={s.id} value={s.id}>{s.name}{classOf(s.id) ? ` · ${classOf(s.id)!.label}` : ''}</option>)}
+          </select>
+        )}
+      </Field>
+      <button onClick={submit} disabled={!studentId || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">
+        {busy ? 'Issuing…' : isTC ? 'Continue to document return checklist' : 'Issue certificate'}
+      </button>
+    </div>
+  )
+}
+
+function DeclineForm({ app, onDone }: { app: ApplicationRec; onDone: () => void }) {
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    setBusy(true)
+    try { await api.post(`/applications/${app.id}/decline`, { notes: notes.trim() }); toast.success('Application declined'); onDone() }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-4">
+      <p className="text-[13.5px] text-black/60 dark:text-white/60">Declining the <b>{app.kind}</b> application for <b>{app.applicantName}</b>. The applicant sees your reason.</p>
+      <Field label="Reason"><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} autoFocus className={inputCls} /></Field>
+      <button onClick={submit} disabled={!notes.trim() || busy} className="w-full rounded-xl bg-rose-600 py-3 text-[14px] font-semibold text-white hover:bg-rose-700 disabled:opacity-40">{busy ? 'Declining…' : 'Decline'}</button>
+    </div>
+  )
+}
+
+/** Admission: previews the accounts the server will create, then shows their credentials once. Certificates: confirm → issued. */
+function ApproveDialog({ app, boardName, onClose, onChanged }: { app: ApplicationRec; boardName?: string; onClose: () => void; onChanged: () => void }) {
+  const { db, refreshDB, refreshAcademic } = useStore()
+  const { classById } = useAcademic()
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ item: ApplicationRec; created?: AdmissionCreated } | null>(null)
+  const isAdmission = app.kind === 'Admission'
+  const cls = app.targetClassId ? classById.get(app.targetClassId) : undefined
+  const gEmail = app.guardian?.email?.trim().toLowerCase()
+  const existingParent = gEmail ? db.users.find(u => u.role === 'parent' && u.email.toLowerCase() === gEmail) : undefined
+  const student = app.studentId ? db.users.find(u => u.id === app.studentId) : undefined
+
+  const run = async () => {
+    setBusy(true)
+    try {
+      const res = await api.post<{ item: ApplicationRec; created?: AdmissionCreated }>(`/applications/${app.id}/approve`)
+      if (isAdmission) await Promise.all([refreshDB(), refreshAcademic()])
+      else if (app.kind === 'TC') await refreshAcademic()
+      onChanged()
+      setResult(res)
+      toast.success(isAdmission ? 'Admission approved — accounts created' : `${KIND_LABEL[app.kind]} issued`)
+      if (!isAdmission) onClose()
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+
+  if (result?.created) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 rounded-2xl bg-amber-50 dark:bg-amber-500/10 p-4 text-[13px] text-amber-800 dark:text-amber-300">
+          <ShieldAlert size={18} className="mt-0.5 shrink-0" />
+          <p>These passwords are shown <b>only once</b>. Share them with the family now — both accounts must change them at first sign-in.</p>
+        </div>
+        <div>
+          <p className="mb-2 text-[12.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Student · {app.applicantName}</p>
+          <div className="space-y-2">
+            <CredentialRow label="Email" value={result.created.student.email} />
+            <CredentialRow label="Password" value={result.created.student.password} />
+          </div>
+        </div>
+        {result.created.parent ? (
+          <div>
+            <p className="mb-2 text-[12.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Parent · {app.guardian?.name ?? 'Guardian'}</p>
+            <div className="space-y-2">
+              <CredentialRow label="Email" value={result.created.parent.email} />
+              <CredentialRow label="Password" value={result.created.parent.password} />
+            </div>
+          </div>
+        ) : (
+          <p className="text-[13px] text-black/60 dark:text-white/60">Linked to the existing parent account{existingParent ? ` of ${existingParent.name}` : ''} — no new parent password.</p>
+        )}
+        <button onClick={onClose} className="btn-ink w-full py-3 text-[14px] font-semibold">Done</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {isAdmission ? (
+        <>
+          <p className="text-[13.5px] text-black/60 dark:text-white/60">Approving creates the accounts below in one step and enrols the student with the next free roll number.</p>
+          <div className="space-y-2">
+            <div className="rounded-2xl bg-black/[.04] dark:bg-white/[.06] px-4 py-3">
+              <p className="text-[11.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Student account</p>
+              <p className="text-[14px] font-semibold">{app.applicantName}</p>
+              <p className="text-[12.5px] text-black/50 dark:text-white/50">{cls ? `Enrolled in ${cls.label}${boardName ? ` · ${boardName}` : ''}` : 'No target class — set one before approving'}{app.dob ? ` · DOB ${fmtDate(app.dob, { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}</p>
+            </div>
+            <div className="rounded-2xl bg-black/[.04] dark:bg-white/[.06] px-4 py-3">
+              <p className="text-[11.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">{existingParent ? 'Existing parent (linked as guardian)' : 'Parent account'}</p>
+              <p className="text-[14px] font-semibold">{existingParent?.name ?? app.guardian?.name ?? 'Guardian'}</p>
+              <p className="text-[12.5px] text-black/50 dark:text-white/50">{[app.guardian?.relation, app.guardian?.email || (existingParent ? existingParent.email : 'email will be generated'), app.guardian?.phone].filter(Boolean).join(' · ')}</p>
+            </div>
+          </div>
+          <ChecklistWarning app={app} />
+        </>
+      ) : (
+        <p className="text-[13.5px] text-black/60 dark:text-white/60">
+          Issues a numbered <b>{KIND_LABEL[app.kind]}</b> for <b>{student?.name ?? app.applicantName}</b>{app.kind === 'TC' ? ' and marks their enrolment as transferred' : ''}. The PDF becomes downloadable for the family straight away.
+        </p>
+      )}
+      <div className="flex gap-3">
+        <button onClick={run} disabled={busy || (isAdmission && !cls)} className="flex-1 rounded-xl bg-emerald-600 py-3 text-[14px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">{busy ? 'Approving…' : isAdmission ? 'Approve & create accounts' : 'Approve & issue'}</button>
+        <button onClick={onClose} className="rounded-xl bg-black/[.05] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:bg-white/[.07] dark:hover:bg-white/15">Cancel</button>
+      </div>
+    </div>
+  )
+}
+
+/** Compact missing-documents summary shown in the Approve-admission dialog. The hard-vs-soft-required call
+ * (`School.admissionDocumentsBlockApproval`) is enforced server-side in `approve()` — this is a heads-up so
+ * staff aren't surprised by a rejected approval, not a client-side gate (the existing catch(e)/toast already
+ * surfaces the server's reason if it does block). */
+function ChecklistWarning({ app }: { app: ApplicationRec }) {
+  const { data: checklist, loading } = useChecklist(app.id)
+  if (loading || !checklist) return null
+  if (checklist.complete) return (
+    <p className="flex items-center gap-1.5 text-[12.5px] font-semibold text-emerald-600"><Check size={13} /> All required documents for this category are on file.</p>
+  )
+  return (
+    <div className={`rounded-2xl p-4 text-[13px] ${checklist.admissionDocumentsBlockApproval ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300' : 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300'}`}>
+      <p className="flex items-center gap-1.5 font-semibold"><AlertTriangle size={14} /> {checklist.missingRequired.length} required document{checklist.missingRequired.length > 1 ? 's' : ''} still missing</p>
+      <p className="mt-1">{checklist.missingRequired.join(', ')}</p>
+      <p className="mt-1 text-[12px] opacity-80">{checklist.admissionDocumentsBlockApproval ? 'This school blocks approval until they’re collected.' : 'This school allows approval to proceed — collect them from the application’s Documents screen.'}</p>
     </div>
   )
 }
@@ -504,238 +810,246 @@ export function ApplicationsMod({ approver = true }: { approver?: boolean }) {
 /* ── People management (students, teachers, staff, parents, admins) ── */
 
 type PeopleTabId = 'students' | 'teachers' | 'staff' | 'parents' | 'admins'
-type PeopleTab = { id: PeopleTabId; label: string; roles: Role[] }
+type PeopleTab = { id: PeopleTabId; label: string; singular: string; roles: Role[] }
 
 const ALL_TABS: PeopleTab[] = [
-  { id: 'students', label: 'Students', roles: ['student'] },
-  { id: 'teachers', label: 'Teachers', roles: ['teacher'] },
-  { id: 'staff', label: 'Staff', roles: ['staff'] },
-  { id: 'parents', label: 'Parents', roles: ['parent'] },
-  { id: 'admins', label: 'Admins', roles: ['admin', 'superadmin'] },
+  { id: 'students', label: 'Students', singular: 'student', roles: ['student'] },
+  { id: 'teachers', label: 'Teachers', singular: 'teacher', roles: ['teacher'] },
+  { id: 'staff', label: 'Staff', singular: 'staff', roles: ['staff'] },
+  { id: 'parents', label: 'Parents', singular: 'parent', roles: ['parent'] },
+  { id: 'admins', label: 'Admins', singular: 'admin', roles: ['admin', 'superadmin'] },
 ]
 
-function rolePassword(role: Role) {
-  if (role === 'superadmin') return 'principal123'
-  if (role === 'admin') return 'admin123'
-  if (role === 'staff') return 'staff123'
-  if (role === 'teacher') return 'teacher123'
-  if (role === 'parent') return 'parent123'
-  return 'student123'
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)
+
+/** Add-one-at-a-time picker over an unbounded role (AsyncEntityPicker, Phase B) — replaces the old flat
+ * checkbox grid that rendered every parent/student in the school. Selected ids show as removable chips;
+ * names resolve from the already-loaded `db.users` cache (`nameOf`), not from the search results — no need
+ * to keep a whole-roster array around just to label a handful of already-chosen ids. `pickKey` remounts the
+ * inner AsyncEntityPicker after each add so its search text clears, ready for the next pick. */
+export function AsyncPickList({ role, selected, onAdd, onRemove, nameOf, placeholder }: {
+  role: Role | Role[]
+  selected: string[]
+  onAdd: (id: string) => void
+  onRemove: (id: string) => void
+  nameOf: (id: string) => string
+  placeholder: string
+}) {
+  const [pickKey, setPickKey] = useState(0)
+  return (
+    <div className="space-y-2">
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map(id => (
+            <span key={id} className="flex items-center gap-1.5 rounded-full bg-indigo-50 dark:bg-indigo-500/10 px-3 py-1.5 text-[12.5px] font-medium text-indigo-700 dark:text-indigo-300">
+              {nameOf(id)}
+              <button type="button" onClick={() => onRemove(id)} aria-label={`Remove ${nameOf(id)}`} className="rounded-full p-0.5 hover:bg-indigo-100 dark:hover:bg-indigo-500/20"><X size={11} /></button>
+            </span>
+          ))}
+        </div>
+      )}
+      <AsyncEntityPicker key={pickKey} role={role} value=""
+        onChange={id => { if (id) { onAdd(id); setPickKey(k => k + 1) } }}
+        placeholder={placeholder} />
+    </div>
+  )
 }
 
-function makeEmail(name: string, role: Role) {
-  const base = name.toLowerCase().replace(/[^a-z]+/g, '.').replace(/(^\.|\.$)/g, '')
-  if (role === 'parent') return `parent.${base}@edunova.in`
-  return `${base}@edunova.in`
+export function CredentialRow({ label, value }: { label: string; value: string }) {
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(value); toast.success(`${label} copied`) }
+    catch { toast.error('Could not copy — select the text manually') }
+  }
+  return (
+    <div className="flex items-center gap-3 rounded-2xl bg-black/[.04] dark:bg-white/[.06] px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-[11.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">{label}</p>
+        <p className="select-all truncate font-mono text-[14px]">{value}</p>
+      </div>
+      <button onClick={copy} className="flex items-center gap-1 rounded-full bg-white dark:bg-[#14141f] px-3 py-1.5 text-[12px] font-semibold ring-1 ring-black/10 dark:ring-white/15 hover:bg-black/[.04] dark:hover:bg-white/[.08]" title={`Copy ${label.toLowerCase()}`}>
+        <Copy size={13} /> Copy
+      </button>
+    </div>
+  )
 }
 
 export function PeopleMod() {
-  const { db, user, update, deleteUser } = useStore()
+  const navigate = useNavigate()
+  const { db, user, setUserActive, refreshDB } = useStore()
+  const academic = useAcademic()
+  const { currentYear, classById, subjectById, classOf, wardsOf, classesTaughtBy } = academic
   const current = user!
   const isSuper = isSuperAdmin(current)
 
   const tabs = ALL_TABS.filter(t => t.id !== 'admins' || isSuper)
-  const [tab, setTab] = useState<PeopleTab['id']>('students')
+  const [tab, setTabState] = useState<PeopleTabId>('students')
 
   const [search, setSearch] = useState('')
   const [cls, setCls] = useState('')
-  const [section, setSection] = useState('')
   const [subject, setSubject] = useState('')
   const [department, setDepartment] = useState('')
 
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editing, setEditing] = useState<User | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
-  const [viewReportId, setViewReportId] = useState<string | null>(null)
 
-  const activeRoles = useMemo(() => ALL_TABS.find(t => t.id === tab)?.roles ?? ['student'], [tab])
+  const setTab = (t: PeopleTabId) => { setTabState(t); setCls(''); setSubject(''); setDepartment('') }
 
-  const { classOptions, sectionOptions, subjectOptions, departmentOptions } = useMemo(() => {
-    const pool = db.users.filter(u => activeRoles.includes(u.role))
-    const classes = Array.from(new Set(pool.map(u => u.class).filter(Boolean)))
-    const sections = Array.from(new Set(pool.map(u => u.section).filter(Boolean)))
-    const subjects = Array.from(new Set([...db.subjects.map(s => s.name), ...db.users.flatMap(u => u.subjects ?? [])]))
-    const departments = Array.from(new Set(db.users.map(u => u.department).filter(Boolean)))
-    return { classOptions: classes, sectionOptions: sections, subjectOptions: subjects, departmentOptions: departments }
-  }, [db.users, db.subjects, activeRoles])
+  const activeTab = tabs.find(t => t.id === tab) ?? tabs[0]
+  const activeRoles = activeTab.roles
 
-  const filtered = useMemo(() => {
-    return db.users.filter(u => {
-      if (!activeRoles.includes(u.role)) return false
-      if (cls && u.class !== cls) return false
-      if (section && u.section !== section) return false
-      if (subject && !(u.subjects?.includes(subject))) return false
-      if (department && u.department !== department) return false
-      if (search) {
-        const q = search.toLowerCase()
-        return u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
-      }
-      return true
-    })
-  }, [db.users, activeRoles, cls, section, subject, department, search])
+  /* ── entity lookups ── */
+  const yearClasses = useMemo(
+    () => academic.classes.filter(c => !currentYear || c.academicYearId === currentYear.id).slice().sort(compareClasses(academic.gradeById)),
+    [academic.classes, academic.gradeById, currentYear],
+  )
+  const userById = useMemo(() => new Map(db.users.map(u => [u.id, u])), [db.users])
 
-  // form state
-  const [form, setForm] = useState({
-    name: '',
-    role: 'student' as Role,
-    class: '',
-    section: '',
-    roll: '',
-    parentEmail: '',
-    board: 'CBSE' as Board,
-    subjects: [] as string[],
-    classTeacher: '',
-    joinDate: new Date().toISOString().slice(0, 10),
-    salary: 0,
-    department: '',
-    designation: '',
-    phone: '',
-    wards: '',
-  })
+  const enrollmentOf = (studentId: string) =>
+    academic.enrollments.find(e => e.studentId === studentId && e.status === 'active' && (!currentYear || e.academicYearId === currentYear.id))
+    ?? academic.enrollments.find(e => e.studentId === studentId)
+  const guardiansOf = (studentId: string) => academic.guardians.filter(g => g.studentId === studentId)
+  const classTeacherOf = (teacherId: string) => academic.classes.find(c => c.classTeacherId === teacherId)
+  const teachingOf = (teacherId: string) => academic.classSubjects
+    .filter(cs => cs.teacherId === teacherId)
+    .map(cs => ({ id: cs.id, label: `${subjectById.get(cs.subjectId)?.name ?? 'Subject'} · ${classById.get(cs.classId)?.label ?? '—'}` }))
 
-  const openAdd = () => {
-    const r = (tab === 'admins' ? 'admin' : tab) as Role
-    setEditing(null)
-    setForm({
-      name: '',
-      role: r,
-      class: '',
-      section: '',
-      roll: '',
-      parentEmail: '',
-      board: 'CBSE',
-      subjects: [],
-      classTeacher: '',
-      joinDate: new Date().toISOString().slice(0, 10),
-      salary: 0,
-      department: '',
-      designation: '',
-      phone: '',
-      wards: '',
-    })
-    setModalOpen(true)
-  }
+  const departmentOptions = useMemo(
+    () => Array.from(new Set(db.users.map(u => u.department).filter((d): d is string => !!d))).sort(),
+    [db.users],
+  )
 
-  const openEdit = (u: User) => {
-    setEditing(u)
-    setForm({
-      name: u.name,
-      role: u.role,
-      class: u.class ?? '',
-      section: u.section ?? '',
-      roll: u.roll ?? '',
-      parentEmail: u.parentEmail ?? '',
-      board: u.board ?? 'CBSE',
-      subjects: u.subjects ?? [],
-      classTeacher: u.role === 'teacher' ? (u.class ?? '') : '',
-      joinDate: u.joinDate ?? new Date().toISOString().slice(0, 10),
-      salary: u.salary ?? 0,
-      department: u.department ?? '',
-      designation: u.designation ?? '',
-      phone: u.phone ?? '',
-      wards: u.wards ?? '',
-    })
-    setModalOpen(true)
-  }
+  const filtersActive = !!(search || cls || subject || department)
+  // Class option text: "X-A · CBSE" (plus " · Science" when the class has a stream)
+  const classOption = (c: { label: string; boardCode: string; stream?: string }) => `${c.label} · ${c.boardCode}${c.stream ? ' · ' + c.stream : ''}`
 
-  const buildTitle = (): string => {
-    switch (form.role) {
-      case 'student':
-        return `Class ${form.class}${form.section ? '-' + form.section : ''} · Roll ${form.roll}`
-      case 'teacher':
-        return `${form.subjects.join(', ') || '—'} · Class Teacher ${form.classTeacher || '—'}`
-      case 'staff':
-        return `${form.designation}${form.department ? ' · ' + form.department : ''}`
-      case 'admin':
-        return `${form.designation}${form.department ? ' · ' + form.department : ''}`
-      case 'parent':
-        return `Parent of ${form.wards || '—'}`
-      default:
-        return form.role
+  // Plain derivation (no manual useMemo): the React Compiler memoizes it, and the
+  // preserve-manual-memoization rule can't prove `activeRoles` stable otherwise.
+  const q = search.trim().toLowerCase()
+  const filtered = db.users.filter(u => {
+    if (!activeRoles.includes(u.role)) return false
+    if (cls) {
+      if (u.role === 'student' && classOf(u.id)?.id !== cls) return false
+      if (u.role === 'teacher' && !classesTaughtBy(u.id).some(c => c.id === cls)) return false
     }
-  }
+    if (subject && u.role === 'teacher' && !academic.classSubjects.some(cs => cs.teacherId === u.id && cs.subjectId === subject)) return false
+    if (department && u.department !== department) return false
+    if (q) return u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+    return true
+  }).sort(byName)
 
-  const save = () => {
-    if (!form.name.trim()) return
-    const title = buildTitle()
-    if (editing) {
-      update(d => {
-        const u = d.users.find(x => x.id === editing.id)
-        if (!u) return d
-        u.name = form.name.trim()
-        u.title = title
-        u.role = form.role
-        if (form.role === 'student') {
-          u.class = form.class
-          u.section = form.section
-          u.roll = form.roll
-          u.parentEmail = form.parentEmail
-          u.board = form.board
-        } else if (form.role === 'teacher') {
-          u.subjects = form.subjects
-          u.class = form.classTeacher
-          u.joinDate = form.joinDate
-          u.salary = form.salary
-        } else if (form.role === 'staff') {
-          u.department = form.department
-          u.designation = form.designation
-          u.joinDate = form.joinDate
-        } else if (form.role === 'admin') {
-          u.designation = form.designation
-          u.department = form.department
-        } else if (form.role === 'parent') {
-          u.phone = form.phone
-          u.wards = form.wards
-        }
-        return d
-      })
-      toast.success(`${form.name} updated`)
-    } else {
-      const newUser: User = {
-        id: `u_${form.role}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        role: form.role,
-        name: form.name.trim(),
-        email: makeEmail(form.name.trim(), form.role),
-        password: rolePassword(form.role),
-        title,
-        avatarHue: Math.floor(Math.random() * 360),
-        verified: true,
-        class: form.role === 'student' ? form.class : form.role === 'teacher' ? form.classTeacher : undefined,
-        section: form.role === 'student' ? form.section : undefined,
-        roll: form.role === 'student' ? form.roll : undefined,
-        parentEmail: form.role === 'student' ? form.parentEmail : undefined,
-        board: form.role === 'student' ? form.board : undefined,
-        subjects: form.role === 'teacher' ? form.subjects : undefined,
-        joinDate: (form.role === 'teacher' || form.role === 'staff') ? form.joinDate : undefined,
-        salary: form.role === 'teacher' ? form.salary : undefined,
-        department: (form.role === 'staff' || form.role === 'admin') ? form.department : undefined,
-        designation: (form.role === 'staff' || form.role === 'admin') ? form.designation : undefined,
-        phone: form.role === 'parent' ? form.phone : undefined,
-        wards: form.role === 'parent' ? form.wards : undefined,
-      }
-      update(d => { d.users.push(newUser); return d })
-      toast.success(`${newUser.name} onboarded as ${newUser.role}`)
-    }
-    setModalOpen(false)
-  }
-
-  const confirmDelete = () => {
+  // Bug A fix: "Revoke access" soft-deactivates (User.active = false) instead of hard-deleting the
+  // account — reversible via "Reactivate" below, matching the resignation-approval convention.
+  const confirmDelete = async () => {
     if (!confirmId) return
-    const ok = deleteUser(confirmId)
-    if (ok) toast.success('Access revoked')
-    else toast.error('Cannot delete yourself or the last superadmin')
+    const ok = await setUserActive(confirmId, false)
+    if (ok) toast.success('Access revoked — account deactivated')
+    else toast.error('Cannot revoke your own access or the last superadmin')
     setConfirmId(null)
+  }
+
+  const [reactivateBusy, setReactivateBusy] = useState<string | null>(null)
+  const reactivate = async (u: User) => {
+    setReactivateBusy(u.id)
+    const ok = await setUserActive(u.id, true)
+    if (ok) toast.success(`${u.name}'s access restored`)
+    else toast.error('Could not restore access')
+    setReactivateBusy(null)
   }
 
   const canEdit = (u: User) => user ? canManage(user, u, db.users) : false
 
-  const tabLabel = tabs.find(t => t.id === tab)?.label ?? 'People'
+  const tabLabel = activeTab.label
+  const addBlocked = tab === 'students' && yearClasses.length === 0
+  const showClassFilter = (tab === 'students' || tab === 'teachers') && yearClasses.length > 0
+  const showSubjectFilter = tab === 'teachers' && academic.subjects.length > 0
+  const showDeptFilter = (tab === 'staff' || tab === 'admins') && departmentOptions.length > 0
+
+  const emptyText = filtersActive
+    ? 'No people match the filters.'
+    : tab === 'students'
+      ? (yearClasses.length === 0 ? 'No classes yet. Create a class in Academic Setup, then add students.' : 'No students yet. Add the first one.')
+      : `No ${tabLabel.toLowerCase()} yet.`
+
+  const roleTone = (r: Role) => r === 'student' ? 'sky' : r === 'teacher' ? 'indigo' : r === 'parent' ? 'green' : r === 'staff' ? 'amber' : 'rose'
+  const muted = 'text-[12.5px] text-black/50 dark:text-white/50'
+  const isEmployeeRole = (r: Role) => r === 'teacher' || r === 'staff' || r === 'admin' || r === 'superadmin'
+
+  // Phase 22 item 3: the narrow flag gating the counseling module — admin/superadmin only, its own
+  // endpoint (not the generic PATCH /users/:id) since staff-managing-teacher must never be able to grant
+  // it. See phase-22-campus-safety.md.
+  const [counselorBusy, setCounselorBusy] = useState<string | null>(null)
+  const toggleCounselor = async (u: User) => {
+    setCounselorBusy(u.id)
+    try {
+      await api.patch(`/users/${u.id}/counselor`, { isCounselor: !u.isCounselor })
+      await refreshDB()
+      toast.success(u.isCounselor ? `${u.name} is no longer a counselor` : `${u.name} can now access the counseling module`)
+    } catch (e) { toast.error(errorMessage(e)) } finally { setCounselorBusy(null) }
+  }
+
+  const details = (u: User) => {
+    if (u.role === 'student') {
+      const c = classOf(u.id)
+      const e = enrollmentOf(u.id)
+      const gs = guardiansOf(u.id).map(g => userById.get(g.parentId)?.name).filter(Boolean)
+      return (
+        <>
+          <p className="flex flex-wrap items-center gap-1.5 font-medium">
+            <span>Class {c?.label ?? '—'}</span>
+            {c && <Pill tone="indigo">{c.boardCode}</Pill>}
+            {c?.stream && <Pill tone="sky">{c.stream}</Pill>}
+            <span>· Roll {e?.rollNo || '—'}</span>
+          </p>
+          <p className={muted}>{u.dob ? `DOB ${u.dob}` : 'No DOB on file'}</p>
+          <p className={muted}>Parent(s): {gs.length ? gs.join(', ') : '—'}</p>
+        </>
+      )
+    }
+    if (u.role === 'teacher') {
+      const ct = classTeacherOf(u.id)
+      const t = teachingOf(u.id)
+      return (
+        <>
+          <p className="font-medium">Class teacher of {ct?.label ?? '—'}</p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {t.length ? t.map(x => <Pill key={x.id} tone="indigo">{x.label}</Pill>) : <span className={muted}>No subjects assigned</span>}
+          </div>
+          {u.employeeId && <p className={muted}>ID: {u.employeeId}</p>}
+        </>
+      )
+    }
+    if (u.role === 'parent') {
+      const wards = wardsOf(u.id).map(id => userById.get(id)).filter((w): w is User => !!w)
+      return (
+        <>
+          <p className="font-medium">{wards.length ? `Parent of ${wards.map(w => w.name).join(', ')}` : 'No wards linked'}</p>
+          {wards.length > 0 && <p className={muted}>{wards.map(w => `${w.name} · ${classOf(w.id)?.label ?? '—'}`).join(' / ')}</p>}
+        </>
+      )
+    }
+    if (u.role === 'staff') {
+      return (
+        <>
+          <p className="font-medium">{u.designation || u.title || '—'}</p>
+          <p className={muted}>{u.department || '—'}{u.joinDate ? ` · since ${u.joinDate}` : ''}</p>
+          {u.employeeId && <p className={muted}>ID: {u.employeeId}</p>}
+        </>
+      )
+    }
+    return (
+      <>
+        <p className="font-medium">{u.designation || u.title || u.role}</p>
+        <p className={muted}>Access: {u.department || '—'}</p>
+        {u.employeeId && <p className={muted}>ID: {u.employeeId}</p>}
+      </>
+    )
+  }
 
   return (
     <div>
       <PageHead title="People Management" sub={`${tabLabel} · search, filter, add, edit and revoke access`}>
-        <button onClick={openAdd} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
-          <UserPlus size={15} /> Add person
+        <button onClick={() => navigate(`/portal/people/new?role=${tab === 'admins' ? 'admin' : activeTab.singular}`)} disabled={addBlocked} title={addBlocked ? 'Create a class first in Academic Setup' : undefined}
+          className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold disabled:cursor-not-allowed disabled:opacity-40">
+          <UserPlus size={15} /> Add {activeTab.singular}
         </button>
       </PageHead>
 
@@ -756,32 +1070,26 @@ export function PeopleMod() {
             <Search size={16} className="text-black/40 dark:text-white/40" />
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or email" className="flex-1 bg-transparent text-[14px] outline-none" />
           </div>
-          {classOptions.length > 0 && (
+          {showClassFilter && (
             <select value={cls} onChange={e => setCls(e.target.value)} className={inputCls + ' w-auto min-w-[120px]'}>
               <option value="">All classes</option>
-              {classOptions.map(c => <option key={c} value={c}>{c}</option>)}
+              {yearClasses.map(c => <option key={c.id} value={c.id}>{classOption(c)}</option>)}
             </select>
           )}
-          {sectionOptions.length > 0 && (
-            <select value={section} onChange={e => setSection(e.target.value)} className={inputCls + ' w-auto min-w-[120px]'}>
-              <option value="">All sections</option>
-              {sectionOptions.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          )}
-          {subjectOptions.length > 0 && (
+          {showSubjectFilter && (
             <select value={subject} onChange={e => setSubject(e.target.value)} className={inputCls + ' w-auto min-w-[140px]'}>
               <option value="">All subjects</option>
-              {subjectOptions.map(s => <option key={s} value={s}>{s}</option>)}
+              {academic.subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           )}
-          {departmentOptions.length > 0 && (
+          {showDeptFilter && (
             <select value={department} onChange={e => setDepartment(e.target.value)} className={inputCls + ' w-auto min-w-[140px]'}>
               <option value="">All departments</option>
               {departmentOptions.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           )}
-          {(search || cls || section || subject || department) && (
-            <button onClick={() => { setSearch(''); setCls(''); setSection(''); setSubject(''); setDepartment('') }}
+          {filtersActive && (
+            <button onClick={() => { setSearch(''); setCls(''); setSubject(''); setDepartment('') }}
               className="flex items-center gap-1 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3 py-1.5 text-[12px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
               <X size={13} /> Clear
             </button>
@@ -808,31 +1116,40 @@ export function PeopleMod() {
                     <Avatar name={u.name} hue={u.avatarHue} size={40} />
                     <div>
                       <p className="font-semibold">{u.name}</p>
-                      <Pill tone={u.role === 'student' ? 'sky' : u.role === 'teacher' ? 'indigo' : u.role === 'parent' ? 'green' : u.role === 'staff' ? 'amber' : 'rose'}>{u.role}</Pill>
+                      <div className="flex items-center gap-1.5">
+                        <Pill tone={roleTone(u.role)}>{u.role}</Pill>
+                        {u.active === false && <Pill tone="rose">Inactive</Pill>}
+                      </div>
                     </div>
                   </div>
                 </td>
-                <td className="px-6 py-4">
-                  <p className="font-medium">{u.title}</p>
-                  {u.role === 'student' && <p className="text-[12.5px] text-black/50 dark:text-white/50">Board: {u.board ?? '—'} · Roll {u.roll ?? '—'}</p>}
-                  {u.role === 'teacher' && <p className="text-[12.5px] text-black/50 dark:text-white/50">Subjects: {u.subjects?.join(', ') || '—'} · Salary: {u.salary ? fmtINR(u.salary) : '—'}</p>}
-                  {u.role === 'staff' && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.designation}{u.department ? ' · ' + u.department : ''}</p>}
-                  {u.role === 'admin' && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.designation}{u.department ? ' · Access: ' + u.department : ''}</p>}
-                  {u.role === 'parent' && <p className="text-[12.5px] text-black/50 dark:text-white/50">Ward(s): {u.wards ?? '—'}</p>}
-                </td>
+                <td className="px-6 py-4">{details(u)}</td>
                 <td className="px-6 py-4">
                   <p className="text-[13.5px]">{u.email}</p>
-                  {u.phone && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.phone}</p>}
-                  {u.parentEmail && <p className="text-[12.5px] text-black/50 dark:text-white/50">Parent: {u.parentEmail}</p>}
+                  {u.phone && <p className={muted}>{u.phone}</p>}
                 </td>
                 <td className="px-6 py-4 text-right">
                   {canEdit(u) ? (
                     <div className="flex items-center justify-end gap-2">
                       {u.role === 'student' && (
-                        <button onClick={() => setViewReportId(u.id)} className="rounded-full bg-indigo-50 dark:bg-indigo-500/10 p-2 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20" title="View full report"><FileBadge size={15} /></button>
+                        <button onClick={() => navigate(`/portal/students/${u.id}/report`)} className="rounded-full bg-indigo-50 dark:bg-indigo-500/10 p-2 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20" title="View full report"><FileBadge size={15} /></button>
                       )}
-                      <button onClick={() => openEdit(u)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15"><Pencil size={15} /></button>
-                      <button onClick={() => setConfirmId(u.id)} className="rounded-full bg-rose-50 p-2 text-rose-500 hover:bg-rose-100"><Trash2 size={15} /></button>
+                      {isEmployeeRole(u.role) && (
+                        <button onClick={() => navigate(`/portal/employees/${u.id}`)} className="rounded-full bg-indigo-50 dark:bg-indigo-500/10 p-2 text-indigo-600 hover:bg-indigo-100 dark:hover:bg-indigo-500/20" title="View profile — history, documents, ID card"><History size={15} /></button>
+                      )}
+                      {isEmployeeRole(u.role) && isAdmin(current) && (
+                        <button onClick={() => toggleCounselor(u)} disabled={counselorBusy === u.id}
+                          className={`rounded-full p-2 disabled:opacity-40 ${u.isCounselor ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-500/10' : 'bg-black/[.05] dark:bg-white/[.07] hover:bg-black/10 dark:hover:bg-white/15'}`}
+                          title={u.isCounselor ? 'Counselor — click to revoke access to the counseling module' : 'Grant access to the confidential counseling module'}>
+                          <HeartHandshake size={15} />
+                        </button>
+                      )}
+                      <button onClick={() => navigate(`/portal/people/${u.id}/edit`)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15" title="Edit"><Pencil size={15} /></button>
+                      {u.active === false ? (
+                        <button onClick={() => reactivate(u)} disabled={reactivateBusy === u.id} className="rounded-full bg-emerald-50 p-2 text-emerald-600 hover:bg-emerald-100 disabled:opacity-40" title="Reactivate access"><UserCheck size={15} /></button>
+                      ) : (
+                        <button onClick={() => setConfirmId(u.id)} className="rounded-full bg-rose-50 p-2 text-rose-500 hover:bg-rose-100" title="Revoke access"><UserX size={15} /></button>
+                      )}
                     </div>
                   ) : (
                     <span className="text-[12px] text-black/40 dark:text-white/40">Protected</span>
@@ -842,7 +1159,7 @@ export function PeopleMod() {
             ))}
           </tbody>
         </table>
-        {filtered.length === 0 && <div className="p-6"><Empty text="No people match the filters." /></div>}
+        {filtered.length === 0 && <div className="p-6"><Empty text={emptyText} /></div>}
       </Card>
 
       {/* mobile card list */}
@@ -853,131 +1170,46 @@ export function PeopleMod() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
                 <p className="truncate font-semibold">{u.name}</p>
-                <Pill tone={u.role === 'student' ? 'sky' : u.role === 'teacher' ? 'indigo' : u.role === 'parent' ? 'green' : u.role === 'staff' ? 'amber' : 'rose'}>{u.role}</Pill>
+                <div className="flex items-center gap-1.5">
+                  <Pill tone={roleTone(u.role)}>{u.role}</Pill>
+                  {u.active === false && <Pill tone="rose">Inactive</Pill>}
+                </div>
               </div>
-              <p className="mt-0.5 text-[12.5px] text-black/50 dark:text-white/50">{u.title}</p>
               <p className="truncate text-[13px]">{u.email}</p>
-              {u.phone && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.phone}</p>}
-              {u.role === 'student' && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.class}{u.section ? '-' + u.section : ''} · Roll {u.roll ?? '—'} · {u.board ?? '—'}</p>}
-              {u.role === 'teacher' && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.subjects?.join(', ') || '—'} · {u.salary ? fmtINR(u.salary) : '—'}</p>}
-              {u.role === 'staff' && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.designation}{u.department ? ' · ' + u.department : ''}</p>}
-              {u.role === 'admin' && <p className="text-[12.5px] text-black/50 dark:text-white/50">{u.designation}{u.department ? ' · ' + u.department : ''}</p>}
-              {u.role === 'parent' && <p className="text-[12.5px] text-black/50 dark:text-white/50">Ward(s): {u.wards ?? '—'}</p>}
+              {u.phone && <p className={muted}>{u.phone}</p>}
+              <div className="mt-1.5 text-[13px]">{details(u)}</div>
               {canEdit(u) && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {u.role === 'student' && (
-                    <button onClick={() => setViewReportId(u.id)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><FileBadge size={14} /> Report</button>
+                    <button onClick={() => navigate(`/portal/students/${u.id}/report`)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><FileBadge size={14} /> Report</button>
                   )}
-                  <button onClick={() => openEdit(u)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><Pencil size={14} /> Edit</button>
-                  <button onClick={() => setConfirmId(u.id)} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-rose-50 py-2 text-[13px] font-semibold text-rose-500"><Trash2 size={14} /> Delete</button>
+                  {isEmployeeRole(u.role) && (
+                    <button onClick={() => navigate(`/portal/employees/${u.id}`)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><History size={14} /> Profile</button>
+                  )}
+                  {isEmployeeRole(u.role) && isAdmin(current) && (
+                    <button onClick={() => toggleCounselor(u)} disabled={counselorBusy === u.id}
+                      className={`flex flex-1 items-center justify-center gap-1 rounded-xl py-2 text-[13px] font-semibold disabled:opacity-40 ${u.isCounselor ? 'bg-emerald-50 text-emerald-600' : 'bg-black/[.05] dark:bg-white/[.07]'}`}>
+                      <HeartHandshake size={14} /> {u.isCounselor ? 'Counselor' : 'Make counselor'}
+                    </button>
+                  )}
+                  <button onClick={() => navigate(`/portal/people/${u.id}/edit`)} className="btn-ink flex flex-1 items-center justify-center gap-1 py-2 text-[13px] font-semibold"><Pencil size={14} /> Edit</button>
+                  {u.active === false ? (
+                    <button onClick={() => reactivate(u)} disabled={reactivateBusy === u.id} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-emerald-50 py-2 text-[13px] font-semibold text-emerald-600 disabled:opacity-40"><UserCheck size={14} /> Reactivate</button>
+                  ) : (
+                    <button onClick={() => setConfirmId(u.id)} className="flex flex-1 items-center justify-center gap-1 rounded-xl bg-rose-50 py-2 text-[13px] font-semibold text-rose-500"><UserX size={14} /> Revoke</button>
+                  )}
                 </div>
               )}
             </div>
           </Card>
         ))}
-        {filtered.length === 0 && <Card><Empty text="No people match the filters." /></Card>}
+        {filtered.length === 0 && <Card><Empty text={emptyText} /></Card>}
       </div>
-
-      {/* add/edit modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? `Edit ${form.name}` : 'Add person'} wide>
-        <div className="space-y-4">
-          <Field label="Full name">
-            <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Kavya Nair" className={inputCls} />
-          </Field>
-
-          <Field label="Role">
-            <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value as Role }))} disabled={!!editing} className={inputCls}>
-              {['student', 'teacher', 'staff', 'parent', 'admin'].map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </Field>
-
-          {form.role === 'student' && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Class"><input value={form.class} onChange={e => setForm(f => ({ ...f, class: e.target.value }))} placeholder="e.g. X" className={inputCls} /></Field>
-              <Field label="Section"><input value={form.section} onChange={e => setForm(f => ({ ...f, section: e.target.value }))} placeholder="e.g. A" className={inputCls} /></Field>
-              <Field label="Roll number"><input value={form.roll} onChange={e => setForm(f => ({ ...f, roll: e.target.value }))} placeholder="e.g. 12" className={inputCls} /></Field>
-              <Field label="Parent email"><input value={form.parentEmail} onChange={e => setForm(f => ({ ...f, parentEmail: e.target.value }))} placeholder="parent@edunova.in" className={inputCls} /></Field>
-              <Field label="Board">
-                <select value={form.board} onChange={e => setForm(f => ({ ...f, board: e.target.value as Board }))} className={inputCls}>
-                  <option value="CBSE">CBSE</option>
-                  <option value="Matric">Matric</option>
-                </select>
-              </Field>
-            </div>
-          )}
-
-          {form.role === 'teacher' && (
-            <div className="space-y-4">
-              <Field label="Subjects">
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {db.subjects.map(s => (
-                    <label key={s.id} className="flex items-center gap-2 rounded-xl border border-black/10 dark:border-white/15 p-2.5 text-[13px]">
-                      <input type="checkbox" checked={form.subjects.includes(s.name)} onChange={e => {
-                        setForm(f => ({ ...f, subjects: e.target.checked ? [...f.subjects, s.name] : f.subjects.filter(x => x !== s.name) }))
-                      }} />
-                      {s.name}
-                    </label>
-                  ))}
-                </div>
-              </Field>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <Field label="Class teacher of"><input value={form.classTeacher} onChange={e => setForm(f => ({ ...f, classTeacher: e.target.value }))} placeholder="e.g. X-A" className={inputCls} /></Field>
-                <Field label="Joining date"><input type="date" value={form.joinDate} onChange={e => setForm(f => ({ ...f, joinDate: e.target.value }))} className={inputCls} /></Field>
-                <Field label="Salary (₹)"><input type="number" value={form.salary} onChange={e => setForm(f => ({ ...f, salary: +e.target.value }))} className={inputCls} /></Field>
-              </div>
-            </div>
-          )}
-
-          {form.role === 'staff' && (
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Field label="Department">
-                <select value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} className={inputCls}>
-                  <option value="">Select department</option>
-                  {departmentOptions.map(d => <option key={d} value={d}>{d}</option>)}
-                  <option value="Administration">Administration</option>
-                  <option value="Finance">Finance</option>
-                  <option value="Admissions">Admissions</option>
-                  <option value="Operations">Operations</option>
-                </select>
-              </Field>
-              <Field label="Designation"><input value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} placeholder="e.g. Office Superintendent" className={inputCls} /></Field>
-              <Field label="Joining date"><input type="date" value={form.joinDate} onChange={e => setForm(f => ({ ...f, joinDate: e.target.value }))} className={inputCls} /></Field>
-            </div>
-          )}
-
-          {form.role === 'admin' && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Designation"><input value={form.designation} onChange={e => setForm(f => ({ ...f, designation: e.target.value }))} placeholder="e.g. School Administrator" className={inputCls} /></Field>
-              <Field label="Access scope">
-                <select value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value }))} className={inputCls}>
-                  <option value="">Select scope</option>
-                  <option value="Full access">Full access</option>
-                  <option value="Finance">Finance only</option>
-                  <option value="Academics">Academics only</option>
-                  <option value="Admissions">Admissions only</option>
-                </select>
-              </Field>
-            </div>
-          )}
-
-          {form.role === 'parent' && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Phone"><input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="+91 98765 43210" className={inputCls} /></Field>
-              <Field label="Ward(s)"><input value={form.wards} onChange={e => setForm(f => ({ ...f, wards: e.target.value }))} placeholder="e.g. Aarav Sharma, Diya Patel" className={inputCls} /></Field>
-            </div>
-          )}
-
-          <div className="flex gap-3 pt-2">
-            <button onClick={save} disabled={!form.name.trim()} className="btn-ink flex-1 py-3 text-[14px] font-semibold disabled:opacity-40">{editing ? 'Save changes' : 'Create account'}</button>
-            <button onClick={() => setModalOpen(false)} className="rounded-xl bg-black/[.05] dark:bg-white/[.07] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">Cancel</button>
-          </div>
-        </div>
-      </Modal>
 
       {/* delete confirmation */}
       <Modal open={!!confirmId} onClose={() => setConfirmId(null)} title="Revoke access?">
         <div className="space-y-4">
-          <p className="text-[14px] text-black/60 dark:text-white/60">This will permanently remove the account. You cannot delete your own account or the last remaining superadmin.</p>
+          <p className="text-[14px] text-black/60 dark:text-white/60">This deactivates the account — they will no longer be able to log in, but their history (enrollment, records, certificates) is kept and access can be restored any time from this screen. You cannot revoke your own access or the last remaining superadmin.</p>
           <div className="flex gap-3">
             <button onClick={confirmDelete} className="btn-ink flex-1 py-3 text-[14px] font-semibold bg-rose-600 hover:bg-rose-700">Revoke access</button>
             <button onClick={() => setConfirmId(null)} className="rounded-xl bg-black/[.05] dark:bg-white/[.07] px-5 py-3 text-[14px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">Cancel</button>
@@ -985,105 +1217,76 @@ export function PeopleMod() {
         </div>
       </Modal>
 
-      <Modal open={!!viewReportId} onClose={() => setViewReportId(null)} title="Student Profile Report" wide>
-        {viewReportId ? <StudentReportMod studentId={viewReportId} /> : <Empty text="Select a student to view the report." />}
-      </Modal>
     </div>
   )
 }
 
 /* ── Fees management (admin/staff) ─────────────────────── */
 
-export function FeesMod() {
-  const { db, update } = useStore()
-  const [label, setLabel] = useState('Lab & Activity Fee — Term 3')
-  const [amount, setAmount] = useState(6500)
-  const assign = () => {
-    update(d => {
-      d.receipts.push({ id: 'r' + Date.now(), label, date: new Date().toISOString().slice(0, 10), amount, status: 'Due', term: 't3', kind: 'fee' })
-      return d
-    })
-    toast.success(`Fee assigned to all students: ${label}`)
-  }
-  const fees = db.receipts.filter(r => r.kind === 'fee')
-  return (
-    <div>
-      <PageHead title="Fees" sub="Update and assign fees across classes" />
-      <div className="grid gap-5 lg:grid-cols-[1fr_1.3fr]">
-        <Card>
-          <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Assign new fee</p>
-          <div className="space-y-4">
-            <Field label="Fee head"><input value={label} onChange={e => setLabel(e.target.value)} className={inputCls} /></Field>
-            <Field label="Amount (₹)"><input type="number" value={amount} onChange={e => setAmount(+e.target.value)} className={inputCls} /></Field>
-            <button onClick={assign} className="btn-ink w-full py-3 text-[14px] font-semibold">Assign to all classes</button>
-          </div>
-        </Card>
-        <Card className="p-0">
-          <p className="border-b border-black/[.06] dark:border-white/[.08] px-6 py-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Active fee heads</p>
-          {fees.map(f => (
-            <div key={f.id} className="flex items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3.5 last:border-0">
-              <span className="flex-1 text-[14px] font-medium">{f.label}</span>
-              <span className="text-[14px] font-bold">{fmtINR(f.amount)}</span>
-              <Pill tone={statusTone(f.status)}>{f.status}</Pill>
-            </div>
-          ))}
-        </Card>
-      </div>
-    </div>
-  )
-}
 
 /* ── Calendar & curriculum admin ───────────────────────── */
 
 export function CalendarAdminMod() {
-  const { db, update } = useStore()
+  const academic = useAcademic()
+  const { items: events, reload } = useCalendarEvents()
   const [title, setTitle] = useState('')
-  const [date, setDate] = useState('2026-04-15')
+  const [date, setDate] = useState(todayISO)
   const [type, setType] = useState<'holiday' | 'exam' | 'event'>('event')
-  const [term, setTerm] = useState('t3')
-  const [editing, setEditing] = useState<CalEvent | null>(null)
+  const [audience, setAudience] = useState<'School' | 'Class'>('School')
+  const [classId, setClassId] = useState('')
+  const [editing, setEditing] = useState<CalendarEventRec | null>(null)
+  const [saving, setSaving] = useState(false)
 
   const reset = () => {
-    setTitle(''); setDate('2026-04-15'); setType('event'); setTerm('t3'); setEditing(null)
+    setTitle(''); setDate(todayISO()); setType('event'); setAudience('School'); setClassId(''); setEditing(null)
   }
 
-  const matches = (a: CalEvent, b: CalEvent) => a.date === b.date && a.title === b.title && a.type === b.type && a.term === b.term
-
-  const save = () => {
-    update(d => {
-      if (editing) {
-        const idx = d.events.findIndex(e => matches(e, editing))
-        if (idx >= 0) {
-          d.events[idx] = { date, title, type, term }
-          d.events.sort((a, b) => a.date.localeCompare(b.date))
-        }
-      } else {
-        d.events.push({ date, title, type, term })
-        d.events.sort((a, b) => a.date.localeCompare(b.date))
-      }
-      return d
-    })
-    toast.success(editing ? 'Event updated' : 'Calendar updated — visible to all portals')
-    reset()
+  const save = async () => {
+    if (!title.trim() || (audience === 'Class' && !classId)) return
+    setSaving(true)
+    // classId must be omitted (not null) for whole-school events — the server schema declares it
+    // `.optional()`, which accepts a missing key but rejects an explicit null; JSON.stringify drops
+    // undefined-valued keys, so this is the fix for "Validation failed" on every whole-school save.
+    const body = { title, date, type, audience, classId: audience === 'Class' ? classId : undefined }
+    try {
+      if (editing) await api.patch(`/calendar/${editing.id}`, body)
+      else await api.post('/calendar', body)
+      await reload()
+      toast.success(editing ? 'Event updated' : 'Calendar updated — visible to all portals')
+      reset()
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const remove = (e: CalEvent) => {
-    update(d => { d.events = d.events.filter(x => !matches(x, e)); return d })
-    toast.success('Event removed')
-    if (editing && matches(editing, e)) reset()
+  const remove = async (e: CalendarEventRec) => {
+    try {
+      await api.del(`/calendar/${e.id}`)
+      await reload()
+      toast.success('Event removed')
+      if (editing?.id === e.id) reset()
+    } catch (err) {
+      toast.error(errorMessage(err))
+    }
   }
 
-  const edit = (e: CalEvent) => {
+  const edit = (e: CalendarEventRec) => {
     setEditing(e)
     setTitle(e.title)
     setDate(e.date)
     setType(e.type)
-    setTerm(e.term)
+    setAudience(e.audience)
+    setClassId(e.classId ?? '')
   }
+
+  const list = events ?? []
+  const classLabel = (id?: string | null) => academic.classes.find(c => c.id === id)?.label ?? '—'
 
   return (
     <div>
-      <PageHead title="Calendar Management" sub="Add, edit and remove holidays, exams and events per term" />
+      <PageHead title="Calendar Management" sub="Add, edit and remove holidays, exams and events" />
       <div className="grid gap-5 lg:grid-cols-[1fr_1.3fr]">
         <Card>
           <div className="space-y-4">
@@ -1095,14 +1298,23 @@ export function CalendarAdminMod() {
                   <option value="event">Event</option><option value="holiday">Holiday</option><option value="exam">Exam</option>
                 </select>
               </Field>
-              <Field label="Term">
-                <select value={term} onChange={e => setTerm(e.target.value)} className={inputCls}>
-                  {db.terms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              <Field label="Audience">
+                <select value={audience} onChange={e => setAudience(e.target.value as 'School' | 'Class')} className={inputCls}>
+                  <option value="School">Whole school</option>
+                  <option value="Class">One class</option>
                 </select>
               </Field>
             </div>
+            {audience === 'Class' && (
+              <Field label="Class">
+                <select value={classId} onChange={e => setClassId(e.target.value)} className={inputCls} disabled={academic.classes.length === 0}>
+                  <option value="">{academic.classes.length === 0 ? 'No classes yet' : 'Select a class'}</option>
+                  {academic.classes.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
+                </select>
+              </Field>
+            )}
             <div className="flex gap-2">
-              <button onClick={save} disabled={!title.trim()} className="btn-ink flex flex-1 items-center justify-center gap-2 py-3 text-[14px] font-semibold disabled:opacity-40">
+              <button onClick={save} disabled={!title.trim() || (audience === 'Class' && !classId) || saving} className="btn-ink flex flex-1 items-center justify-center gap-2 py-3 text-[14px] font-semibold disabled:opacity-40">
                 <CalendarPlus size={16} /> {editing ? 'Update event' : 'Add to calendar'}
               </button>
               {editing && (
@@ -1114,10 +1326,12 @@ export function CalendarAdminMod() {
         <Card className="p-0">
           <p className="border-b border-black/[.06] dark:border-white/[.08] px-6 py-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Upcoming</p>
           <div className="max-h-[380px] overflow-y-auto thin-scroll">
-            {db.events.map(e => (
-              <div key={e.date + e.title + e.type} className="flex items-center gap-3 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3 last:border-0">
+            {list.length === 0 && <div className="p-6"><Empty text="No calendar entries yet." /></div>}
+            {list.map(e => (
+              <div key={e.id} className="flex items-center gap-3 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3 last:border-0">
                 <span className="flex-1 text-[13.5px] font-medium">{e.title}</span>
                 <span className="text-[12px] text-black/40 dark:text-white/40">{e.date}</span>
+                <Pill tone="slate">{e.audience === 'Class' ? classLabel(e.classId) : 'School'}</Pill>
                 <Pill tone={e.type === 'holiday' ? 'rose' : e.type === 'exam' ? 'amber' : 'indigo'}>{e.type}</Pill>
                 <button onClick={() => edit(e)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15" aria-label="Edit"><Pencil size={14} className="text-black/50 dark:text-white/50" /></button>
                 <button onClick={() => remove(e)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-rose-50 dark:hover:bg-rose-500/10" aria-label="Delete"><Trash2 size={14} className="text-rose-500" /></button>
@@ -1130,120 +1344,133 @@ export function CalendarAdminMod() {
   )
 }
 
-/* ── Board registration details validation ─────────────── */
+/* ── Board registration (Phase 4) ──────────────────────── */
+// One registration per student per academic year: prefilled from the enrolment, checked against the school
+// record, validated by the class teacher / office, sent to the board by an admin. Marksheet PDF built server-side.
+// See .agents/edunova/phase-4-admissions-identity.md
 
-const BOARD_DETAIL_STATUS: BoardDetailStatus[] = ['Draft', 'Pending', 'Validated', 'SentToBoard']
-
-function boardDetailStatusTone(s: BoardDetailStatus): 'amber' | 'green' | 'sky' | 'slate' {
-  if (s === 'SentToBoard') return 'sky'
-  if (s === 'Validated') return 'green'
-  if (s === 'Pending') return 'amber'
-  return 'slate'
-}
-
-export function MarksheetMod() {
-  const { db, update, user } = useStore()
+export function BoardRegistrationMod() {
+  const navigate = useNavigate()
+  const { db, user } = useStore()
+  const { currentYear, classOf, wardsOf, classesTaughtBy, boards, boardById } = useAcademic()
+  const regs = useBoardRegistrations()
   const [search, setSearch] = useState('')
-  const [boardFilter, setBoardFilter] = useState<'All' | Board>('All')
-  const [statusFilter, setStatusFilter] = useState<BoardDetailStatus | 'All'>('All')
+  const [boardFilter, setBoardFilter] = useState('All')
+  const [statusFilter, setStatusFilter] = useState<BoardRegistrationStatus | 'All' | 'None'>('All')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [editOpen, setEditOpen] = useState(false)
+  const [prefilling, setPrefilling] = useState(false)
+  // Phase 25 item 4 — the board-exam readiness dashboard folds in as a second tab here, next to the
+  // per-student registration review, rather than a separate nav item.
+  const [tab, setTab] = useState<'registration' | 'readiness'>('registration')
+  const canSeeReadiness = !!user && (isStaffOrAdmin(user) || user.role === 'teacher')
 
-  const visibleStudents = useMemo(() => {
-    const all = db.users.filter(u => u.role === 'student')
+  const canEdit = !!user && (isStaffOrAdmin(user) || user.role === 'teacher')
+
+  const students = useMemo(() => {
+    const all = db.users.filter(u => u.role === 'student').sort(byName)
     if (!user) return []
     if (user.role === 'student') return all.filter(s => s.id === user.id)
     if (user.role === 'parent') {
-      const wards = (user.wards || '').split(',').map(w => w.trim()).filter(Boolean)
-      return all.filter(s => s.parentEmail === user.email || wards.some(w => s.name.includes(w)))
+      const wardIds = new Set(wardsOf(user.id))
+      return all.filter(s => wardIds.has(s.id))
     }
     if (user.role === 'teacher') {
-      return all.filter(s => s.class && user.class && s.class === user.class)
+      const mine = new Set(classesTaughtBy(user.id).map(c => c.id))
+      return all.filter(s => { const c = classOf(s.id); return !!c && mine.has(c.id) })
     }
     return all
-  }, [db.users, user])
+  }, [db.users, user, classOf, wardsOf, classesTaughtBy])
 
-  const students = visibleStudents
-  const selected = selectedId ? students.find(s => s.id === selectedId) : null
-  const detail = selected ? db.boardDetails[selected.id] : null
-
-  const filtered = useMemo(() => {
-    return students.filter(s => {
-      const d = db.boardDetails[s.id]
-      if (!d) return false
-      if (boardFilter !== 'All' && d.board !== boardFilter) return false
-      if (statusFilter !== 'All' && d.status !== statusFilter) return false
-      if (search) {
-        const q = search.toLowerCase()
-        return s.name.toLowerCase().includes(q) || s.roll?.toLowerCase().includes(q) || d.registrationNo.toLowerCase().includes(q)
-      }
-      return true
-    })
-  }, [students, db.boardDetails, boardFilter, statusFilter, search])
-
-  const ensureDetail = (s: User): BoardDetail => {
-    const existing = db.boardDetails[s.id]
-    if (existing) return existing
-    const created: BoardDetail = {
-      studentId: s.id,
-      name: s.name,
-      board: 'CBSE',
-      registrationNo: '',
-      schoolName: 'EduNova Senior Secondary School',
-      dob: '2010-01-01',
-      rollNo: '',
-      class: s.class ?? 'X',
-      section: s.section ?? 'A',
-      year: '2025-26',
-      status: 'Draft',
+  // Registration per student — prefer the current year's, else the latest one the server returned.
+  const regByStudent = useMemo(() => {
+    const m = new Map<string, BoardRegistration>()
+    for (const r of regs.items ?? []) {
+      const cur = m.get(r.studentId)
+      if (!cur || (currentYear && r.academicYearId === currentYear.id)) m.set(r.studentId, r)
     }
-    update(d => { d.boardDetails[s.id] = created; return d })
-    return created
-  }
+    return m
+  }, [regs.items, currentYear])
 
-  const openDetail = (s: User) => {
-    setSelectedId(s.id)
-    ensureDetail(s)
+  const filtered = useMemo(() => students.filter(s => {
+    const r = regByStudent.get(s.id)
+    if (statusFilter === 'None' ? !!r : statusFilter !== 'All' && r?.status !== statusFilter) return false
+    if (boardFilter !== 'All' && (r?.boardId ?? classOf(s.id)?.boardId) !== boardFilter) return false
+    if (search) {
+      const q = search.toLowerCase()
+      return s.name.toLowerCase().includes(q) || (r?.registrationNo ?? '').toLowerCase().includes(q) || (r?.rollNo ?? '').toLowerCase().includes(q)
+    }
+    return true
+  }), [students, regByStudent, statusFilter, boardFilter, search, classOf])
+
+  const selected = selectedId ? students.find(s => s.id === selectedId) : undefined
+  const reg = selected ? regByStudent.get(selected.id) : undefined
+
+  const prefill = async () => {
+    if (!selected) return
+    setPrefilling(true)
+    try {
+      await api.post('/board-registrations/prefill', { studentId: selected.id })
+      regs.reload()
+      toast.success('Draft prefilled from the enrolment')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setPrefilling(false) }
   }
 
   return (
     <div>
-      <PageHead title="Board Registration Details" sub="Validate student data before it is sent to CBSE / Matric boards">
+      <PageHead title="Board Registration" sub={tab === 'registration' ? 'Check each student’s board record against the school record before it goes to the board' : 'Every student’s syllabus pace, average scores and registration status in one place'}>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 rounded-xl border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] px-3 py-2">
-            <Search size={15} className="text-black/40 dark:text-white/40" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student / reg no." className="bg-transparent text-[13px] outline-none" />
-          </div>
-          <select value={boardFilter} onChange={e => setBoardFilter(e.target.value as 'All' | Board)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`}>
-            <option value="All">All boards</option>
-            <option value="CBSE">CBSE</option>
-            <option value="Matric">Matric</option>
-          </select>
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as BoardDetailStatus | 'All')} className={`${inputCls} w-auto py-1.5 text-[12.5px]`}>
-            <option value="All">All statuses</option>
-            {BOARD_DETAIL_STATUS.map(s => <option key={s} value={s}>{s === 'SentToBoard' ? 'Sent to board' : s}</option>)}
-          </select>
+          {canSeeReadiness && (
+            <div className="inline-flex rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] p-1">
+              {([{ id: 'registration', label: 'Registration' }, { id: 'readiness', label: 'Readiness' }] as const).map(o => (
+                <button key={o.id} onClick={() => setTab(o.id)} className={`rounded-full px-4 py-1.5 text-[13px] font-semibold transition-all ${tab === o.id ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {tab === 'registration' && (
+            <>
+              <div className="flex items-center gap-2 rounded-xl border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] px-3 py-2">
+                <Search size={15} className="text-black/40 dark:text-white/40" />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student / reg no." className="bg-transparent text-[13px] outline-none" />
+              </div>
+              {boards.length > 1 && (
+                <select value={boardFilter} onChange={e => setBoardFilter(e.target.value)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Board">
+                  <option value="All">All boards</option>
+                  {boards.map(b => <option key={b.id} value={b.id}>{b.code}</option>)}
+                </select>
+              )}
+              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as BoardRegistrationStatus | 'All' | 'None')} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Status">
+                <option value="All">All statuses</option>
+                <option value="None">Not started</option>
+                {BOARD_REG_STATUSES.map(s => <option key={s} value={s}>{boardRegLabel(s)}</option>)}
+              </select>
+            </>
+          )}
         </div>
       </PageHead>
 
+      {tab === 'readiness' && canSeeReadiness ? <BoardReadinessDashboard /> : (
       <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
         <Card className="p-0">
           <div className="border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
             <p className="text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Students ({filtered.length})</p>
           </div>
-          {filtered.length === 0 && <div className="p-6"><Empty text="No students match the filters." /></div>}
+          {regs.error && <p className="px-6 py-3 text-[12.5px] text-rose-500">{regs.error}</p>}
+          {filtered.length === 0 && <div className="p-6"><Empty text={students.length === 0 ? 'No students to show yet.' : 'No students match the filters.'} /></div>}
           <div className="divide-y divide-black/[.05] dark:divide-white/[.07]">
             {filtered.map(s => {
-              const d = db.boardDetails[s.id]
+              const r = regByStudent.get(s.id)
+              const cls = classOf(s.id)
               return (
-                <button key={s.id} onClick={() => openDetail(s)}
+                <button key={s.id} onClick={() => setSelectedId(s.id)}
                   className={`flex w-full items-center gap-4 px-6 py-4 text-left transition-colors ${selectedId === s.id ? 'bg-indigo-50/50 dark:bg-indigo-500/10' : 'hover:bg-black/[.02] dark:hover:bg-white/[.04]'}`}>
                   <Avatar name={s.name} hue={s.avatarHue} size={42} />
                   <div className="min-w-0 flex-1">
                     <p className="text-[15px] font-semibold">{s.name}</p>
-                    <p className="text-[12.5px] text-black/50 dark:text-white/50">{s.class}{s.section ? '-' + s.section : ''} · Roll {s.roll ?? '–'} · {d?.board}</p>
+                    <p className="text-[12.5px] text-black/50 dark:text-white/50">{cls?.label ?? '—'}{r?.rollNo ? ` · Board roll ${r.rollNo}` : ''} · {boardById.get(r?.boardId ?? cls?.boardId ?? '')?.code ?? 'no board'}</p>
                   </div>
-                  <Pill tone={boardDetailStatusTone(d?.status ?? 'Draft')}>{d?.status === 'SentToBoard' ? 'Sent' : d?.status}</Pill>
+                  {r ? <Pill tone={boardRegTone(r.status)}>{r.status === 'SentToBoard' ? 'Sent' : r.status}</Pill> : <Pill tone="slate">Not started</Pill>}
                 </button>
               )
             })}
@@ -1251,84 +1478,182 @@ export function MarksheetMod() {
         </Card>
 
         <Card>
-          {!selected || !detail ? (
+          {!selected ? (
             <div className="py-10 text-center">
               <School size={40} className="mx-auto text-black/20 dark:text-white/20" />
-              <p className="mt-4 text-[15px] font-semibold text-black/50 dark:text-white/50">Select a student to review board details</p>
+              <p className="mt-4 text-[15px] font-semibold text-black/50 dark:text-white/50">Select a student to review their board registration</p>
+            </div>
+          ) : !reg ? (
+            <div className="py-8 text-center">
+              <Avatar name={selected.name} hue={selected.avatarHue} size={56} />
+              <p className="mt-4 text-[16px] font-semibold">{selected.name}</p>
+              <p className="text-[13px] text-black/50 dark:text-white/50">No board registration for {currentYear?.label ?? 'this year'} yet.</p>
+              {canEdit ? (
+                <button onClick={prefill} disabled={prefilling || !classOf(selected.id)} title={classOf(selected.id) ? undefined : 'Enrol the student in a class first'}
+                  className="btn-ink mt-5 inline-flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold disabled:opacity-40">
+                  <Sparkles size={15} /> {prefilling ? 'Prefilling…' : 'Prefill from enrolment'}
+                </button>
+              ) : <p className="mt-3 text-[12.5px] text-black/40 dark:text-white/40">The office starts the registration.</p>}
             </div>
           ) : (
-            <BoardDetailView key={selected.id} student={selected} detail={detail} onEdit={() => setEditOpen(true)} />
+            <BoardRegistrationView key={reg.id} student={selected} reg={reg} canEdit={canEdit} onEdit={() => navigate(`/portal/students/${selected.id}/board-registration`)} onChanged={regs.reload} />
           )}
         </Card>
       </div>
-
-      {selected && detail && (
-        <EditBoardDetailModal
-          open={editOpen}
-          onClose={() => setEditOpen(false)}
-          student={selected}
-          detail={detail}
-        />
       )}
     </div>
   )
 }
 
-function BoardDetailView({ student, detail, onEdit }: { student: User; detail: BoardDetail; onEdit: () => void }) {
-  const { update, user } = useStore()
-  const [mismatchNote, setMismatchNote] = useState(detail.mismatchNote || '')
+/* ── Board-exam readiness dashboard (Phase 25 item 4) ──── */
 
-  const nameMatch = detail.name.trim().toLowerCase() === student.name.trim().toLowerCase()
-  const dobMatch = !!student.dob && detail.dob === student.dob
+function BoardReadinessDashboard() {
+  const { classes, currentYear, gradeById } = useAcademic()
+  const classList = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort(compareClasses(gradeById)), [classes, currentYear, gradeById])
+  // Grades typically labelled with the board-exam years (X / XII) sort to the front, but any class works.
+  const boardYear = (label: string) => /^(X|XII)(\b|-)/i.test(label.trim())
+  const [classId, setClassId] = useState('')
+  const cls = classId || classList.find(c => boardYear(gradeById.get(c.gradeId)?.label ?? c.label))?.id || classList[0]?.id || ''
+  const readiness = useBoardReadiness(cls, !!cls)
+  const [needsAttentionOnly, setNeedsAttentionOnly] = useState(false)
+  const [sortBy, setSortBy] = useState<'name' | 'avgScorePct' | 'status'>('name')
 
-  const validate = () => {
-    update(d => {
-      const bd = d.boardDetails[student.id]
-      if (!bd) return d
-      bd.status = 'Validated'
-      bd.validatedBy = user?.name
-      bd.validatedAt = new Date().toISOString().slice(0, 10)
-      return d
+  // `subjectsBehind`/`subjectsTotal` in the response are class-wide (pace is tracked per class-subject,
+  // not per student) — shown once as a banner rather than repeated on every row.
+  const students = useMemo(() => readiness.data?.students ?? [], [readiness.data])
+  const rows = useMemo(() => {
+    let list = [...students]
+    if (needsAttentionOnly) list = list.filter(s => s.needsAttention)
+    list.sort((a, b) => {
+      if (sortBy === 'avgScorePct') return (a.avgScorePct ?? -1) - (b.avgScorePct ?? -1)
+      if (sortBy === 'status') return a.registrationStatus.localeCompare(b.registrationStatus)
+      return a.name.localeCompare(b.name)
     })
-    toast.success('Board details validated')
-  }
+    return list
+  }, [students, needsAttentionOnly, sortBy])
 
-  const sendToBoard = () => {
-    update(d => {
-      const bd = d.boardDetails[student.id]
-      if (!bd) return d
-      bd.status = 'SentToBoard'
-      bd.sentToBoard = true
-      bd.sentAt = new Date().toISOString().slice(0, 10)
-      return d
-    })
-    toast.success('Details sent to board')
-  }
+  const attentionCount = students.filter(s => s.needsAttention).length
 
-  const updateMismatchNote = (note: string) => {
-    setMismatchNote(note)
-    update(d => {
-      const bd = d.boardDetails[student.id]
-      if (!bd) return d
-      bd.mismatchNote = note
-      return d
-    })
-  }
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <select value={cls} onChange={e => setClassId(e.target.value)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Class">
+          {classList.length === 0 && <option value="">No classes</option>}
+          {classList.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
+        </select>
+        <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Sort by">
+          <option value="name">Sort: name</option>
+          <option value="avgScorePct">Sort: average score</option>
+          <option value="status">Sort: registration status</option>
+        </select>
+        <label className="flex items-center gap-2 rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] px-3.5 py-2 text-[13px] font-medium">
+          <input type="checkbox" checked={needsAttentionOnly} onChange={e => setNeedsAttentionOnly(e.target.checked)} className="h-4 w-4 accent-rose-600" />
+          Needs attention only {attentionCount > 0 && <span className="text-black/40 dark:text-white/40">({attentionCount})</span>}
+        </label>
+      </div>
+
+      {readiness.data && (
+        <div className={`mb-4 rounded-2xl border p-3.5 text-[13px] ${readiness.data.subjectsBehind > 0 ? 'border-amber-300 bg-amber-50/50 dark:border-amber-500/30 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300' : 'border-black/[.06] dark:border-white/[.08] text-black/60 dark:text-white/60'}`}>
+          {readiness.data.subjectsBehind > 0
+            ? <><AlertTriangle size={13} className="mr-1.5 inline" />{readiness.data.subjectsBehind} of {readiness.data.subjectsTotal} subject{readiness.data.subjectsTotal === 1 ? '' : 's'} in this class {readiness.data.subjectsBehind === 1 ? 'is' : 'are'} behind pace — applies to every student in the class.</>
+            : `All ${readiness.data.subjectsTotal} subject${readiness.data.subjectsTotal === 1 ? '' : 's'} in this class are on pace.`}
+        </div>
+      )}
+
+      <Card className="p-0 overflow-x-auto">
+        {readiness.loading ? <div className="p-6 text-center text-[13px] text-black/40 dark:text-white/40">Loading…</div>
+          : readiness.error ? <div className="p-6"><Empty text={readiness.error} /></div>
+          : rows.length === 0 ? <div className="p-6"><Empty text={classList.length === 0 ? 'No classes to show yet.' : needsAttentionOnly ? 'No students need attention right now.' : 'No students in this class.'} /></div>
+          : (
+            <table className="w-full text-left text-[13.5px]">
+              <thead>
+                <tr className="border-b border-black/[.06] dark:border-white/[.08] text-[11.5px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">
+                  <th className="px-6 py-3">Student</th>
+                  <th className="px-4 py-3">Avg. score</th>
+                  <th className="px-4 py-3">Board registration</th>
+                  <th className="px-4 py-3">Flag</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.studentId} className="border-b border-black/[.05] dark:border-white/[.07] last:border-0">
+                    <td className="px-6 py-3">
+                      <p className="font-semibold">{r.name}</p>
+                      {r.rollNo && <p className="text-[11.5px] text-black/40 dark:text-white/40">Roll {r.rollNo}</p>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {r.avgScorePct == null ? <span className="text-black/35 dark:text-white/35">—</span> : (
+                        <span className={r.trendingDown ? 'font-semibold text-rose-600' : ''}>{Math.round(r.avgScorePct)}%{r.trendingDown ? ' ↓' : ''}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {r.registrationStatus === 'NotStarted' ? <Pill tone="slate">Not started</Pill> : <Pill tone={boardRegTone(r.registrationStatus)}>{boardRegLabel(r.registrationStatus)}</Pill>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {r.needsAttention && <Pill tone="rose"><AlertTriangle size={11} /> Needs attention</Pill>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+      </Card>
+    </div>
+  )
+}
+
+function BoardRegistrationView({ student, reg, canEdit, onEdit, onChanged }: { student: User; reg: BoardRegistration; canEdit: boolean; onEdit: () => void; onChanged: () => void }) {
+  const { db, user } = useStore()
+  const { classOf, classesTaughtBy, boardById, terms, currentTerm, years } = useAcademic()
+  const [note, setNote] = useState(reg.mismatchNote ?? '')
+  const [busy, setBusy] = useState<'validate' | 'send' | 'note' | 'pdf' | null>(null)
+  const [termId, setTermId] = useState(currentTerm?.id ?? terms[0]?.id ?? '')
+  const cls = classOf(student.id)
+  const board = boardById.get(reg.boardId)
+  const isCBSE = (board?.code ?? '').toUpperCase().includes('CBSE')
+  const nameMatch = reg.nameOnCertificate.trim().toLowerCase() === student.name.trim().toLowerCase()
+  const dobMatch = !!student.dob && reg.dob === student.dob
+  const mismatch = !nameMatch || !dobMatch
+  const noted = note.trim().length > 0
+  const canValidate = !!user && (isStaffOrAdmin(user) || (user.role === 'teacher' && !!cls && classesTaughtBy(user.id).some(c => c.id === cls.id)))
+  const canSend = isAdmin(user)
+  const nameOf = (id?: string | null) => db.users.find(u => u.id === id)?.name
 
   const checklist = [
-    { label: 'Student name matches school records (or mismatch noted)', ok: nameMatch || mismatchNote.trim().length > 0 },
-    { label: 'Date of birth matches school records (or mismatch noted)', ok: dobMatch || mismatchNote.trim().length > 0 },
-    { label: 'Board registration number filled', ok: detail.registrationNo.trim().length > 0 },
-    { label: 'Board roll number filled', ok: detail.rollNo.trim().length > 0 },
-    { label: 'Class & section filled', ok: !!detail.class && !!detail.section },
-    { label: 'Academic year filled', ok: !!detail.year },
-    { label: 'School name filled', ok: detail.schoolName.trim().length > 0 },
-    { label: 'CBSE affiliation number (if applicable)', ok: detail.board !== 'CBSE' || !!detail.affiliationNo },
+    { label: 'Name on certificate matches the school record (or mismatch noted)', ok: nameMatch || noted },
+    { label: 'Date of birth matches the school record (or mismatch noted)', ok: dobMatch || noted },
+    { label: 'Board registration number filled', ok: !!reg.registrationNo?.trim() },
+    { label: 'Board roll number filled', ok: !!reg.rollNo?.trim() },
+    { label: isCBSE ? 'School affiliation number filled' : 'Affiliation number (if the board needs one)', ok: !isCBSE || !!reg.affiliationNo?.trim() },
   ]
-
   const allOk = checklist.every(c => c.ok)
-  const mismatch = !nameMatch || !dobMatch
-  const canValidate = allOk
+
+  const call = async (what: 'validate' | 'send') => {
+    setBusy(what)
+    try {
+      await api.post(`/board-registrations/${reg.id}/${what}`)
+      onChanged()
+      toast.success(what === 'validate' ? 'Registration validated' : 'Sent to the board')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+  }
+  const saveNote = async () => {
+    if ((reg.mismatchNote ?? '') === note.trim()) return
+    setBusy('note')
+    try { await api.patch(`/board-registrations/${reg.id}`, { mismatchNote: note.trim() || null }); onChanged() }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+  }
+  const marksheet = async () => {
+    setBusy('pdf')
+    try { await downloadPath(`/board-registrations/${reg.id}/marksheet${qs({ termId })}`, `marksheet-${student.name.replace(/[^\w]+/g, '_')}.pdf`) }
+    catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
+  }
+
+  const cell = (label: string, value?: string | null, span = false) => (
+    <div className={`rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3 ${span ? 'col-span-2' : ''}`}>
+      <p className="text-[12px] text-black/50 dark:text-white/50">{label}</p>
+      <p className="font-semibold">{value?.trim() ? value : <span className="text-black/30 dark:text-white/30">—</span>}</p>
+    </div>
+  )
 
   return (
     <div className="space-y-5">
@@ -1337,64 +1662,36 @@ function BoardDetailView({ student, detail, onEdit }: { student: User; detail: B
           <Avatar name={student.name} hue={student.avatarHue} size={48} />
           <div>
             <p className="text-[17px] font-semibold">{student.name}</p>
-            <p className="text-[13px] text-black/50 dark:text-white/50">{student.class}{student.section ? '-' + student.section : ''} · Roll {student.roll ?? '–'}</p>
+            <p className="text-[13px] text-black/50 dark:text-white/50">{cls?.label ?? '—'} · {years.find(y => y.id === reg.academicYearId)?.label ?? 'year'}</p>
           </div>
         </div>
-        <Pill tone={boardDetailStatusTone(detail.status)}>{detail.status === 'SentToBoard' ? 'Sent to board' : detail.status}</Pill>
+        <Pill tone={boardRegTone(reg.status)}>{boardRegLabel(reg.status)}</Pill>
       </div>
 
       <div className="grid grid-cols-2 gap-3 text-[14px]">
-        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">Board</p>
-          <p className="font-semibold">{detail.board}</p>
-        </div>
-        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">Registration no.</p>
-          <p className="font-semibold">{detail.registrationNo}</p>
-        </div>
-        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">Roll no.</p>
-          <p className="font-semibold">{detail.rollNo}</p>
-        </div>
-        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">Date of birth (board record)</p>
-          <p className="font-semibold">{detail.dob}</p>
-        </div>
-        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">Class & section</p>
-          <p className="font-semibold">{detail.class}-{detail.section}</p>
-        </div>
-        <div className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">Academic year</p>
-          <p className="font-semibold">{detail.year}</p>
-        </div>
-        <div className="col-span-2 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-          <p className="text-[12px] text-black/50 dark:text-white/50">School name</p>
-          <p className="font-semibold">{detail.schoolName}</p>
-        </div>
-        {detail.affiliationNo && (
-          <div className="col-span-2 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-            <p className="text-[12px] text-black/50 dark:text-white/50">Affiliation no.</p>
-            <p className="font-semibold">{detail.affiliationNo}</p>
-          </div>
-        )}
+        {cell('Board', board ? `${board.name} (${board.code})` : undefined)}
+        {cell('Registration no.', reg.registrationNo)}
+        {cell('Board roll no.', reg.rollNo)}
+        {cell('Date of birth (board record)', reg.dob)}
+        {cell('Name on certificate', reg.nameOnCertificate, true)}
+        {(isCBSE || reg.affiliationNo) && cell('Affiliation no.', reg.affiliationNo, true)}
       </div>
 
       <div className={`rounded-2xl border p-4 ${mismatch ? 'border-amber-300 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-500/10' : 'border-black/[.06] dark:border-white/[.08]'}`}>
         <div className="mb-3 flex items-center gap-2">
-          <p className="text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">School record vs Board record</p>
+          <p className="text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">School record vs board record</p>
           {mismatch && <Pill tone="amber"><AlertTriangle size={12} /> Mismatch</Pill>}
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <ComparisonRow label="Student name" school={student.name} board={detail.name} match={nameMatch} />
-          <ComparisonRow label="Date of birth" school={student.dob ?? 'Not set'} board={detail.dob} match={dobMatch} />
+          <ComparisonRow label="Student name" school={student.name} board={reg.nameOnCertificate} match={nameMatch} />
+          <ComparisonRow label="Date of birth" school={student.dob ?? 'Not set'} board={reg.dob} match={dobMatch} />
         </div>
-        {mismatch && (
+        {(mismatch || reg.mismatchNote) && (
           <div className="mt-3">
-            <Field label="Mismatch note (required to validate)">
-              <textarea value={mismatchNote} onChange={e => updateMismatchNote(e.target.value)} placeholder="e.g., Board record has the official name; school record is missing middle name." className={`${inputCls} min-h-[80px]`} />
+            <Field label={mismatch ? 'Mismatch note (required to validate)' : 'Mismatch note'}>
+              <textarea value={note} onChange={e => setNote(e.target.value)} onBlur={saveNote} disabled={!canEdit} placeholder="e.g. Board record carries the official name; school record is missing the middle name." className={`${inputCls} min-h-[80px] disabled:opacity-70`} />
             </Field>
-            {!mismatchNote.trim() && <p className="mt-2 flex items-center gap-1.5 text-[12px] text-rose-600"><AlertCircle size={13} /> Add a note to explain why the mismatch is acceptable before validating.</p>}
+            {mismatch && !noted && <p className="mt-2 flex items-center gap-1.5 text-[12px] text-rose-600"><AlertCircle size={13} /> Explain why the mismatch is acceptable before validating.</p>}
           </div>
         )}
       </div>
@@ -1411,27 +1708,33 @@ function BoardDetailView({ student, detail, onEdit }: { student: User; detail: B
         </div>
       </div>
 
-      {detail.validatedBy && (
-        <p className="text-[12.5px] text-black/50 dark:text-white/50">Validated by {detail.validatedBy} on {detail.validatedAt}</p>
-      )}
-      {detail.sentToBoard && (
-        <p className="text-[12.5px] text-black/50 dark:text-white/50">Sent to board on {detail.sentAt}</p>
-      )}
+      {reg.validatedAt && <p className="text-[12.5px] text-black/50 dark:text-white/50">Validated {nameOf(reg.validatedById) ? `by ${nameOf(reg.validatedById)} ` : ''}on {fmtDate(reg.validatedAt, { day: 'numeric', month: 'short', year: 'numeric' })}</p>}
+      {reg.sentAt && <p className="text-[12.5px] text-black/50 dark:text-white/50">Sent to board on {fmtDate(reg.sentAt, { day: 'numeric', month: 'short', year: 'numeric' })}</p>}
 
-      <div className="flex flex-wrap gap-2">
-        <button onClick={onEdit} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold">
-          <Pencil size={15} /> Edit details
+      <div className="flex flex-wrap items-center gap-2">
+        {canEdit && (
+          <button onClick={onEdit} className="btn-ink flex items-center gap-2 px-5 py-2.5 text-[13.5px] font-semibold"><Pencil size={15} /> Edit details</button>
+        )}
+        {canValidate && reg.status !== 'Validated' && reg.status !== 'SentToBoard' && (
+          <button onClick={() => call('validate')} disabled={!allOk || busy !== null} title={allOk ? undefined : 'Complete the checklist first'} className="flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-[13.5px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">
+            <Check size={15} /> {busy === 'validate' ? 'Validating…' : 'Validate'}
+          </button>
+        )}
+        {canSend && reg.status === 'Validated' && (
+          <button onClick={() => call('send')} disabled={busy !== null} className="flex items-center gap-2 rounded-full bg-sky-600 px-5 py-2.5 text-[13.5px] font-semibold text-white hover:bg-sky-700 disabled:opacity-40">
+            <Send size={15} /> {busy === 'send' ? 'Sending…' : 'Send to board'}
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 border-t border-black/[.06] dark:border-white/[.08] pt-4">
+        <select value={termId} onChange={e => setTermId(e.target.value)} className={`${inputCls} w-auto py-2 text-[13px]`} aria-label="Term">
+          {terms.length === 0 && <option value="">No terms</option>}
+          {terms.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        <button onClick={marksheet} disabled={!termId || busy !== null} className="flex items-center gap-2 rounded-full border border-black/10 dark:border-white/15 px-4 py-2 text-[13px] font-semibold hover:bg-black/[.04] dark:hover:bg-white/[.06] disabled:opacity-40">
+          <Download size={14} /> {busy === 'pdf' ? 'Preparing…' : 'Download marksheet'}
         </button>
-        {detail.status !== 'Validated' && detail.status !== 'SentToBoard' && (
-          <button onClick={validate} disabled={!canValidate} title={canValidate ? '' : 'Resolve mismatches or add a note to validate'} className="flex items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-[13.5px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">
-            <Check size={15} /> Validate
-          </button>
-        )}
-        {detail.status === 'Validated' && (
-          <button onClick={sendToBoard} className="flex items-center gap-2 rounded-full bg-sky-600 px-5 py-2.5 text-[13.5px] font-semibold text-white hover:bg-sky-700">
-            <Send size={15} /> Send to board
-          </button>
-        )}
       </div>
     </div>
   )
@@ -1448,7 +1751,7 @@ function ComparisonRow({ label, school, board, match }: { label: string; school:
         </div>
         <div className="flex items-center justify-between gap-2">
           <span className="text-black/50 dark:text-white/50">Board</span>
-          <span className={`font-medium ${match ? '' : 'text-amber-700 dark:text-amber-400'}`}>{board}</span>
+          <span className={`font-medium ${match ? '' : 'text-amber-700 dark:text-amber-400'}`}>{board || '—'}</span>
         </div>
       </div>
       {!match && <p className="mt-2 flex items-center gap-1 text-[11.5px] font-semibold text-amber-700 dark:text-amber-400"><AlertTriangle size={12} /> Does not match</p>}
@@ -1456,409 +1759,88 @@ function ComparisonRow({ label, school, board, match }: { label: string; school:
   )
 }
 
-function EditBoardDetailModal({ open, onClose, student, detail }: { open: boolean; onClose: () => void; student: User; detail: BoardDetail }) {
-  const { update } = useStore()
-  const [name, setName] = useState(detail.name)
-  const [board, setBoard] = useState<Board>(detail.board)
-  const [registrationNo, setRegistrationNo] = useState(detail.registrationNo)
-  const [schoolName, setSchoolName] = useState(detail.schoolName)
-  const [dob, setDob] = useState(detail.dob)
-  const [rollNo, setRollNo] = useState(detail.rollNo)
-  const [cls, setCls] = useState(detail.class)
-  const [section, setSection] = useState(detail.section)
-  const [year, setYear] = useState(detail.year)
-  const [affiliationNo, setAffiliationNo] = useState(detail.affiliationNo ?? '')
-  const [mismatchNote, setMismatchNote] = useState(detail.mismatchNote ?? '')
+/* ── Parent verifications (staff/admin queue) ──────────── */
 
-  const save = () => {
-    update(d => {
-      const bd = d.boardDetails[student.id]
-      if (!bd) return d
-      bd.name = name.trim()
-      bd.board = board
-      bd.registrationNo = registrationNo.trim()
-      bd.schoolName = schoolName.trim()
-      bd.dob = dob
-      bd.rollNo = rollNo.trim()
-      bd.class = cls.trim()
-      bd.section = section.trim()
-      bd.year = year.trim()
-      bd.affiliationNo = affiliationNo.trim() || undefined
-      bd.mismatchNote = mismatchNote.trim() || undefined
-      bd.status = bd.status === 'SentToBoard' ? 'Validated' : bd.status
-      return d
-    })
-    onClose()
-    toast.success('Board details updated')
-  }
-
+function DocumentThumb({ fileId }: { fileId?: string | null }) {
+  const url = useFileUrl(fileId)
+  const [broken, setBroken] = useState(false)
+  if (!fileId) return <span className="text-[12px] text-black/40 dark:text-white/40">No document attached</span>
   return (
-    <Modal open={open} onClose={onClose} title={`Edit board details — ${student.name}`} wide>
-      <div className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Board">
-            <select value={board} onChange={e => setBoard(e.target.value as Board)} className={inputCls}>
-              <option value="CBSE">CBSE</option>
-              <option value="Matric">Matric</option>
-            </select>
-          </Field>
-          <Field label="Student name (board record)"><input value={name} onChange={e => setName(e.target.value)} className={inputCls} /></Field>
-          <Field label="Registration no."><input value={registrationNo} onChange={e => setRegistrationNo(e.target.value)} className={inputCls} /></Field>
-          <Field label="Roll no."><input value={rollNo} onChange={e => setRollNo(e.target.value)} className={inputCls} /></Field>
-          <Field label="Date of birth"><input type="date" value={dob} onChange={e => setDob(e.target.value)} className={inputCls} /></Field>
-          <Field label="Class"><input value={cls} onChange={e => setCls(e.target.value)} className={inputCls} /></Field>
-          <Field label="Section"><input value={section} onChange={e => setSection(e.target.value)} className={inputCls} /></Field>
-          <Field label="Academic year"><input value={year} onChange={e => setYear(e.target.value)} className={inputCls} /></Field>
-          <Field label="Affiliation no. (CBSE)"><input value={affiliationNo} onChange={e => setAffiliationNo(e.target.value)} placeholder="Leave blank for Matric" className={inputCls} /></Field>
-        </div>
-        <Field label="School name"><input value={schoolName} onChange={e => setSchoolName(e.target.value)} className={inputCls} /></Field>
-        <Field label="Mismatch note (optional)">
-          <textarea value={mismatchNote} onChange={e => setMismatchNote(e.target.value)} placeholder="Explain any mismatch between school and board records." className={`${inputCls} min-h-[80px]`} />
-        </Field>
-        <button onClick={save} disabled={!name.trim() || !registrationNo.trim() || !rollNo.trim() || !dob || !cls.trim() || !section.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">
-          Save details
-        </button>
-      </div>
-    </Modal>
-  )
-}
-
-/* ── Attendance management (staff overview) ────────────── */
-
-export function AttendanceMgmtMod() {
-  const { db, update } = useStore()
-  const { term, setTerm } = useTerm()
-  const termObj = db.terms.find(t => t.id === term)!
-  const bounds = termBounds(termObj)
-
-  const [roleFilter, setRoleFilter] = useState<Role | 'all'>('all')
-  const [groupFilter, setGroupFilter] = useState<string>('all')
-  const [date, setDate] = useState(bounds.start)
-
-  useEffect(() => { setDate(bounds.start) }, [bounds.start]) // eslint-disable-line react-hooks/set-state-in-effect
-  useEffect(() => { setGroupFilter('all') }, [roleFilter]) // eslint-disable-line react-hooks/set-state-in-effect
-
-  const groupOptions = useMemo(() => {
-    const groups = new Set<string>()
-    db.users.forEach(u => {
-      if (u.role === 'parent' || u.role === 'superadmin') return
-      if (roleFilter !== 'all' && u.role !== roleFilter) return
-      const group = u.role === 'student' || u.role === 'teacher' ? u.class : u.department
-      if (group) groups.add(group)
-    })
-    return ['all', ...Array.from(groups).sort()]
-  }, [db.users, roleFilter])
-
-  const people = useMemo(() => {
-    return db.users.filter(u => {
-      if (u.role === 'parent' || u.role === 'superadmin') return false
-      if (roleFilter !== 'all' && u.role !== roleFilter) return false
-      if (groupFilter !== 'all') {
-        const group = u.role === 'student' || u.role === 'teacher' ? u.class : u.department
-        return group === groupFilter
-      }
-      return true
-    })
-  }, [db.users, roleFilter, groupFilter])
-
-  const personStatus = useMemo(() => {
-    const map: Record<string, AttendanceStatus> = {}
-    people.forEach(p => {
-      const rec = db.attendanceRecords.find(r => r.userId === p.id && r.date === date)
-      map[p.id] = rec ? rec.status : 'P'
-    })
-    return map
-  }, [db.attendanceRecords, people, date])
-
-  const [draft, setDraft] = useState<Record<string, AttendanceStatus>>({})
-  useEffect(() => { setDraft(personStatus) }, [personStatus]) // eslint-disable-line react-hooks/set-state-in-effect
-
-  const counts = useMemo(() => {
-    const c = { P: 0, A: 0, L: 0, H: 0 }
-    Object.values(draft).forEach(s => c[s]++)
-    return c
-  }, [draft])
-
-  const isHoliday = db.events.some(e => e.date === date && e.type === 'holiday')
-
-  const save = () => {
-    update(d => {
-      Object.entries(draft).forEach(([userId, status]) => {
-        const idx = d.attendanceRecords.findIndex(r => r.userId === userId && r.date === date)
-        const person = d.users.find(u => u.id === userId)
-        if (idx >= 0) d.attendanceRecords[idx].status = status
-        else if (person) d.attendanceRecords.push({ id: 'att_' + Date.now() + '_' + userId, userId, role: person.role, date, status, notes: '' })
-      })
-      return d
-    })
-    toast.success(`Attendance saved for ${new Date(date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`)
-  }
-
-  const setStatus = (userId: string, status: AttendanceStatus) => setDraft(d => ({ ...d, [userId]: status }))
-
-  return (
-    <div>
-      <PageHead title="Attendance Management" sub={`Daily attendance · ${termObj.name}`}>
-        <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
-      </PageHead>
-
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
-        <Card>
-          <Field label="Date">
-            <input type="date" value={date} min={bounds.start} max={bounds.end} onChange={e => setDate(e.target.value)} className={inputCls} />
-          </Field>
-        </Card>
-        <Card>
-          <Field label="Role">
-            <select value={roleFilter} onChange={e => setRoleFilter(e.target.value as Role | 'all')} className={inputCls}>
-              <option value="all">All</option>
-              <option value="student">Student</option>
-              <option value="teacher">Teacher</option>
-              <option value="staff">Staff</option>
-              <option value="admin">Admin</option>
-            </select>
-          </Field>
-        </Card>
-        <Card>
-          <Field label="Class / Department">
-            <select value={groupFilter} onChange={e => setGroupFilter(e.target.value)} className={inputCls}>
-              {groupOptions.map(g => <option key={g} value={g}>{g === 'all' ? 'All' : g}</option>)}
-            </select>
-          </Field>
-        </Card>
-      </div>
-
-      <div className="mb-5 grid gap-3 sm:grid-cols-4">
-        {([
-          ['Present', counts.P, 'green'],
-          ['Absent', counts.A, 'rose'],
-          ['Leave', counts.L, 'amber'],
-          ['Holiday', counts.H, 'sky'],
-        ] as const).map(([label, count]) => (
-          <Card key={label}>
-            <p className="text-[12px] uppercase tracking-wider text-black/40 dark:text-white/40">{label}</p>
-            <p className="font-display mt-2 text-3xl font-medium">{count}</p>
-          </Card>
-        ))}
-      </div>
-
-      <Card className="p-0">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
-          <div className="flex items-center gap-3">
-            <p className="text-[14px] font-semibold">{people.length} people</p>
-            {isHoliday && <Pill tone="rose">Holiday</Pill>}
-          </div>
-          <button onClick={save} className="btn-ink px-5 py-2.5 text-[13.5px] font-semibold">Save attendance</button>
-        </div>
-        {people.map((p, i) => (
-          <div key={p.id} className="flex flex-wrap items-center gap-4 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3.5 last:border-0">
-            <span className="w-7 text-[13px] font-semibold text-black/35 dark:text-white/35">{i + 1}</span>
-            <Avatar name={p.name} hue={p.avatarHue} size={36} />
-            <div className="flex-1">
-              <p className="text-[14px] font-semibold">{p.name}</p>
-              <p className="text-[12px] text-black/45 dark:text-white/45">{p.role}{p.class ? ` · ${p.class}` : p.department ? ` · ${p.department}` : ''}</p>
-            </div>
-            <div className="flex gap-1">
-              {(['P', 'A', 'L', 'H'] as AttendanceStatus[]).map(s => (
-                <button key={s} onClick={() => setStatus(p.id, s)}
-                  className={`flex h-9 w-9 items-center justify-center rounded-lg text-[12px] font-bold transition-colors ${draft[p.id] === s
-                    ? s === 'P' ? 'bg-emerald-500 text-white' : s === 'A' ? 'bg-rose-500 text-white' : s === 'L' ? 'bg-amber-500 text-white' : 'bg-sky-500 text-white'
-                    : 'bg-black/[.05] dark:bg-white/[.07] text-black/40 dark:text-white/40 hover:bg-black/10 dark:hover:bg-white/15'}`}>
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-        {people.length === 0 && <div className="p-6"><Empty text="No people match the selected filters." /></div>}
-      </Card>
+    <div className="flex items-center gap-2">
+      {url && !broken && <img src={url} alt="ID document" onError={() => setBroken(true)} className="h-14 w-20 rounded-lg object-cover ring-1 ring-black/10 dark:ring-white/15" />}
+      <button onClick={() => downloadFile(fileId, 'id-document').catch(e => toast.error(errorMessage(e)))} className="flex items-center gap-1 rounded-full bg-black/[.05] dark:bg-white/[.07] px-3 py-1.5 text-[12px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
+        <Download size={12} /> Document
+      </button>
     </div>
   )
 }
 
-/* ── Admin / HR: contracts & resignations ──────────────── */
+export function VerificationsMod() {
+  const { db, refreshDB } = useStore()
+  const { wardsOf, classOf } = useAcademic()
+  const [status, setStatus] = useState<VerificationStatus | ''>('Pending')
+  const list = useVerifications(status)
+  const [reject, setReject] = useState<ParentVerification | null>(null)
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState<string | null>(null)
 
-const CONTRACT_STATUSES: ContractStatus[] = ['Draft', 'Active', 'Resigned', 'Terminated']
+  const nameOf = (id?: string | null) => db.users.find(u => u.id === id)?.name
+  const wardsText = (parentId: string) => wardsOf(parentId).map(id => { const s = db.users.find(u => u.id === id); return s ? `${s.name}${classOf(id) ? ` (${classOf(id)!.label})` : ''}` : undefined }).filter(Boolean).join(', ')
 
-function contractStatusTone(s: ContractStatus): 'green' | 'amber' | 'rose' | 'slate' {
-  if (s === 'Active') return 'green'
-  if (s === 'Draft') return 'amber'
-  if (s === 'Resigned' || s === 'Terminated') return 'rose'
-  return 'slate'
-}
-
-export function ContractsResignationsMod() {
-  const { db, user, update } = useStore()
-  const [tab, setTab] = useState<'contracts' | 'resignations'>('contracts')
-  const [editContract, setEditContract] = useState<Contract | null>(null)
-  const [editResignation, setEditResignation] = useState<Resignation | null>(null)
-  const [notes, setNotes] = useState('')
-
-  const activeContracts = useMemo(() => db.contracts.map(c => ({ c, u: db.users.find(u => u.id === c.userId) })), [db.contracts, db.users])
-
-  const resignations = db.resignations.slice().sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
-
-  const approveResignation = (r: Resignation) => {
-    update(d => {
-      const res = d.resignations.find(x => x.id === r.id)
-      if (res) {
-        res.status = 'Approved'
-        res.approvedBy = user?.name
-        res.approvedAt = new Date().toISOString().slice(0, 10)
-        res.adminNotes = notes.trim() || undefined
-      }
-      const c = d.contracts.find(x => x.userId === r.userId)
-      if (c && c.status === 'Active') c.status = 'Resigned'
-      return d
-    })
-    setEditResignation(null)
-    setNotes('')
-    toast.success('Resignation approved · contract status updated')
+  const act = async (v: ParentVerification, what: 'verify' | 'reject') => {
+    setBusy(v.id)
+    try {
+      await api.post(`/verification/${v.id}/${what}`, what === 'reject' ? { note: note.trim() } : {})
+      list.reload()
+      await refreshDB() // `verified` badge on the parent follows
+      setReject(null); setNote('')
+      toast.success(what === 'verify' ? 'Parent verified' : 'Verification rejected')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(null) }
   }
 
-  const declineResignation = (r: Resignation) => {
-    update(d => {
-      const res = d.resignations.find(x => x.id === r.id)
-      if (res) {
-        res.status = 'Declined'
-        res.approvedBy = user?.name
-        res.approvedAt = new Date().toISOString().slice(0, 10)
-        res.adminNotes = notes.trim() || undefined
-      }
-      return d
-    })
-    setEditResignation(null)
-    setNotes('')
-    toast.success('Resignation declined')
-  }
-
-  const saveContract = () => {
-    if (!editContract) return
-    update(d => {
-      const c = d.contracts.find(x => x.id === editContract.id)
-      if (c) {
-        c.designation = editContract.designation
-        c.department = editContract.department
-        c.salary = editContract.salary
-        c.startDate = editContract.startDate
-        c.endDate = editContract.endDate
-        c.status = editContract.status
-        c.clauses = editContract.clauses
-      }
-      return d
-    })
-    setEditContract(null)
-    toast.success('Contract updated')
-  }
-
+  const rows = list.items ?? []
   return (
     <div>
-      <PageHead title="Contracts & Resignations" sub="Manage employment contracts and approve exit requests">
+      <PageHead title="Parent Verifications" sub="Review the ID documents parents upload; approval unlocks slip approvals and e-signatures">
         <div className="inline-flex rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] p-1">
-          {(['contracts', 'resignations'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`rounded-full px-4 py-1.5 text-[13px] font-semibold transition-all ${tab === t ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>
-              {t === 'contracts' ? 'Contracts' : 'Resignations'}
-            </button>
+          {(['Pending', 'Verified', 'Rejected', ''] as const).map(s => (
+            <button key={s || 'all'} onClick={() => setStatus(s)} className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-all ${status === s ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>{s || 'All'}</button>
           ))}
         </div>
       </PageHead>
-
-      {tab === 'contracts' ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {activeContracts.map(({ c, u }) => (
-            <Card key={c.id} className="card-lift">
-              <div className="flex items-start gap-3">
-                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${c.status === 'Active' ? 'bg-emerald-50 text-emerald-600' : c.status === 'Draft' ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600'}`}>
-                  <Briefcase size={18} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[15px] font-semibold">{u?.name ?? 'Unknown'}</p>
-                  <p className="text-[12.5px] text-black/50 dark:text-white/50">{c.designation}{c.department ? ' · ' + c.department : ''} · {fmtINR(c.salary)}/mo</p>
-                  <p className="text-[12px] text-black/40 dark:text-white/40">{c.startDate} → {c.endDate}</p>
-                </div>
-                <Pill tone={contractStatusTone(c.status)}>{c.status}</Pill>
+      <Card className="p-0 divide-y divide-black/[.05] dark:divide-white/[.07]">
+        {list.loading && <div className="p-6 text-center text-[13px] text-black/40 dark:text-white/40">Loading…</div>}
+        {list.error && <div className="p-6 text-center text-[13px] text-rose-500">{list.error}</div>}
+        {!list.loading && !list.error && rows.length === 0 && <div className="p-6"><Empty text={status === 'Pending' ? 'Nothing waiting for review.' : 'No verification records here.'} /></div>}
+        {rows.map(v => {
+          const parent = db.users.find(u => u.id === v.parentId)
+          return (
+            <div key={v.id} className="flex flex-wrap items-center gap-4 px-6 py-4">
+              <Avatar name={parent?.name ?? 'Parent'} hue={parent?.avatarHue} size={42} />
+              <div className="min-w-52 flex-1">
+                <p className="text-[14.5px] font-semibold">{parent?.name ?? 'Parent'}</p>
+                <p className="text-[12.5px] text-black/45 dark:text-white/45">{[parent?.email, wardsText(v.parentId) ? `wards: ${wardsText(v.parentId)}` : 'no wards linked', `via ${v.method}`].filter(Boolean).join(' · ')}</p>
+                {v.note && v.status === 'Rejected' && <p className="mt-1 text-[12.5px] text-rose-600 dark:text-rose-400">Note: {v.note}</p>}
+                {v.verifiedAt && <p className="mt-1 text-[12px] text-black/40 dark:text-white/40">{v.status} {nameOf(v.verifiedById) ? `by ${nameOf(v.verifiedById)} ` : ''}on {fmtDate(v.verifiedAt, { day: 'numeric', month: 'short', year: 'numeric' })}</p>}
               </div>
-              <div className="mt-4 flex items-start gap-2 rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3">
-                <FileText size={16} className="mt-0.5 text-black/40 dark:text-white/40" />
-                <p className="text-[12.5px] leading-relaxed text-black/60 dark:text-white/60">{c.clauses}</p>
-              </div>
-              <button onClick={() => setEditContract(c)} className="btn-ink mt-4 flex w-full items-center justify-center gap-2 py-2.5 text-[13px] font-semibold">
-                <Pencil size={14} /> Edit contract
-              </button>
-            </Card>
-          ))}
-          {activeContracts.length === 0 && <div className="md:col-span-2"><Empty text="No contracts on file." /></div>}
-        </div>
-      ) : (
-        <div className="grid gap-4">
-          {resignations.map(r => {
-            const u = db.users.find(x => x.id === r.userId)
-            return (
-              <Card key={r.id} className="card-lift">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Pill tone={r.status === 'Approved' ? 'green' : r.status === 'Pending' ? 'amber' : 'rose'}>{r.status}</Pill>
-                      {r.status === 'Pending' && <Pill tone="slate"><ShieldAlert size={10} /> awaiting approval</Pill>}
-                    </div>
-                    <p className="font-display mt-3 text-[17px] font-medium">{u?.name ?? 'Unknown'}</p>
-                    <p className="text-[13px] text-black/55 dark:text-white/55">{u?.title}</p>
-                    <p className="mt-2 text-[13px] leading-relaxed text-black/70 dark:text-white/70">{r.reason}</p>
-                    <p className="mt-1 text-[12.5px] text-black/45 dark:text-white/45">Submitted {new Date(r.submittedAt).toLocaleDateString('en-IN')} · Last working day {new Date(r.lastWorkingDate).toLocaleDateString('en-IN')}</p>
-                    {r.adminNotes && <p className="mt-2 text-[12.5px] text-black/50 dark:text-white/50">Admin note: {r.adminNotes}</p>}
-                  </div>
-                  {r.status === 'Pending' && (
-                    <div className="flex gap-2">
-                      <button onClick={() => setEditResignation(r)} className="btn-ink px-4 py-2 text-[13px] font-semibold">Review</button>
-                    </div>
-                  )}
+              <DocumentThumb fileId={v.documentFileId} />
+              <Pill tone={verificationTone(v.status)}>{v.status}</Pill>
+              {v.status === 'Pending' && (
+                <div className="flex gap-2">
+                  <button onClick={() => act(v, 'verify')} disabled={busy === v.id} className={`${pillBtn} bg-emerald-600 text-white hover:bg-emerald-700`}><span className="flex items-center gap-1"><BadgeCheck size={13} /> Approve</span></button>
+                  <button onClick={() => { setReject(v); setNote('') }} disabled={busy === v.id} className={ghostPill}>Reject</button>
                 </div>
-              </Card>
-            )
-          })}
-          {resignations.length === 0 && <Empty text="No resignation requests." />}
+              )}
+            </div>
+          )
+        })}
+      </Card>
+      <Modal open={!!reject} onClose={() => setReject(null)} title="Reject verification">
+        <div className="space-y-4">
+          <p className="text-[13.5px] text-black/60 dark:text-white/60">Tell {reject ? nameOf(reject.parentId) ?? 'the parent' : 'the parent'} what to fix — they can upload a new document afterwards.</p>
+          <Field label="Note"><textarea value={note} onChange={e => setNote(e.target.value)} rows={3} autoFocus placeholder="e.g. The scan is unreadable — please upload a clearer photo." className={inputCls} /></Field>
+          <button onClick={() => reject && act(reject, 'reject')} disabled={!note.trim() || !reject || busy === reject.id} className="w-full rounded-xl bg-rose-600 py-3 text-[14px] font-semibold text-white hover:bg-rose-700 disabled:opacity-40">Reject</button>
         </div>
-      )}
-
-      <Modal open={!!editContract} onClose={() => setEditContract(null)} title="Edit contract" wide>
-        {editContract && (
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Designation"><input value={editContract.designation} onChange={e => setEditContract({ ...editContract, designation: e.target.value })} className={inputCls} /></Field>
-              <Field label="Department"><input value={editContract.department ?? ''} onChange={e => setEditContract({ ...editContract, department: e.target.value })} className={inputCls} /></Field>
-              <Field label="Salary"><input type="number" value={editContract.salary} onChange={e => setEditContract({ ...editContract, salary: Number(e.target.value) })} className={inputCls} /></Field>
-              <Field label="Status">
-                <select value={editContract.status} onChange={e => setEditContract({ ...editContract, status: e.target.value as ContractStatus })} className={inputCls}>
-                  {CONTRACT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </Field>
-              <Field label="Start date"><input type="date" value={editContract.startDate} onChange={e => setEditContract({ ...editContract, startDate: e.target.value })} className={inputCls} /></Field>
-              <Field label="End date"><input type="date" value={editContract.endDate} onChange={e => setEditContract({ ...editContract, endDate: e.target.value })} className={inputCls} /></Field>
-            </div>
-            <Field label="Clauses"><textarea value={editContract.clauses} onChange={e => setEditContract({ ...editContract, clauses: e.target.value })} rows={3} className={inputCls} /></Field>
-            <button onClick={saveContract} className="btn-ink w-full py-3 text-[14px] font-semibold">Save contract</button>
-          </div>
-        )}
-      </Modal>
-
-      <Modal open={!!editResignation} onClose={() => { setEditResignation(null); setNotes('') }} title="Review resignation">
-        {editResignation && (
-          <div className="space-y-4">
-            <p className="text-[14px] leading-relaxed text-black/70 dark:text-white/70">{editResignation.reason}</p>
-            <Field label="Admin note">
-              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Notes for the employee file…" className={inputCls} />
-            </Field>
-            <div className="flex gap-2">
-              <button onClick={() => approveResignation(editResignation)} className="btn-ink flex flex-1 items-center justify-center gap-2 py-3 text-[14px] font-semibold">
-                <Check size={16} /> Approve
-              </button>
-              <button onClick={() => declineResignation(editResignation)} className="flex flex-1 items-center justify-center gap-2 rounded-full bg-rose-50 dark:bg-rose-500/10 py-3 text-[14px] font-semibold text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-500/20">
-                <X size={16} /> Decline
-              </button>
-            </div>
-          </div>
-        )}
       </Modal>
     </div>
   )

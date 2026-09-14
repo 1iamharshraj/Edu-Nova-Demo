@@ -1,204 +1,81 @@
 import { useMemo, useState } from 'react'
-import { Calendar, Clock, Filter, MessageSquare, Phone, Trash2, User as UserIcon } from 'lucide-react'
-import { useStore } from '@/lib/store'
-import { canViewFeeDefaulters, isAdmin } from '@/lib/access'
-import { fmtINR, type AIParentCall, type AIParentCallStatus, type Role, type User } from '@/lib/data'
-import { Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
+import { useNavigate } from 'react-router'
+import { Clock, Filter, MessageSquare, Phone, PhoneCall } from 'lucide-react'
 import { toast } from 'sonner'
+import { useAcademic, useStore } from '@/lib/store'
+import { api, errorMessage } from '@/lib/api'
+import { canViewFeeDefaulters } from '@/lib/access'
+import { compareClasses, fmtINR, type CallOutcome, type CallReason, type FeeDefaulter, type FeeInvoice, type ReminderChannel } from '@/lib/data'
+import { fmtDate } from '@/lib/hooks/useAcademics'
+import { isoDate } from '@/lib/hooks/useTimetable'
+import { isOutstanding, outstandingOf, useDefaulters } from '@/lib/hooks/useFinance'
+import { CALL_OUTCOMES, CALL_REASONS, callOutcomeTone, useCallLog } from '@/lib/hooks/useWelfare'
+import { Card, Empty, Field, Modal, PageHead, Pill, inputCls } from '../ui'
+import { AsyncEntityPicker } from '../components/AsyncEntityPicker'
+import { useActiveTerm } from './viewer'
 
-/* ── helpers ───────────────────────────────────────────── */
+// Defaulters are derived server-side (`GET /fees/defaulters`); reminders are real rows (`POST /fees/reminders`).
+// The call log (Phase 8) replaces the old AI parent-call simulation entirely: staff/teacher/admin record a real
+// call they made, and everyone who could see it before can look up the history per student. See phase-8-welfare.md
 
-const REASONS: { value: AIParentCall['reason']; label: string }[] = [
-  { value: 'fee', label: 'Fee due' },
-  { value: 'attendance', label: 'Attendance concern' },
-  { value: 'disciplinary', label: 'Disciplinary issue' },
-  { value: 'general', label: 'General follow-up' },
-]
+const CHANNELS: { value: ReminderChannel; label: string }[] = [{ value: 'InApp', label: 'In-app notification' }, { value: 'Email', label: 'Email' }, { value: 'SMS', label: 'SMS' }]
 
-const LANGUAGES = ['English', 'Hindi', 'Malayalam']
-
-const OUTCOMES: AIParentCall['outcome'][] = ['confirmed', 'callback', 'unreachable', 'refused']
-
-const tsId = () => Date.now()
-const randDuration = () => Math.floor(60 + Math.random() * 120)
-const randOutcome = () => OUTCOMES[Math.floor(Math.random() * OUTCOMES.length)]
-
-function reasonText(reason: AIParentCall['reason']) {
-  switch (reason) {
-    case 'fee': return 'Fee payment reminder and follow-up'
-    case 'attendance': return 'Discuss recent absenteeism'
-    case 'disciplinary': return 'Discuss disciplinary matter'
-    default: return 'General wellness check'
-  }
-}
-
-function makeTranscript(student: string, parent: string, reason: AIParentCall['reason'], language: string) {
-  const greeting = language === 'Hindi' ? 'नमस्ते' : language === 'Malayalam' ? 'നമസ്കാരം' : 'Hello'
-  const school = 'EduNova School'
-  const lines: string[] = []
-  lines.push(`AI: ${greeting}, this is ${school} calling for ${parent} regarding ${student}.`)
-  if (reason === 'fee') {
-    lines.push(`AI: We wanted to remind you that a fee component is currently outstanding for ${student}.`)
-    lines.push(`Parent: I see. Can I pay online next week?`)
-    lines.push(`AI: Yes, the portal is open. Would you like an SMS reminder?`)
-  } else if (reason === 'attendance') {
-    lines.push(`AI: ${student} has been absent for three consecutive school days. Is everything okay?`)
-    lines.push(`Parent: ${student} had a fever; I will send the medical certificate tomorrow.`)
-    lines.push(`AI: Thank you, please upload it through the parent portal.`)
-  } else if (reason === 'disciplinary') {
-    lines.push(`AI: We would like to discuss a recent incident involving ${student} with the class teacher.`)
-    lines.push(`Parent: Can we schedule a meeting this Friday?`)
-    lines.push(`AI: Friday 4:00 PM works. A calendar invite will be sent.`)
-  } else {
-    lines.push(`AI: This is a quick check-in to see if ${student} needs any academic support this term.`)
-    lines.push(`Parent: ${student} is doing fine, thank you for asking.`)
-  }
-  lines.push(`AI: Thank you for your time. Goodbye.`)
-  return lines.join('\n')
-}
-
-function aiCallStatusTone(s: AIParentCallStatus): 'green' | 'amber' | 'rose' | 'slate' {
-  if (s === 'Completed') return 'green'
-  if (s === 'Scheduled') return 'amber'
-  if (s === 'In Progress') return 'amber'
-  if (s === 'Failed') return 'rose'
-  return 'slate'
-}
-
-/* ── module: fee defaulters + AI parent calls ───────────── */
+/* ── module: fee defaulters + call log ──────────────────── */
 
 export function FeeDefaultersAndCallsMod() {
-  const { db, user, update } = useStore()
+  const { user } = useStore()
+  const navigate = useNavigate()
   const [tab, setTab] = useState<'defaulters' | 'calls'>('defaulters')
-  const [scheduleOpen, setScheduleOpen] = useState(false)
-  const [selectedStudent, setSelectedStudent] = useState<User | null>(null)
-
-  const [reason, setReason] = useState<AIParentCall['reason']>('fee')
-  const [language, setLanguage] = useState('English')
-  const [scheduledAt, setScheduledAt] = useState('')
-  const [transcriptOpen, setTranscriptOpen] = useState<AIParentCall | null>(null)
-
-  const [statusFilter, setStatusFilter] = useState<AIParentCallStatus | 'all'>('all')
-  const [studentFilter, setStudentFilter] = useState<string>('all')
-  const [requesterFilter, setRequesterFilter] = useState<string>('all')
-  const [dateFilter, setDateFilter] = useState('')
 
   const canView = user && canViewFeeDefaulters(user)
 
-  const students = useMemo(() => db.users.filter(u => u.role === 'student'), [db.users])
-  const parents = useMemo(() => db.users.filter(u => u.role === 'parent'), [db.users])
+  const { classes, currentYear, gradeById } = useAcademic()
 
-  const defaulters = useMemo(() => {
-    return students
-      .map(s => {
-        const dues = db.receipts.filter(r => r.kind === 'fee' && r.status === 'Due' && r.studentId === s.id)
-        const paid = db.receipts.filter(r => r.kind === 'fee' && r.status === 'Paid' && r.studentId === s.id)
-        const lastPaid = paid.length > 0 ? paid.sort((a, b) => b.date.localeCompare(a.date))[0].date : null
-        const parent = parents.find(p => p.email === s.parentEmail) ?? parents.find(p => p.title.includes(s.name))
-        return { student: s, dues, totalDue: dues.reduce((a, r) => a + r.amount, 0), lastPaid, parent }
-      })
-      .filter(d => d.dues.length > 0)
-      .sort((a, b) => b.totalDue - a.totalDue)
-  }, [students, parents, db.receipts])
+  const { term } = useActiveTerm()
+  const [classId, setClassId] = useState('')
+  const classList = useMemo(() => classes.filter(c => !currentYear || c.academicYearId === currentYear.id).sort(compareClasses(gradeById)), [classes, currentYear, gradeById])
+  const defaulters = useDefaulters({ termId: term || undefined, classId: classId || undefined }, !!canView && tab === 'defaulters')
 
+  // Group order follows the same class label → grade-order lookup as the picker above, so a full I–XII
+  // school's defaulter groups read in real academic order instead of alphabetically on the Roman numeral.
+  const labelOrder = useMemo(() => new Map(classes.map(c => [c.label, gradeById.get(c.gradeId)?.order ?? 0])), [classes, gradeById])
   const groups = useMemo(() => {
-    const map: Record<string, typeof defaulters> = {}
-    defaulters.forEach(d => { (map[d.student.class ?? 'Unassigned'] ??= []).push(d) })
-    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]))
-  }, [defaulters])
+    const map: Record<string, FeeDefaulter[]> = {}
+    ;(defaulters.items ?? []).forEach(d => { (map[d.classLabel || 'Unassigned'] ??= []).push(d) })
+    Object.values(map).forEach(list => list.sort((a, b) => b.outstanding - a.outstanding))
+    return Object.entries(map).sort((a, b) => (labelOrder.get(a[0]) ?? 0) - (labelOrder.get(b[0]) ?? 0) || a[0].localeCompare(b[0], undefined, { numeric: true }))
+  }, [defaulters.items, labelOrder])
+  const totalOutstanding = (defaulters.items ?? []).reduce((a, d) => a + d.outstanding, 0)
 
-  const filteredCalls = useMemo(() => {
-    let calls = [...db.aiParentCalls]
-    if (user?.role === 'student') calls = calls.filter(c => c.studentId === user.id)
-    if (user?.role === 'parent') calls = calls.filter(c => c.parentId === user.id || c.studentName.includes(user.name.split(' ').slice(-1)[0] ?? ''))
-    if (statusFilter !== 'all') calls = calls.filter(c => c.status === statusFilter)
-    if (studentFilter !== 'all') calls = calls.filter(c => c.studentId === studentFilter)
-    if (requesterFilter !== 'all') calls = calls.filter(c => c.requesterId === requesterFilter)
-    if (dateFilter) {
-      const d = new Date(dateFilter).toISOString().slice(0, 10)
-      calls = calls.filter(c => c.scheduledAt.startsWith(d) || c.createdAt === d)
-    }
-    return calls.sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt))
-  }, [db.aiParentCalls, user, statusFilter, studentFilter, requesterFilter, dateFilter])
-
-  const uniqueRequesters = useMemo(() => {
-    const map = new Map<string, string>()
-    db.aiParentCalls.forEach(c => map.set(c.requesterId, c.requesterName))
-    return [...map.entries()]
-  }, [db.aiParentCalls])
-
-  const simulateCall = (student: User, parent: User | undefined, r: AIParentCall['reason']) => {
-    if (!parent) return toast.error('No parent contact found')
-    const call: AIParentCall = {
-      id: 'ac_' + tsId(),
-      studentId: student.id,
-      studentName: student.name,
-      parentId: parent.id,
-      parentName: parent.name,
-      requesterId: user!.id,
-      requesterRole: user!.role as Role,
-      requesterName: user!.name,
-      reason: r,
-      reasonText: reasonText(r),
-      language: 'English',
-      scheduledAt: new Date().toISOString(),
-      status: 'Completed',
-      duration: randDuration(),
-      transcript: makeTranscript(student.name, parent.name, r, 'English'),
-      outcome: randOutcome(),
-      createdAt: new Date().toISOString().slice(0, 10),
-    }
-    update(d => { d.aiParentCalls.unshift(call); return d })
-    toast.success(`AI call completed — spoke to ${parent.name}`)
-  }
-
-  const deleteCall = (id: string) => {
-    update(d => { d.aiParentCalls = d.aiParentCalls.filter(c => c.id !== id); return d })
-    toast.success('Call log removed')
-  }
-
-  const scheduleCall = () => {
-    if (!selectedStudent || !scheduledAt) return
-    const parent = parents.find(p => p.email === selectedStudent.parentEmail) ?? parents.find(p => p.title.includes(selectedStudent.name))
-    if (!parent) return toast.error('No parent contact found')
-    const call: AIParentCall = {
-      id: 'ac_' + tsId(),
-      studentId: selectedStudent.id,
-      studentName: selectedStudent.name,
-      parentId: parent.id,
-      parentName: parent.name,
-      requesterId: user!.id,
-      requesterRole: user!.role as Role,
-      requesterName: user!.name,
-      reason,
-      reasonText: reasonText(reason),
-      language,
-      scheduledAt: new Date(scheduledAt).toISOString(),
-      status: 'Scheduled',
-      createdAt: new Date().toISOString().slice(0, 10),
-    }
-    update(d => { d.aiParentCalls.unshift(call); return d })
-    setScheduleOpen(false)
-    setScheduledAt('')
-    toast.success('AI parent call scheduled')
-  }
-
-  const openSchedule = (student: User) => {
-    setSelectedStudent(student)
-    setReason('fee')
-    setLanguage('English')
-    setScheduledAt('')
-    setScheduleOpen(true)
-  }
-
-  const sendReminder = (student: User, parent: User | undefined) => {
-    toast.success(`Reminder sent to ${parent?.name ?? student.name}`)
+  // Send reminder: pick the oldest overdue invoice (from the row when the server attaches them, else fetched).
+  const [reminder, setReminder] = useState<FeeDefaulter | null>(null)
+  const [channel, setChannel] = useState<ReminderChannel>('InApp')
+  const [reminderNote, setReminderNote] = useState('')
+  const [sending, setSending] = useState(false)
+  const openReminder = (d: FeeDefaulter) => { setReminder(d); setChannel('InApp'); setReminderNote('') }
+  const sendReminder = async () => {
+    if (!reminder) return
+    setSending(true)
+    try {
+      let invoiceId = [...(reminder.invoices ?? [])].sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0]?.id
+      if (!invoiceId) {
+        const res = await api.get<{ items?: FeeInvoice[] } | FeeInvoice[]>(`/fees/invoices?studentId=${encodeURIComponent(reminder.studentId)}`)
+        const today = isoDate(new Date())
+        const open = (Array.isArray(res) ? res : res.items ?? []).filter(i => isOutstanding(i) && outstandingOf(i) > 0).sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+        invoiceId = (open.find(i => i.dueDate < today) ?? open[0])?.id
+      }
+      if (!invoiceId) { toast.error('No outstanding invoice found for this student'); return }
+      await api.post('/fees/reminders', { invoiceId, channel, note: reminderNote.trim() || undefined })
+      toast.success(`Reminder sent to ${reminder.parent?.name ?? reminder.name} via ${CHANNELS.find(c => c.value === channel)?.label ?? channel}`)
+      setReminder(null)
+      defaulters.reload()
+    } catch (e) { toast.error(errorMessage(e)) } finally { setSending(false) }
   }
 
   if (!canView) {
     return (
       <div>
-        <PageHead title="Fee Defaulters & AI Parent Calls" sub="Restricted view" />
+        <PageHead title="Fee Defaulters & Call Log" sub="Restricted view" />
         <Card><Empty text="You do not have permission to view this module." /></Card>
       </div>
     )
@@ -206,12 +83,12 @@ export function FeeDefaultersAndCallsMod() {
 
   return (
     <div>
-      <PageHead title="Fee Defaulters & AI Parent Calls" sub="Track dues, simulate calls and review AI parent-call logs">
+      <PageHead title="Fee Defaulters & Call Log" sub="Overdue invoices, reminders and the parent call log">
         <div className="inline-flex rounded-full border border-black/[.08] dark:border-white/[.10] bg-white dark:bg-[#14141f] p-1">
           {(['defaulters', 'calls'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`rounded-full px-4 py-1.5 text-[13px] font-semibold transition-all ${tab === t ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>
-              {t === 'defaulters' ? 'Defaulters' : 'Call Logs'}
+              {t === 'defaulters' ? 'Defaulters' : 'Call Log'}
             </button>
           ))}
         </div>
@@ -219,40 +96,50 @@ export function FeeDefaultersAndCallsMod() {
 
       {tab === 'defaulters' ? (
         <div className="space-y-5">
-          {groups.length === 0 && <Empty text="No fee defaulters this term." />}
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label="Class">
+              <select value={classId} onChange={e => setClassId(e.target.value)} className={`${inputCls} w-auto min-w-[150px]`}>
+                <option value="">All classes</option>
+                {classList.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+            </Field>
+            <span className="flex-1" />
+            {(defaulters.items?.length ?? 0) > 0 && <Pill tone="rose">{defaulters.items!.length} defaulter{defaulters.items!.length === 1 ? '' : 's'} · {fmtINR(totalOutstanding)} overdue</Pill>}
+          </div>
+          {defaulters.loading ? <div className="py-10 text-center text-[14px] text-black/40 dark:text-white/40">Loading defaulters…</div>
+            : defaulters.error ? <Empty text={defaulters.error} />
+            : groups.length === 0 && <Empty text="No overdue invoices — every fee is on time." />}
           {groups.map(([cls, items]) => (
             <Card key={cls} className="p-0">
               <div className="flex items-center justify-between border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
                 <p className="text-[14px] font-bold">Class {cls}</p>
-                <Pill tone="amber">{items.length} defaulter{items.length === 1 ? '' : 's'} · {fmtINR(items.reduce((a, d) => a + d.totalDue, 0))}</Pill>
+                <Pill tone="amber">{items.length} defaulter{items.length === 1 ? '' : 's'} · {fmtINR(items.reduce((a, d) => a + d.outstanding, 0))}</Pill>
               </div>
               <div className="divide-y divide-black/[.05] dark:divide-white/[.07]">
-                {items.map(({ student, dues, totalDue, lastPaid, parent }) => (
-                  <div key={student.id} className="flex flex-col gap-4 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+                {items.map(d => (
+                  <div key={d.studentId} className="flex flex-col gap-4 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0 flex-1">
-                      <p className="text-[15px] font-semibold">{student.name}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-[15px] font-semibold">{d.name}</p>
+                        <Pill tone="rose">{fmtINR(d.outstanding)} outstanding</Pill>
+                        <Pill tone={d.reminders > 0 ? 'indigo' : 'slate'}><MessageSquare size={11} /> {d.reminders} reminder{d.reminders === 1 ? '' : 's'}</Pill>
+                      </div>
                       <p className="mt-1 text-[12.5px] text-black/50 dark:text-white/50">
-                        Roll {student.roll ?? '–'} · {dues.length} due component{dues.length === 1 ? '' : 's'} · total {fmtINR(totalDue)}
+                        Oldest due {fmtDate(d.oldestDue, { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {d.invoices?.length ? ` · ${d.invoices.length} overdue invoice${d.invoices.length === 1 ? '' : 's'}` : ''}
                       </p>
-                      <p className="mt-1 text-[12.5px] text-black/50 dark:text-white/50">
-                        Parent: {parent?.name ?? '–'} · {parent?.phone ?? 'No phone'}
-                      </p>
-                      <p className="mt-0.5 text-[12px] text-black/40 dark:text-white/40">
-                        Last paid: {lastPaid ? new Date(lastPaid).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Never'}
+                      <p className="mt-0.5 text-[12.5px] text-black/50 dark:text-white/50">
+                        Parent: {d.parent?.name ?? '–'} · {d.parent?.phone ?? 'No phone'}{d.parent?.email ? ` · ${d.parent.email}` : ''}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <button onClick={() => simulateCall(student, parent, 'fee')}
+                      <button onClick={() => openReminder(d)}
                         className="flex items-center gap-1.5 rounded-full bg-indigo-600 px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-indigo-700">
-                        <Phone size={13} /> Call now
+                        <MessageSquare size={13} /> Send reminder
                       </button>
-                      <button onClick={() => openSchedule(student)}
+                      <button onClick={() => navigate(`/portal/fee-defaulters/${encodeURIComponent(d.studentId)}/calls`)}
                         className="flex items-center gap-1.5 rounded-full bg-black/[.06] dark:bg-white/[.08] px-3.5 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
-                        <Calendar size={13} /> Schedule AI
-                      </button>
-                      <button onClick={() => sendReminder(student, parent)}
-                        className="flex items-center gap-1.5 rounded-full bg-black/[.06] dark:bg-white/[.08] px-3.5 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
-                        <MessageSquare size={13} /> Reminder
+                        <PhoneCall size={13} /> Call log
                       </button>
                     </div>
                   </div>
@@ -262,97 +149,151 @@ export function FeeDefaultersAndCallsMod() {
           ))}
         </div>
       ) : (
-        <Card className="p-0">
-          <div className="flex flex-wrap items-center gap-3 border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
-            <Filter size={16} className="text-black/40 dark:text-white/40" />
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as AIParentCallStatus | 'all')} className={`${inputCls} w-32 py-1.5 text-[12.5px]`}>
-              <option value="all">All statuses</option>
-              <option value="Scheduled">Scheduled</option>
-              <option value="In Progress">In Progress</option>
-              <option value="Completed">Completed</option>
-              <option value="Failed">Failed</option>
-              <option value="Cancelled">Cancelled</option>
-            </select>
-            <select value={studentFilter} onChange={e => setStudentFilter(e.target.value)} className={`${inputCls} w-40 py-1.5 text-[12.5px]`}>
-              <option value="all">All students</option>
-              {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-            <select value={requesterFilter} onChange={e => setRequesterFilter(e.target.value)} className={`${inputCls} w-40 py-1.5 text-[12.5px]`}>
-              <option value="all">All requesters</option>
-              {uniqueRequesters.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-            </select>
-            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} className={`${inputCls} w-36 py-1.5 text-[12.5px]`} />
-          </div>
-          <div className="divide-y divide-black/[.05] dark:divide-white/[.07]">
-            {filteredCalls.length === 0 && <div className="p-6"><Empty text="No calls match the filters." /></div>}
-            {filteredCalls.map(c => (
-              <div key={c.id} className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[14.5px] font-semibold">{c.studentName}</p>
-                    <Pill tone={aiCallStatusTone(c.status)}>{c.status}</Pill>
-                    {c.outcome && <Pill tone="slate">{c.outcome}</Pill>}
-                  </div>
-                  <p className="mt-1 text-[12.5px] text-black/50 dark:text-white/50">
-                    {reasonText(c.reason)} · {c.language} · requested by {c.requesterName}
-                  </p>
-                  <p className="text-[12px] text-black/40 dark:text-white/40">
-                    Scheduled {new Date(c.scheduledAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                    {c.duration ? ` · ${Math.floor(c.duration / 60)}m ${c.duration % 60}s` : ''}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button onClick={() => setTranscriptOpen(c)}
-                    className="flex items-center gap-1.5 rounded-full bg-black/[.06] dark:bg-white/[.08] px-3.5 py-2 text-[12.5px] font-semibold hover:bg-black/10 dark:hover:bg-white/15">
-                    <UserIcon size={13} /> View transcript
-                  </button>
-                  {isAdmin(user) && (
-                    <button onClick={() => deleteCall(c.id)}
-                      className="flex items-center gap-1.5 rounded-full bg-rose-50 px-3.5 py-2 text-[12.5px] font-semibold text-rose-500 hover:bg-rose-100">
-                      <Trash2 size={13} /> Delete
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
+        <CallLogBrowser />
       )}
 
-      <Modal open={scheduleOpen} onClose={() => setScheduleOpen(false)} title={`Schedule AI call — ${selectedStudent?.name ?? ''}`}>
-        <div className="space-y-4">
-          <Field label="Reason">
-            <select value={reason} onChange={e => setReason(e.target.value as AIParentCall['reason'])} className={inputCls}>
-              {REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-            </select>
-          </Field>
-          <Field label="Language">
-            <select value={language} onChange={e => setLanguage(e.target.value)} className={inputCls}>
-              {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
-            </select>
-          </Field>
-          <Field label="Preferred time">
-            <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} className={inputCls} />
-          </Field>
-          <button onClick={scheduleCall} disabled={!scheduledAt} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">Schedule call</button>
-        </div>
-      </Modal>
-
-      <Modal open={!!transcriptOpen} onClose={() => setTranscriptOpen(null)} title={transcriptOpen ? `Call transcript — ${transcriptOpen.studentName}` : 'Call transcript'}>
-        {transcriptOpen && (
+      <Modal open={!!reminder} onClose={() => { if (!sending) setReminder(null) }} title={`Send reminder — ${reminder?.name ?? ''}`}>
+        {reminder && (
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-black/50 dark:text-white/50">
-              <span className="flex items-center gap-1"><Clock size={12} /> {transcriptOpen.status}</span>
-              <span className="flex items-center gap-1"><Calendar size={12} /> {new Date(transcriptOpen.scheduledAt).toLocaleString('en-IN')}</span>
-              {transcriptOpen.duration && <span className="flex items-center gap-1"><Phone size={12} /> {Math.floor(transcriptOpen.duration / 60)}m {transcriptOpen.duration % 60}s</span>}
-              {transcriptOpen.outcome && <Pill tone="slate">{transcriptOpen.outcome}</Pill>}
-            </div>
-            <div className="max-h-[50vh] overflow-y-auto rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-4 text-[13.5px] leading-relaxed whitespace-pre-line text-black/70 dark:text-white/70 thin-scroll">
-              {transcriptOpen.transcript ?? 'Transcript not available.'}
-            </div>
+            <p className="text-[13.5px] text-black/60 dark:text-white/60">
+              {fmtINR(reminder.outstanding)} overdue since {fmtDate(reminder.oldestDue, { day: 'numeric', month: 'short', year: 'numeric' })} · {reminder.reminders} reminder{reminder.reminders === 1 ? '' : 's'} sent so far
+            </p>
+            <Field label="Channel">
+              <select value={channel} onChange={e => setChannel(e.target.value as ReminderChannel)} className={inputCls}>
+                {CHANNELS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Note (optional)">
+              <textarea value={reminderNote} onChange={e => setReminderNote(e.target.value)} rows={3} placeholder="Added to the reminder, e.g. a payment plan offer" className={inputCls} />
+            </Field>
+            <button onClick={sendReminder} disabled={sending} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{sending ? 'Sending…' : 'Send reminder'}</button>
           </div>
         )}
       </Modal>
     </div>
+  )
+}
+
+/* ── call log: record a real call, browse a student's history ─────────────
+ * Was `CallLogModal` — an outer modal wrapping a record-call form + full call history side-by-side.
+ * Converted to a real routed page (`/portal/fee-defaulters/:studentId/calls`, see
+ * `src/pages/portal/FeeDefaulterCallLog.tsx`) per .agents/edunova/ui-architecture-fix.md Phase D #1. Data/
+ * mutation logic is carried over verbatim; only the Modal wrapper is gone. */
+export function CallLogPanel({ studentId, studentName }: { studentId: string; studentName: string }) {
+  const [reason, setReason] = useState<CallReason>('fee')
+  const [summary, setSummary] = useState('')
+  const [outcome, setOutcome] = useState<CallOutcome>('confirmed')
+  const [durationMin, setDurationMin] = useState('')
+  const [calledAt, setCalledAt] = useState(() => isoDate(new Date()))
+  const [busy, setBusy] = useState(false)
+  const { items: history, loading, reload } = useCallLog(studentId, !!studentId)
+  const sortedHistory = useMemo(() => [...(history ?? [])].sort((a, b) => b.calledAt.localeCompare(a.calledAt)), [history])
+
+  const reset = () => { setReason('fee'); setSummary(''); setOutcome('confirmed'); setDurationMin(''); setCalledAt(isoDate(new Date())) }
+
+  const save = async () => {
+    if (!studentId || !summary.trim()) return
+    setBusy(true)
+    try {
+      await api.post('/calls', {
+        studentId, reason, summary: summary.trim(), outcome,
+        calledAt: new Date(calledAt).toISOString(), durationMin: durationMin ? Number(durationMin) : undefined,
+      })
+      reset()
+      reload()
+      toast.success('Call logged')
+    } catch (e) { toast.error(errorMessage(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="grid gap-5 sm:grid-cols-2">
+      <Card>
+        <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Record a call</p>
+        <div className="space-y-4">
+          <Field label="Reason">
+            <select value={reason} onChange={e => setReason(e.target.value as CallReason)} className={inputCls}>
+              {CALL_REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Summary"><textarea value={summary} onChange={e => setSummary(e.target.value)} rows={3} placeholder="What was discussed…" className={inputCls} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Outcome">
+              <select value={outcome} onChange={e => setOutcome(e.target.value as CallOutcome)} className={inputCls}>
+                {CALL_OUTCOMES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Duration (min)"><input type="number" min={0} value={durationMin} onChange={e => setDurationMin(e.target.value)} placeholder="optional" className={inputCls} /></Field>
+          </div>
+          <Field label="Date"><input type="date" value={calledAt} onChange={e => setCalledAt(e.target.value)} className={inputCls} /></Field>
+          <button onClick={save} disabled={!summary.trim() || busy} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">{busy ? 'Saving…' : 'Log call'}</button>
+        </div>
+      </Card>
+      <Card>
+        <p className="mb-3 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Call history — {studentName}</p>
+        <div className="max-h-[26rem] space-y-2.5 overflow-y-auto thin-scroll">
+          {loading && <p className="text-[13px] text-black/40 dark:text-white/40">Loading…</p>}
+          {!loading && sortedHistory.length === 0 && <Empty text="No calls logged for this student yet." />}
+          {sortedHistory.map(c => (
+            <div key={c.id} className="rounded-2xl bg-black/[.03] dark:bg-white/[.05] p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[13.5px] font-semibold capitalize">{c.reason}</p>
+                <Pill tone={callOutcomeTone(c.outcome)}>{CALL_OUTCOMES.find(o => o.value === c.outcome)?.label ?? c.outcome}</Pill>
+              </div>
+              <p className="mt-1 text-[12.5px] text-black/60 dark:text-white/60">{c.summary}</p>
+              <p className="mt-1.5 flex items-center gap-2 text-[11.5px] text-black/40 dark:text-white/40">
+                <Clock size={11} /> {fmtDate(c.calledAt, { day: 'numeric', month: 'short', year: 'numeric' })} · by {c.byName ?? c.byId}
+                {c.durationMin ? ` · ${c.durationMin}m` : ''}
+              </p>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+/** Standalone "Call Log" tab: pick a student, see (and add to) their call history. */
+function CallLogBrowser() {
+  const [studentId, setStudentId] = useState('')
+  const [studentLabel, setStudentLabel] = useState('')
+  const [statusFilter, setStatusFilter] = useState<CallOutcome | 'all'>('all')
+  const { items, loading, error } = useCallLog(studentId, !!studentId)
+  const filtered = useMemo(() => {
+    const list = [...(items ?? [])].sort((a, b) => b.calledAt.localeCompare(a.calledAt))
+    return statusFilter === 'all' ? list : list.filter(c => c.outcome === statusFilter)
+  }, [items, statusFilter])
+
+  return (
+    <Card className="p-0">
+      <div className="flex flex-wrap items-center gap-3 border-b border-black/[.06] dark:border-white/[.08] px-6 py-4">
+        <Filter size={16} className="text-black/40 dark:text-white/40" />
+        <div className="w-60"><AsyncEntityPicker role="student" value={studentId} onChange={(id, label) => { setStudentId(id); setStudentLabel(label) }} placeholder="Choose a student…" /></div>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as CallOutcome | 'all')} className={`${inputCls} w-44 py-1.5 text-[12.5px]`}>
+          <option value="all">All outcomes</option>
+          {CALL_OUTCOMES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
+      <div className="divide-y divide-black/[.05] dark:divide-white/[.07]">
+        {!studentId && <div className="p-6"><Empty text="Pick a student to see their call history." /></div>}
+        {studentId && loading && <div className="p-6 text-center text-[14px] text-black/40 dark:text-white/40">Loading…</div>}
+        {studentId && error && <div className="p-6"><Empty text={error} /></div>}
+        {studentId && !loading && !error && filtered.length === 0 && <div className="p-6"><Empty text="No calls match the filters." /></div>}
+        {filtered.map(c => (
+          <div key={c.id} className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-[14.5px] font-semibold">{studentLabel}</p>
+                <Pill tone={callOutcomeTone(c.outcome)}>{CALL_OUTCOMES.find(o => o.value === c.outcome)?.label ?? c.outcome}</Pill>
+              </div>
+              <p className="mt-1 text-[12.5px] text-black/50 dark:text-white/50 capitalize">{c.reason} · {c.summary}</p>
+              <p className="text-[12px] text-black/40 dark:text-white/40 flex items-center gap-1.5">
+                <Phone size={11} /> {fmtDate(c.calledAt, { day: 'numeric', month: 'short', year: 'numeric' })} · logged by {c.byName ?? c.byId}
+                {c.durationMin ? ` · ${c.durationMin}m` : ''}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
   )
 }
