@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, Crown, Eye, EyeOff, GraduationCap, Landmark, Lay
 import { Logo } from '@/components/Logo'
 import { useStore } from '@/lib/store'
 import { ThemeToggle } from '@/lib/theme'
+import { ApiError } from '@/lib/api'
 import type { Role } from '@/lib/data'
 
 const ROLES: { role: Role; label: string; icon: any; email: string; pass: string; grad: string; blurb: string }[] = [
@@ -32,11 +33,26 @@ export default function Login() {
     setRole(r); setEmail(cfg.email); setPass(cfg.pass); setError('')
   }
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const u = login(email, pass)
-    if (u) navigate('/portal')
-    else setError('Those credentials don’t match any EduNova account. Try the demo login.')
+    setError('')
+    try {
+      const u = await login(email, pass)
+      if (u) navigate(u.mustChangePassword ? '/change-password' : '/portal')
+      else setError('Those credentials don’t match any EduNova account. Try the demo login.')
+    } catch (err) {
+      // A 429 (too many attempts) and a 403 (deactivated account) are not "wrong password" — show
+      // the real reason instead of the generic credentials message, which was actively misleading.
+      if (err instanceof ApiError && err.status === 429) {
+        const retryAfter = (err.body as { retryAfter?: number } | undefined)?.retryAfter
+        const mins = retryAfter ? Math.max(1, Math.ceil(retryAfter / 60)) : null
+        setError(mins ? `Too many login attempts. Please try again in about ${mins} minute${mins === 1 ? '' : 's'}.` : 'Too many login attempts. Please try again shortly.')
+      } else if (err instanceof ApiError && err.status === 403) {
+        setError(err.message || 'This account is inactive. Contact your school administrator.')
+      } else {
+        setError('Those credentials don’t match any EduNova account. Try the demo login.')
+      }
+    }
   }
 
   return (
@@ -60,7 +76,7 @@ export default function Login() {
             One login.<br />The whole <span className="text-grad">school day</span>.
           </h1>
           <p className="mt-5 max-w-md text-lg leading-relaxed text-black/60 dark:text-white/60">
-            Pick a role to step into its portal — demo credentials are filled in for you.
+            Pick a role to prefill its demo account. Demo accounts exist once a superadmin loads the sample school from Settings; a fresh school has only the principal.
           </p>
           <div className="mt-8 space-y-3">
             {ROLES.map((r) => (
@@ -104,7 +120,10 @@ export default function Login() {
             <label className="block text-[13px] font-semibold text-black/60 dark:text-white/60">Email</label>
             <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" required
               className="mt-1.5 w-full rounded-xl border border-black/10 dark:border-white/15 bg-white dark:bg-[#14141f] px-4 py-3 text-[15px] outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100" />
-            <label className="mt-4 block text-[13px] font-semibold text-black/60 dark:text-white/60">Password</label>
+            <div className="mt-4 flex items-center justify-between">
+              <label className="block text-[13px] font-semibold text-black/60 dark:text-white/60">Password</label>
+              <Link to="/forgot" className="text-[12.5px] font-semibold text-indigo-600 hover:underline dark:text-indigo-400">Forgot password?</Link>
+            </div>
             <div className="relative mt-1.5">
               <input value={pass} onChange={(e) => setPass(e.target.value)} type={show ? 'text' : 'password'} required
                 className="w-full rounded-xl border border-black/10 dark:border-white/15 bg-white dark:bg-[#14141f] px-4 py-3 pr-11 text-[15px] outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100" />
@@ -117,7 +136,7 @@ export default function Login() {
               Sign in <ArrowRight size={17} />
             </button>
             <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-[12.5px] text-black/45 dark:text-white/45">
-              <ShieldCheck size={14} className="text-emerald-600" /> Demo build — all data stays in your browser.
+              <ShieldCheck size={14} className="text-emerald-600" /> Signed in securely — data is stored on the EduNova server.
             </p>
           </form>
         </div>

@@ -18,7 +18,7 @@ const PORTALS = [
   { icon: BookOpen, title: 'For Teachers', desc: 'Attendance, grading, salary slips, leave workflows.', role: 'teacher' },
   { icon: LayoutDashboard, title: 'For Staff', desc: 'Admissions ops, payments, timetable generation.', role: 'staff' },
   { icon: Landmark, title: 'For Admin', desc: 'Certificates, contracts, fees and full oversight.', role: 'admin' },
-  { icon: ShieldCheck, title: 'Parent Verify', desc: 'Aadhaar + face recognition gates every sensitive action.', role: 'parent' },
+  { icon: ShieldCheck, title: 'Parent Verify', desc: 'A verified ID gates every sensitive action.', role: 'parent' },
 ]
 
 const FEATURES = [
@@ -281,9 +281,9 @@ function Why() {
             Built like a product, not a register.
           </h2>
           <p className="mt-5 max-w-md text-lg leading-relaxed text-black/60 dark:text-white/60">
-            Parents verify with face + Aadhaar before approving slips or requesting leave.
-            Teachers grade in seconds. Admin sees everything. Students finally get a feed
-            they actually open.
+            Parents verify their identity with the school office before approving slips or
+            requesting leave. Teachers grade in seconds. Admin sees everything. Students finally
+            get a feed they actually open.
           </p>
           <div className="mt-8 flex items-center gap-3 rounded-2xl border border-black/[.08] dark:border-white/[.10] bg-white/70 dark:bg-[#14141f]/80 p-5 backdrop-blur">
             <ShieldCheck size={26} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
