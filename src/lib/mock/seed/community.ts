@@ -58,7 +58,7 @@ function seedCommunity(db: Collections) {
   ].map(r => r as Row)
 
   db.AlumniEvent = [
-    { id: 'alev-1', schoolId: SCHOOL_ID, title: 'Alumni Meet 2026', description: 'Annual get-together for all EduNova alumni batches.', date: '2026-01-18', location: 'School Main Hall', createdById: 'u-ad', createdAt: '2025-11-01T00:00:00.000Z' },
+    { id: 'alev-1', schoolId: SCHOOL_ID, title: 'Alumni Meet 2026', description: 'Annual get-together for all Edkonic alumni batches.', date: '2026-01-18', location: 'School Main Hall', createdById: 'u-ad', createdAt: '2025-11-01T00:00:00.000Z' },
     { id: 'alev-2', schoolId: SCHOOL_ID, title: 'Career Mentorship Webinar', description: 'Alumni share career guidance with senior students.', date: '2026-02-10', location: 'Online (Zoom)', createdById: 'u-t2', createdAt: '2025-12-10T00:00:00.000Z' },
     { id: 'alev-3', schoolId: SCHOOL_ID, title: 'Founders Day Reunion — Class of 2020', description: 'A special reunion for the 2020 graduating batch.', date: '2025-12-20', location: 'School Grounds', createdById: 'u-ad', createdAt: '2025-10-15T00:00:00.000Z' },
   ].map(r => r as Row)

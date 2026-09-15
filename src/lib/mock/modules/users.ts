@@ -41,7 +41,7 @@ route('POST', '/users', (ctx) => {
   const rolePassword: Record<string, string> = {
     superadmin: 'principal123', admin: 'admin123', staff: 'staff123', teacher: 'teacher123', parent: 'parent123', student: 'student123',
   }
-  const email = (body.email as string) ?? `${String(body.name).toLowerCase().replace(/[^a-z]+/g, '.')}@edunova.in`
+  const email = (body.email as string) ?? `${String(body.name).toLowerCase().replace(/[^a-z]+/g, '.')}@edkonic.in`
   const password = body.password ?? rolePassword[body.role] ?? 'welcome123'
   const users = table('User')
   const row: Row = {

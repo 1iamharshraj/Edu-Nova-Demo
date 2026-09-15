@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────
-// EduNova · simulated backend (seed data + types)
+// Edkonic · simulated backend (seed data + types)
 // Everything persists to localStorage so the whole product works
 // end-to-end without a server.
 // ─────────────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ import { isAdmin, isStaff, visibleStudentIds } from './examsAcademicsScope'
 import type { Actor } from '../router'
 
 const shortId = (id: string) => id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toLowerCase()
-const jitsiLink = (schoolId: string, meetingId: string) => `https://meet.jit.si/edunova-${shortId(schoolId)}-${meetingId}`
+const jitsiLink = (schoolId: string, meetingId: string) => `https://meet.jit.si/edkonic-${shortId(schoolId)}-${meetingId}`
 
 function serializeMeeting(m: Row) {
   return { id: m.id, requesterId: m.requesterId, withUserId: m.withUserId, studentId: m.studentId ?? undefined, purpose: m.purpose, scheduledAt: m.scheduledAt, durationMin: m.durationMin, link: m.link ?? undefined, status: m.status, decidedById: m.decidedById ?? undefined, decidedAt: m.decidedAt ?? undefined, note: m.note ?? undefined, createdAt: m.createdAt }

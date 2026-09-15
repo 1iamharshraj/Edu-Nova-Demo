@@ -22,7 +22,7 @@ async function assertNoErrorToast(page: import('@playwright/test').Page) {
 }
 
 test('superadmin — calendar, achievements list, and verifying an achievement (write)', async ({ page }) => {
-  await login(page, 'principal@edunova.in', 'principal123')
+  await login(page, 'principal@edkonic.in', 'principal123')
 
   await nav(page, 'Calendar').click()
   await expect(page.getByText('Winter Break Begins').first()).toBeVisible({ timeout: 10_000 })
@@ -41,7 +41,7 @@ test('superadmin — calendar, achievements list, and verifying an achievement (
 })
 
 test('teacher — gradebook, teaching progress, and meetings', async ({ page }) => {
-  await login(page, 'teacher@edunova.in', 'teacher123')
+  await login(page, 'teacher@edkonic.in', 'teacher123')
 
   await nav(page, 'Gradebook').click()
   await expect(page.getByText(/Unit Test 1/).first()).toBeVisible({ timeout: 10_000 })
@@ -59,7 +59,7 @@ test('teacher — gradebook, teaching progress, and meetings', async ({ page }) 
 })
 
 test('student — marks, school feed, health records and achievements', async ({ page }) => {
-  await login(page, 'ravi.k@edunova.in', 'student123')
+  await login(page, 'ravi.k@edkonic.in', 'student123')
 
   await nav(page, 'Marks & Grades').click()
   await expect(page.getByText('Mathematics').first()).toBeVisible({ timeout: 10_000 })
@@ -84,7 +84,7 @@ test('student — marks, school feed, health records and achievements', async ({
 })
 
 test('parent — permission slips, and approving one on behalf of a ward (write)', async ({ page }) => {
-  await login(page, 'parent@edunova.in', 'parent123')
+  await login(page, 'parent@edkonic.in', 'parent123')
 
   await nav(page, 'Permission Slips').click()
   await expect(page.getByText('Annual Sports Day Participation').first()).toBeVisible({ timeout: 10_000 })

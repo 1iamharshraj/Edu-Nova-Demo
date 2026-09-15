@@ -71,4 +71,4 @@ export default defineConfig([
   },
 ])
 ```
-# Edu-Nova-Demo
+# Edkonic-Demo

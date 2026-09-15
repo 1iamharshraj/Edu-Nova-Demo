@@ -9,7 +9,7 @@ import { test, expect } from '@playwright/test'
 
 test('admin can run a sectioning template and approve the draft', async ({ page }) => {
   await page.goto('/login')
-  await page.locator('input[type="email"]').fill('admin@edunova.in')
+  await page.locator('input[type="email"]').fill('admin@edkonic.in')
   await page.locator('input[type="password"]').fill('admin123')
   await page.locator('button[type="submit"]').click()
   await expect(page).toHaveURL(/\/portal/, { timeout: 10_000 })
@@ -44,7 +44,7 @@ test('admin can run a sectioning template and approve the draft', async ({ page 
 
 test('a second, differently-strategized template (SKIM_THEN_BALANCE) also runs cleanly', async ({ page }) => {
   await page.goto('/login')
-  await page.locator('input[type="email"]').fill('admin@edunova.in')
+  await page.locator('input[type="email"]').fill('admin@edkonic.in')
   await page.locator('input[type="password"]').fill('admin123')
   await page.locator('button[type="submit"]').click()
   await expect(page).toHaveURL(/\/portal/, { timeout: 10_000 })

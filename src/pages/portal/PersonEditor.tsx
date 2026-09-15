@@ -19,7 +19,7 @@ const todayISO = () => new Date().toISOString().slice(0, 10)
 /** Placeholder hint only — the server derives the real default (server/src/userDefaults.ts). */
 function emailHint(name: string, role: Role) {
   const base = name.trim().toLowerCase().replace(/[^a-z]+/g, '.').replace(/(^\.|\.$)/g, '') || 'first.last'
-  return role === 'parent' ? `parent.${base}@edunova.in` : `${base}@edunova.in`
+  return role === 'parent' ? `parent.${base}@edkonic.in` : `${base}@edkonic.in`
 }
 
 interface PersonForm {

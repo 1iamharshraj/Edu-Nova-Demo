@@ -240,7 +240,7 @@ function makeEmailBase(name: string): string {
   return String(name).toLowerCase().replace(/[^a-z]+/g, '.').replace(/^\.+|\.+$/g, '') || 'user'
 }
 function freeEmail(base: string, users: Row[]): string {
-  const domain = 'edunova.in'
+  const domain = 'edkonic.in'
   for (let i = 0; i < 200; i++) {
     const email = i === 0 ? `${base}@${domain}` : `${base}${i + 1}@${domain}`
     if (!users.some(u => String(u.email).toLowerCase() === email)) return email

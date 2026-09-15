@@ -73,7 +73,7 @@
     @apply bg-background text-foreground;
   }
 }
-/* ── EduNova design layer ─────────────────────────────── */
+/* ── Edkonic design layer ─────────────────────────────── */
 @layer base {
   html { scroll-behavior: smooth; }
   body {

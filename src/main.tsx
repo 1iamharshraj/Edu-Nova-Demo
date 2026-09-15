@@ -7,7 +7,7 @@ import App from './App.tsx'
 
 // apply saved theme before first paint
 try {
-  const saved = localStorage.getItem('edunova_theme')
+  const saved = localStorage.getItem('edkonic_theme')
   const dark = saved ? saved === 'dark' : window.matchMedia?.('(prefers-color-scheme: dark)').matches
   document.documentElement.classList.toggle('dark', !!dark)
 } catch { /* ignore */ }
@@ -25,7 +25,7 @@ if ('serviceWorker' in navigator) {
         worker.addEventListener('statechange', () => {
           // new version ready & an old one is controlling the page
           if (worker.state === 'installed' && navigator.serviceWorker.controller) {
-            toast('A new version of EduNova is ready', {
+            toast('A new version of Edkonic is ready', {
               duration: Infinity,
               action: {
                 label: 'Update',

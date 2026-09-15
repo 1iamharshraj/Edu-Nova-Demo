@@ -20,8 +20,8 @@ function bedIds(roomId: string, labels: string[]) {
 
 export function seedHostel(db: Collections) {
   db.Hostel = [
-    { id: 'hostel-boys', schoolId: SCHOOL_ID, name: 'Vivekananda Bhavan (Boys)', type: 'Boys', wardenUserId: 'u-t6', address: 'North Campus, EduNova Public School', createdAt: '2024-06-01T00:00:00.000Z' },
-    { id: 'hostel-girls', schoolId: SCHOOL_ID, name: 'Sarojini Bhavan (Girls)', type: 'Girls', wardenUserId: 'u-t3', address: 'South Campus, EduNova Public School', createdAt: '2024-06-01T00:00:00.000Z' },
+    { id: 'hostel-boys', schoolId: SCHOOL_ID, name: 'Vivekananda Bhavan (Boys)', type: 'Boys', wardenUserId: 'u-t6', address: 'North Campus, Edkonic Public School', createdAt: '2024-06-01T00:00:00.000Z' },
+    { id: 'hostel-girls', schoolId: SCHOOL_ID, name: 'Sarojini Bhavan (Girls)', type: 'Girls', wardenUserId: 'u-t3', address: 'South Campus, Edkonic Public School', createdAt: '2024-06-01T00:00:00.000Z' },
   ].map(r => r as Row)
 
   db.HostelRoom = [

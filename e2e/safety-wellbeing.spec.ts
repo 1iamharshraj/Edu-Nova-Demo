@@ -38,7 +38,7 @@ async function assertNoErrorToast(page: import('@playwright/test').Page) {
 }
 
 test('discipline shows seeded cases and a committee member can add a note', async ({ page }) => {
-  await loginAs(page, 'principal@edunova.in', 'principal123')
+  await loginAs(page, 'principal@edkonic.in', 'principal123')
 
   await nav(page, 'Discipline').click()
   // Seeded in src/lib/mock/seed/safetyWellbeing.ts (dc-1..dc-3).
@@ -57,7 +57,7 @@ test('discipline shows seeded cases and a committee member can add a note', asyn
 })
 
 test('staff conduct shows seeded records, filterable and viewable', async ({ page }) => {
-  await loginAs(page, 'principal@edunova.in', 'principal123')
+  await loginAs(page, 'principal@edkonic.in', 'principal123')
 
   await nav(page, 'Staff Conduct').click()
   // Seeded sc-1 (Vikram Rao, UnderReview) / sc-2 (Kavita Joshi, Resolved).
@@ -77,7 +77,7 @@ test('staff conduct shows seeded records, filterable and viewable', async ({ pag
 })
 
 test('scholarships catalog + awards render, and an admin can approve a pending award', async ({ page }) => {
-  await loginAs(page, 'principal@edunova.in', 'principal123')
+  await loginAs(page, 'principal@edkonic.in', 'principal123')
 
   await nav(page, 'Scholarships').click()
   // Awards tab is the default — awd-2 (Karthik Reddy, Pending against Need-Based Fee Assistance).
@@ -97,7 +97,7 @@ test('scholarships catalog + awards render, and an admin can approve a pending a
 })
 
 test('pickup desk logs a pickup and the visitor desk checks a visitor in and out', async ({ page }) => {
-  await loginAs(page, 'principal@edunova.in', 'principal123')
+  await loginAs(page, 'principal@edkonic.in', 'principal123')
 
   await nav(page, 'Visitor Desk').click()
   await expect(page.getByText('Sunita Rao').first()).toBeVisible({ timeout: 10_000 }) // seeded, on campus
@@ -112,14 +112,14 @@ test('pickup desk logs a pickup and the visitor desk checks a visitor in and out
 })
 
 test('report a concern submits anonymously, and the concern review queue shows it', async ({ page }) => {
-  await loginAs(page, 'ravi.k@edunova.in', 'student123')
+  await loginAs(page, 'ravi.k@edkonic.in', 'student123')
 
   await nav(page, 'Report a Concern').click()
   await page.locator('textarea').fill('A vending machine near the gym has been leaving a wet floor with no warning sign.')
   await page.getByRole('button', { name: /Submit anonymously/i }).click()
   await expect(page.getByText('Report submitted').first()).toBeVisible({ timeout: 10_000 })
 
-  await loginAs(page, 'principal@edunova.in', 'principal123')
+  await loginAs(page, 'principal@edkonic.in', 'principal123')
   await nav(page, 'Concern Review').click()
   // Seeded ar-1 (Bullying, New).
   await expect(page.getByText(/teasing a junior about their accent/i).first()).toBeVisible({ timeout: 10_000 })
@@ -129,7 +129,7 @@ test('report a concern submits anonymously, and the concern review queue shows i
 
 test('a designated counselor sees confidential counseling records and can log a session', async ({ page }) => {
   // u-t3 (Sofia D'Souza) is seeded as isCounselor: true in src/lib/mock/seed/safetyWellbeing.ts.
-  await loginAs(page, 'sofia.d@edunova.in', 'teacher123')
+  await loginAs(page, 'sofia.d@edkonic.in', 'teacher123')
 
   await nav(page, 'Counseling Records').click()
   await expect(page.getByText('Confidential', { exact: false }).first()).toBeVisible({ timeout: 10_000 })

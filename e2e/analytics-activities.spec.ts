@@ -20,7 +20,7 @@ async function assertNoErrorToast(page: import('@playwright/test').Page) {
 }
 
 test('superadmin — students at risk, lost instructional time, activities admin', async ({ page }) => {
-  await login(page, 'principal@edunova.in', 'principal123')
+  await login(page, 'principal@edkonic.in', 'principal123')
 
   await nav(page, 'Students at Risk').click()
   // risk-s2-t3 (Ananya Singh, Medium) is seeded against class-10a in src/lib/mock/seed/analytics.ts — the
@@ -43,7 +43,7 @@ test('superadmin — students at risk, lost instructional time, activities admin
 test('student — registers for an over-subscribed club and lands on the waitlist', async ({ page }) => {
   // Divya Sharma (u-s4) is not yet registered for Robotics Club, which is seeded at capacity 2 with two
   // Registered students (u-s1, u-s3) and one already Waitlisted (u-s2) — registering should waitlist her too.
-  await login(page, 'divya.s@edunova.in', 'student123')
+  await login(page, 'divya.s@edkonic.in', 'student123')
 
   await nav(page, 'Clubs & Chapters').click()
   await expect(page.getByText('Robotics Club').first()).toBeVisible({ timeout: 10_000 })

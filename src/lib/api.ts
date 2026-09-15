@@ -1,4 +1,4 @@
-// Typed client for the EduNova API. Every module talks to the server through this — never through
+// Typed client for the Edkonic API. Every module talks to the server through this — never through
 // raw fetch — so auth headers, error shapes and the request path live in one place.
 //
 // STATIC DEMO NOTE: this branch has no real backend. `request()`/`uploadFile()`/`fetchAuthed()` below
@@ -14,8 +14,8 @@ import { dispatch } from './mock'
  * never connects (it retries quietly in the background; nothing else in the app depends on it). */
 export const API_BASE = ''
 
-const TOKEN_KEY = 'edunova_token_v1'
-const REFRESH_TOKEN_KEY = 'edunova_refresh_token_v1'
+const TOKEN_KEY = 'edkonic_token_v1'
+const REFRESH_TOKEN_KEY = 'edkonic_refresh_token_v1'
 
 export class ApiError extends Error {
   status: number
@@ -140,7 +140,7 @@ export async function fetchAuthed(path: string, _retried = false): Promise<Respo
     throw new ApiError(status, j.error || `Request failed (${status})`, j.details, j)
   }
   const dataUrl = (json as { dataUrl?: string } | null)?.dataUrl
-  const blob = dataUrl ? await (await fetch(dataUrl)).blob() : new Blob(['This is a placeholder file from the EduNova static demo.'], { type: 'text/plain' })
+  const blob = dataUrl ? await (await fetch(dataUrl)).blob() : new Blob(['This is a placeholder file from the Edkonic static demo.'], { type: 'text/plain' })
   return new Response(blob)
 }
 

@@ -21,7 +21,7 @@ async function assertNoErrorToast(page: import('@playwright/test').Page) {
 }
 
 test('superadmin — alumni directory, house leaderboard, team reviews, canteen reconciliation', async ({ page }) => {
-  await login(page, 'principal@edunova.in', 'principal123')
+  await login(page, 'principal@edkonic.in', 'principal123')
 
   await nav(page, 'Alumni').click()
   await expect(page.getByText('Rohit Malhotra').first()).toBeVisible({ timeout: 10_000 })
@@ -46,7 +46,7 @@ test('superadmin — alumni directory, house leaderboard, team reviews, canteen 
 })
 
 test('parent — canteen wallet top-up and messaging a teacher', async ({ page }) => {
-  await login(page, 'parent@edunova.in', 'parent123')
+  await login(page, 'parent@edkonic.in', 'parent123')
 
   await nav(page, 'Canteen Wallet').click()
   await expect(page.getByText(/₹495\.00/).first()).toBeVisible({ timeout: 10_000 })
@@ -67,7 +67,7 @@ test('parent — canteen wallet top-up and messaging a teacher', async ({ page }
 })
 
 test('student — AI doubt tutor history and asking a new question', async ({ page }) => {
-  await login(page, 'ravi.k@edunova.in', 'student123')
+  await login(page, 'ravi.k@edkonic.in', 'student123')
 
   await nav(page, 'AI Doubt Clearing').click()
   await expect(page.getByText(/quadratic equations/i).first()).toBeVisible({ timeout: 10_000 })

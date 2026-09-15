@@ -788,7 +788,7 @@ export default function Portal() {
     if (user?.isCounselor) list.push({ id: 'counseling', label: 'Counseling Records', icon: HeartHandshake, el: <CounselingRecordsMod />, group: 'Manage' })
     if (memberships.length > 0) list.push({ id: 'group', label: 'Group', icon: Network, el: <GroupMod />, group: 'Manage' })
     return list
-  }, [user?.role, user?.isCounselor, memberships.length])
+  }, [user?.role, user?.isCounselor, memberships.length, setActive])
   // '' means "follow the school's current term" until the user picks one explicitly.
   const [pickedTerm, setTerm] = useState('')
   const term = pickedTerm || currentTerm?.id || ''

@@ -3,7 +3,7 @@
 // offline, plus a tiny roster/session cache so a session the teacher recently opened can still be viewed
 // (and re-marked) with no network. This does NOT make the rest of the app offline-capable.
 //
-// Storage: one IndexedDB database (`edunova-attendance-offline`) via the `idb` package, two stores:
+// Storage: one IndexedDB database (`edkonic-attendance-offline`) via the `idb` package, two stores:
 //  - `queue`   — pending/synced/error/conflict attendance submissions, replayed in FIFO order on reconnect.
 //  - `cache`   — last-known roster + session snapshot per (classId, date, periodIdx) scope, so the screen
 //                can render something useful when opened with no network.
@@ -60,7 +60,7 @@ interface AttendanceOfflineDB extends DBSchema {
   cache: { key: string; value: CachedSession }
 }
 
-const DB_NAME = 'edunova-attendance-offline'
+const DB_NAME = 'edkonic-attendance-offline'
 const DB_VERSION = 1
 
 let dbPromise: Promise<IDBPDatabase<AttendanceOfflineDB>> | null = null
@@ -145,7 +145,7 @@ async function updateQueueItem(id: string, patch: Partial<QueuedSubmission>) {
 
 /* ── change notifications (so React components can re-render on queue mutation) ── */
 
-const QUEUE_EVENT = 'edunova:attendance-queue-changed'
+const QUEUE_EVENT = 'edkonic:attendance-queue-changed'
 function notifyQueueChanged() {
   window.dispatchEvent(new CustomEvent(QUEUE_EVENT))
 }
@@ -160,7 +160,7 @@ function requestBackgroundSync() {
   navigator.serviceWorker?.ready
     .then(reg => {
       const syncReg = (reg as ServiceWorkerRegistration & { sync?: { register(tag: string): Promise<void> } }).sync
-      return syncReg?.register('edunova-attendance-sync')
+      return syncReg?.register('edkonic-attendance-sync')
     })
     .catch(() => { /* Background Sync unsupported (e.g. Safari) — online/focus listeners cover it */ })
 }

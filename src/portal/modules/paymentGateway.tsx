@@ -98,7 +98,7 @@ export function PaymentGatewayMod() {
       const Razorpay = await loadRazorpay()
       new Razorpay({
         key: order.key, amount: order.amount ?? Math.round(amt * 100), currency: order.currency ?? 'INR', order_id: order.orderId,
-        name: 'EduNova School', description: `${selected.invoiceNo} · ${invoiceLabel(selected)}`, theme: { color: '#4f46e5' },
+        name: 'Edkonic School', description: `${selected.invoiceNo} · ${invoiceLabel(selected)}`, theme: { color: '#4f46e5' },
         prefill: { name: user?.name, email: user?.email, contact: user?.phone },
         handler: r => { void confirm({ orderId: order.orderId, invoiceId: selected.id, amount: amt, method, paymentId: r.razorpay_payment_id, signature: r.razorpay_signature }) },
         modal: { ondismiss: () => setStage('idle') },

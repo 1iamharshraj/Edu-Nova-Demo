@@ -197,7 +197,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#f6f6f4] text-[14px] text-black/50 dark:bg-[#090911] dark:text-white/50">
-        Loading EduNova…
+        Loading Edkonic…
       </div>
     )
   }
@@ -251,7 +251,7 @@ export function useAcademic() {
 
 // per-user scratch persistence (browser-only conveniences)
 export function useLocalState<T>(key: string, initial: T): [T, React.Dispatch<React.SetStateAction<T>>] {
-  const full = 'edunova_x_' + key
+  const full = 'edkonic_x_' + key
   const [val, setVal] = useState<T>(() => {
     try {
       const raw = localStorage.getItem(full)

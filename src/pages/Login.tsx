@@ -8,12 +8,12 @@ import { ApiError } from '@/lib/api'
 import type { Role } from '@/lib/data'
 
 const ROLES: { role: Role; label: string; icon: any; email: string; pass: string; grad: string; blurb: string }[] = [
-  { role: 'superadmin', label: 'Superadmin', icon: Crown, email: 'principal@edunova.in', pass: 'principal123', grad: 'from-fuchsia-500 to-pink-500', blurb: 'Dr. Arun Nambiar · Principal' },
-  { role: 'admin', label: 'Admin', icon: Landmark, email: 'admin@edunova.in', pass: 'admin123', grad: 'from-rose-500 to-pink-400', blurb: 'Dr. Leela Menon · School Administrator' },
-  { role: 'staff', label: 'Staff', icon: LayoutDashboard, email: 'staff@edunova.in', pass: 'staff123', grad: 'from-amber-500 to-orange-400', blurb: 'Farhan Qureshi · Office Superintendent' },
-  { role: 'teacher', label: 'Teacher', icon: BookOpen, email: 'teacher@edunova.in', pass: 'teacher123', grad: 'from-emerald-500 to-teal-400', blurb: 'Meera Krishnan · Mathematics · Class Teacher X-A' },
-  { role: 'parent', label: 'Parent', icon: Users, email: 'parent@edunova.in', pass: 'parent123', grad: 'from-indigo-500 to-violet-500', blurb: 'Nisha Sharma · Parent of Aarav, X-A' },
-  { role: 'student', label: 'Student', icon: GraduationCap, email: 'student@edunova.in', pass: 'student123', grad: 'from-sky-500 to-cyan-400', blurb: 'Aarav Sharma · Class X-A, Roll 12' },
+  { role: 'superadmin', label: 'Superadmin', icon: Crown, email: 'principal@edkonic.in', pass: 'principal123', grad: 'from-fuchsia-500 to-pink-500', blurb: 'Dr. Arun Nambiar · Principal' },
+  { role: 'admin', label: 'Admin', icon: Landmark, email: 'admin@edkonic.in', pass: 'admin123', grad: 'from-rose-500 to-pink-400', blurb: 'Dr. Leela Menon · School Administrator' },
+  { role: 'staff', label: 'Staff', icon: LayoutDashboard, email: 'staff@edkonic.in', pass: 'staff123', grad: 'from-amber-500 to-orange-400', blurb: 'Farhan Qureshi · Office Superintendent' },
+  { role: 'teacher', label: 'Teacher', icon: BookOpen, email: 'teacher@edkonic.in', pass: 'teacher123', grad: 'from-emerald-500 to-teal-400', blurb: 'Meera Krishnan · Mathematics · Class Teacher X-A' },
+  { role: 'parent', label: 'Parent', icon: Users, email: 'parent@edkonic.in', pass: 'parent123', grad: 'from-indigo-500 to-violet-500', blurb: 'Nisha Sharma · Parent of Aarav, X-A' },
+  { role: 'student', label: 'Student', icon: GraduationCap, email: 'student@edkonic.in', pass: 'student123', grad: 'from-sky-500 to-cyan-400', blurb: 'Aarav Sharma · Class X-A, Roll 12' },
 ]
 
 export default function Login() {
@@ -39,7 +39,7 @@ export default function Login() {
     try {
       const u = await login(email, pass)
       if (u) navigate(u.mustChangePassword ? '/change-password' : '/portal')
-      else setError('Those credentials don’t match any EduNova account. Try the demo login.')
+      else setError('Those credentials don’t match any Edkonic account. Try the demo login.')
     } catch (err) {
       // A 429 (too many attempts) and a 403 (deactivated account) are not "wrong password" — show
       // the real reason instead of the generic credentials message, which was actively misleading.
@@ -50,7 +50,7 @@ export default function Login() {
       } else if (err instanceof ApiError && err.status === 403) {
         setError(err.message || 'This account is inactive. Contact your school administrator.')
       } else {
-        setError('Those credentials don’t match any EduNova account. Try the demo login.')
+        setError('Those credentials don’t match any Edkonic account. Try the demo login.')
       }
     }
   }
@@ -136,7 +136,7 @@ export default function Login() {
               Sign in <ArrowRight size={17} />
             </button>
             <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-[12.5px] text-black/45 dark:text-white/45">
-              <ShieldCheck size={14} className="text-emerald-600" /> Signed in securely — data is stored on the EduNova server.
+              <ShieldCheck size={14} className="text-emerald-600" /> Signed in securely — data is stored on the Edkonic server.
             </p>
           </form>
         </div>

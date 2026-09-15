@@ -64,12 +64,12 @@ export function seedAdmissions(db: Collections) {
   const users = (db.User ?? []) as Row[]
   users.push(
     {
-      id: 'u-p2', schoolId: SCHOOL_ID, role: 'parent', name: 'Kavya Reddy', email: 'kavya.reddy@edunova.in', password: 'parent123',
+      id: 'u-p2', schoolId: SCHOOL_ID, role: 'parent', name: 'Kavya Reddy', email: 'kavya.reddy@edkonic.in', password: 'parent123',
       title: 'Parent', avatarHue: 205, verified: false, active: true, mustChangePassword: false, wards: 'u-s5', phone: '+91 98450 67890',
       createdAt: '2025-04-01T00:00:00.000Z',
     },
     {
-      id: 'u-s5', schoolId: SCHOOL_ID, role: 'student', name: 'Aditya Reddy', email: 'aditya.reddy@edunova.in', password: 'student123',
+      id: 'u-s5', schoolId: SCHOOL_ID, role: 'student', name: 'Aditya Reddy', email: 'aditya.reddy@edkonic.in', password: 'student123',
       title: 'Student', avatarHue: 45, verified: true, active: true, mustChangePassword: false, class: 'IX', section: 'B', roll: '22',
       dob: '2011-07-09', board: 'CBSE', createdAt: '2025-04-01T00:00:00.000Z',
     },

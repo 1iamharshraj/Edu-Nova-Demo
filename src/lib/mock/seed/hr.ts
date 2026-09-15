@@ -14,7 +14,7 @@ type LineItem = { name: string; amount: number }
 function seedHr(db: Collections) {
   // ═══════════════════════════ contracts ═══════════════════════════
   const contractTerms =
-    'Standard EduNova Public School teaching/administrative staff contract. Working hours 8:00 AM – 4:00 PM, ' +
+    'Standard Edkonic Public School teaching/administrative staff contract. Working hours 8:00 AM – 4:00 PM, ' +
     'Monday–Saturday (alternate Saturdays off). 30 days paid leave per academic year per the school leave policy. ' +
     'One month written notice (or pay in lieu) required for resignation. Subject to annual performance review.'
 

@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/login')
-  await page.locator('input[type="email"]').fill('principal@edunova.in')
+  await page.locator('input[type="email"]').fill('principal@edkonic.in')
   await page.locator('input[type="password"]').fill('principal123')
   await page.locator('button[type="submit"]').click()
   await expect(page).toHaveURL(/\/portal/, { timeout: 10_000 })

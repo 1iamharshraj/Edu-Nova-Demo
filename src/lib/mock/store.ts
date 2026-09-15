@@ -6,8 +6,8 @@
 export type Row = Record<string, unknown> & { id: string }
 export type Collections = Record<string, Row[]>
 
-const DB_KEY = 'edunova_mock_db_v1'
-const SESSION_KEY = 'edunova_mock_sessions_v1'
+const DB_KEY = 'edkonic_mock_db_v1'
+const SESSION_KEY = 'edkonic_mock_sessions_v1'
 export const SCHOOL_ID = 'demo-school'
 
 let seedFn: (() => Collections) | null = null

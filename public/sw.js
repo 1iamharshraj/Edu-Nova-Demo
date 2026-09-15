@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────
-   EduNova Service Worker
+   Edkonic Service Worker
    Strategy:
    · Precache app shell + offline page (versioned cache)
    · Cache-first  → hashed static assets (/assets/), icons
@@ -10,7 +10,7 @@
      SKIP_WAITING message from the registration script.
    ───────────────────────────────────────────────────────── */
 
-const VERSION = 'edunova-pwa-v1'
+const VERSION = 'edkonic-pwa-v1'
 const SHELL_CACHE = `${VERSION}-shell`
 const RUNTIME_CACHE = `${VERSION}-runtime`
 const FONT_CACHE = `${VERSION}-fonts`

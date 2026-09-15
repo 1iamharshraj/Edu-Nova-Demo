@@ -8,7 +8,7 @@ import type { Collections, Row } from '../store'
 import { SCHOOL_ID } from '../store'
 
 export function seedCore(db: Collections) {
-  db.School = [{ id: SCHOOL_ID, name: 'EduNova Public School', createdAt: '2024-04-01T00:00:00.000Z' } as Row]
+  db.School = [{ id: SCHOOL_ID, name: 'Edkonic Public School', createdAt: '2024-04-01T00:00:00.000Z' } as Row]
 
   db.AcademicYear = [
     { id: 'ay-2025', schoolId: SCHOOL_ID, label: '2025–26', startDate: '2025-04-01', endDate: '2026-03-31', isCurrent: true } as Row,
@@ -72,20 +72,20 @@ export function seedCore(db: Collections) {
   })
 
   db.User = [
-    mkUser({ id: 'u-sa', role: 'superadmin', name: 'Dr. Arun Nambiar', email: 'principal@edunova.in', password: 'principal123', title: 'Principal & Superadmin', designation: 'Principal', department: 'Administration', employeeId: 'EMP-2018-0001', joinDate: '2018-04-01' }),
-    mkUser({ id: 'u-ad', role: 'admin', name: 'Priya Menon', email: 'admin@edunova.in', password: 'admin123', title: 'Vice Principal & Admin', designation: 'Vice Principal', department: 'Administration', employeeId: 'EMP-2019-0002', joinDate: '2019-06-01' }),
-    mkUser({ id: 'u-t', role: 'teacher', name: 'Meera Krishnan', email: 'teacher@edunova.in', password: 'teacher123', title: 'Mathematics Teacher', designation: 'PGT Mathematics', department: 'Mathematics', employeeId: 'EMP-2021-0001', joinDate: '2021-06-01', subjects: ['math'] }),
-    mkUser({ id: 'u-t2', role: 'teacher', name: 'Arjun Nair', email: 'arjun.n@edunova.in', password: 'teacher123', title: 'English Teacher', designation: 'PGT English', department: 'English', employeeId: 'EMP-2020-0002', joinDate: '2020-06-01', subjects: ['english'] }),
-    mkUser({ id: 'u-t3', role: 'teacher', name: 'Sofia D’Souza', email: 'sofia.d@edunova.in', password: 'teacher123', title: 'Science Teacher', designation: 'PGT Science', department: 'Science', employeeId: 'EMP-2021-0002', joinDate: '2021-06-01', subjects: ['science', 'biology'] }),
-    mkUser({ id: 'u-t4', role: 'teacher', name: 'Rahul Verma', email: 'rahul.v@edunova.in', password: 'teacher123', title: 'Physics Teacher', designation: 'PGT Physics', department: 'Science', employeeId: 'EMP-2020-0003', joinDate: '2020-06-01', subjects: ['physics'] }),
-    mkUser({ id: 'u-t5', role: 'teacher', name: 'Ananya Iyer', email: 'ananya.i@edunova.in', password: 'teacher123', title: 'Chemistry Teacher', designation: 'PGT Chemistry', department: 'Science', employeeId: 'EMP-2022-0001', joinDate: '2022-06-01', subjects: ['chemistry'] }),
-    mkUser({ id: 'u-t6', role: 'teacher', name: 'Vikram Rao', email: 'vikram.r@edunova.in', password: 'teacher123', title: 'Computer Science Teacher', designation: 'PGT Computer Science', department: 'Computer Science', employeeId: 'EMP-2022-0002', joinDate: '2022-06-01', subjects: ['computer'] }),
-    mkUser({ id: 'u-st', role: 'staff', name: 'Kavita Joshi', email: 'staff@edunova.in', password: 'staff123', title: 'Front Office', designation: 'Office Executive', department: 'Administration', employeeId: 'EMP-2023-0001', joinDate: '2023-01-01' }),
-    mkUser({ id: 'u-p', role: 'parent', name: 'Sunil Kumar', email: 'parent@edunova.in', password: 'parent123', title: 'Parent', wards: 'u-s1' }),
-    mkUser({ id: 'u-s1', role: 'student', name: 'Ravi Kumar', email: 'ravi.k@edunova.in', password: 'student123', title: 'Student', class: 'X', section: 'A', roll: '12', parentEmail: 'parent@edunova.in', dob: '2010-05-14', board: 'CBSE' }),
-    mkUser({ id: 'u-s2', role: 'student', name: 'Ananya Singh', email: 'ananya.s@edunova.in', password: 'student123', title: 'Student', class: 'X', section: 'A', roll: '13', dob: '2010-08-22', board: 'CBSE' }),
-    mkUser({ id: 'u-s3', role: 'student', name: 'Karthik Reddy', email: 'karthik.r@edunova.in', password: 'student123', title: 'Student', class: 'X', section: 'B', roll: '05', dob: '2010-02-10', board: 'CBSE' }),
-    mkUser({ id: 'u-s4', role: 'student', name: 'Divya Sharma', email: 'divya.s@edunova.in', password: 'student123', title: 'Student', class: 'IX', section: 'A', roll: '21', dob: '2011-03-18', board: 'CBSE' }),
+    mkUser({ id: 'u-sa', role: 'superadmin', name: 'Dr. Arun Nambiar', email: 'principal@edkonic.in', password: 'principal123', title: 'Principal & Superadmin', designation: 'Principal', department: 'Administration', employeeId: 'EMP-2018-0001', joinDate: '2018-04-01' }),
+    mkUser({ id: 'u-ad', role: 'admin', name: 'Priya Menon', email: 'admin@edkonic.in', password: 'admin123', title: 'Vice Principal & Admin', designation: 'Vice Principal', department: 'Administration', employeeId: 'EMP-2019-0002', joinDate: '2019-06-01' }),
+    mkUser({ id: 'u-t', role: 'teacher', name: 'Meera Krishnan', email: 'teacher@edkonic.in', password: 'teacher123', title: 'Mathematics Teacher', designation: 'PGT Mathematics', department: 'Mathematics', employeeId: 'EMP-2021-0001', joinDate: '2021-06-01', subjects: ['math'] }),
+    mkUser({ id: 'u-t2', role: 'teacher', name: 'Arjun Nair', email: 'arjun.n@edkonic.in', password: 'teacher123', title: 'English Teacher', designation: 'PGT English', department: 'English', employeeId: 'EMP-2020-0002', joinDate: '2020-06-01', subjects: ['english'] }),
+    mkUser({ id: 'u-t3', role: 'teacher', name: 'Sofia D’Souza', email: 'sofia.d@edkonic.in', password: 'teacher123', title: 'Science Teacher', designation: 'PGT Science', department: 'Science', employeeId: 'EMP-2021-0002', joinDate: '2021-06-01', subjects: ['science', 'biology'] }),
+    mkUser({ id: 'u-t4', role: 'teacher', name: 'Rahul Verma', email: 'rahul.v@edkonic.in', password: 'teacher123', title: 'Physics Teacher', designation: 'PGT Physics', department: 'Science', employeeId: 'EMP-2020-0003', joinDate: '2020-06-01', subjects: ['physics'] }),
+    mkUser({ id: 'u-t5', role: 'teacher', name: 'Ananya Iyer', email: 'ananya.i@edkonic.in', password: 'teacher123', title: 'Chemistry Teacher', designation: 'PGT Chemistry', department: 'Science', employeeId: 'EMP-2022-0001', joinDate: '2022-06-01', subjects: ['chemistry'] }),
+    mkUser({ id: 'u-t6', role: 'teacher', name: 'Vikram Rao', email: 'vikram.r@edkonic.in', password: 'teacher123', title: 'Computer Science Teacher', designation: 'PGT Computer Science', department: 'Computer Science', employeeId: 'EMP-2022-0002', joinDate: '2022-06-01', subjects: ['computer'] }),
+    mkUser({ id: 'u-st', role: 'staff', name: 'Kavita Joshi', email: 'staff@edkonic.in', password: 'staff123', title: 'Front Office', designation: 'Office Executive', department: 'Administration', employeeId: 'EMP-2023-0001', joinDate: '2023-01-01' }),
+    mkUser({ id: 'u-p', role: 'parent', name: 'Sunil Kumar', email: 'parent@edkonic.in', password: 'parent123', title: 'Parent', wards: 'u-s1' }),
+    mkUser({ id: 'u-s1', role: 'student', name: 'Ravi Kumar', email: 'ravi.k@edkonic.in', password: 'student123', title: 'Student', class: 'X', section: 'A', roll: '12', parentEmail: 'parent@edkonic.in', dob: '2010-05-14', board: 'CBSE' }),
+    mkUser({ id: 'u-s2', role: 'student', name: 'Ananya Singh', email: 'ananya.s@edkonic.in', password: 'student123', title: 'Student', class: 'X', section: 'A', roll: '13', dob: '2010-08-22', board: 'CBSE' }),
+    mkUser({ id: 'u-s3', role: 'student', name: 'Karthik Reddy', email: 'karthik.r@edkonic.in', password: 'student123', title: 'Student', class: 'X', section: 'B', roll: '05', dob: '2010-02-10', board: 'CBSE' }),
+    mkUser({ id: 'u-s4', role: 'student', name: 'Divya Sharma', email: 'divya.s@edkonic.in', password: 'student123', title: 'Student', class: 'IX', section: 'A', roll: '21', dob: '2011-03-18', board: 'CBSE' }),
   ]
 
   // ── Classes: X-A, X-B, IX-A, IX-B on the CBSE board, science stream for the senior-most grade only.
