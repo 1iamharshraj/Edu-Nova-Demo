@@ -9,11 +9,11 @@ import type { Role } from '@/lib/data'
 
 const ROLES: { role: Role; label: string; icon: any; email: string; pass: string; grad: string; blurb: string }[] = [
   { role: 'superadmin', label: 'Superadmin', icon: Crown, email: 'principal@edkonic.in', pass: 'principal123', grad: 'from-fuchsia-500 to-pink-500', blurb: 'Dr. Arun Nambiar · Principal' },
-  { role: 'admin', label: 'Admin', icon: Landmark, email: 'admin@edkonic.in', pass: 'admin123', grad: 'from-rose-500 to-pink-400', blurb: 'Dr. Leela Menon · School Administrator' },
-  { role: 'staff', label: 'Staff', icon: LayoutDashboard, email: 'staff@edkonic.in', pass: 'staff123', grad: 'from-amber-500 to-orange-400', blurb: 'Farhan Qureshi · Office Superintendent' },
+  { role: 'admin', label: 'Admin', icon: Landmark, email: 'admin@edkonic.in', pass: 'admin123', grad: 'from-rose-500 to-pink-400', blurb: 'Priya Menon · Vice Principal & Admin' },
+  { role: 'staff', label: 'Staff', icon: LayoutDashboard, email: 'staff@edkonic.in', pass: 'staff123', grad: 'from-amber-500 to-orange-400', blurb: 'Kavita Joshi · Front Office' },
   { role: 'teacher', label: 'Teacher', icon: BookOpen, email: 'teacher@edkonic.in', pass: 'teacher123', grad: 'from-emerald-500 to-teal-400', blurb: 'Meera Krishnan · Mathematics · Class Teacher X-A' },
-  { role: 'parent', label: 'Parent', icon: Users, email: 'parent@edkonic.in', pass: 'parent123', grad: 'from-indigo-500 to-violet-500', blurb: 'Nisha Sharma · Parent of Aarav, X-A' },
-  { role: 'student', label: 'Student', icon: GraduationCap, email: 'student@edkonic.in', pass: 'student123', grad: 'from-sky-500 to-cyan-400', blurb: 'Aarav Sharma · Class X-A, Roll 12' },
+  { role: 'parent', label: 'Parent', icon: Users, email: 'parent@edkonic.in', pass: 'parent123', grad: 'from-indigo-500 to-violet-500', blurb: 'Sunil Kumar · Parent of Ravi, X-A' },
+  { role: 'student', label: 'Student', icon: GraduationCap, email: 'ravi.k@edkonic.in', pass: 'student123', grad: 'from-sky-500 to-cyan-400', blurb: 'Ravi Kumar · Class X-A, Roll 12' },
 ]
 
 export default function Login() {
