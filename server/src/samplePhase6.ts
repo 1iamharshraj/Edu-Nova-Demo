@@ -40,7 +40,7 @@ const CONTRACTS: { seedId: string; designation: string; department?: string }[] 
   { seedId: 'u-a', designation: 'School Administrator', department: 'Administration' },
   { seedId: 'u-sa', designation: 'Principal & Superadmin', department: 'Administration' },
 ]
-const CONTRACT_TERMS = 'Standard EduNova employment terms: 60-day notice period, 18 paid leave days per year, confidentiality and non-solicitation clauses.'
+const CONTRACT_TERMS = 'Standard Edkonic employment terms: 60-day notice period, 18 paid leave days per year, confidentiality and non-solicitation clauses.'
 
 // Leave requests ported from the legacy `leaves` array — all "Student leave" filed by the parent for their ward.
 const LEAVES: { student: string; parent: string; from: string; to: string; reason: string; approved?: string }[] = [

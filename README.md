@@ -1,4 +1,4 @@
-# EduNova — School OS
+# Edkonic — School OS
 
 React 19 + Vite frontend, Express + Prisma + Postgres backend. A school starts empty (one superadmin) and everything else is created from the admin portal; a sample school can be loaded from **Settings** for walkthroughs.
 
@@ -8,12 +8,12 @@ React 19 + Vite frontend, Express + Prisma + Postgres backend. A school starts e
 npm install && npm --prefix server install
 npm run db:up        # Postgres 16 in Docker on :5434
 npm run db:migrate    # apply Prisma migrations
-npm run db:seed       # one school + principal@edunova.in / principal123
+npm run db:seed       # one school + principal@edkonic.in / principal123
 npm run server:dev    # API on http://localhost:4000
 npm run dev            # frontend on http://localhost:3000 (separate terminal)
 ```
 
-Sign in as `principal@edunova.in` / `principal123`. Then either set the school up by hand (**Academic Setup → Years & Terms → Classes → Subjects**, then **People**) or load the demo school from **Settings → Load sample school**, which also creates the demo accounts (`admin@`, `staff@`, `teacher@`, `parent@`, `student@edunova.in`, passwords `<role>123`).
+Sign in as `principal@edkonic.in` / `principal123`. Then either set the school up by hand (**Academic Setup → Years & Terms → Classes → Subjects**, then **People**) or load the demo school from **Settings → Load sample school**, which also creates the demo accounts (`admin@`, `staff@`, `teacher@`, `parent@`, `student@edkonic.in`, passwords `<role>123`).
 
 **Settings → Danger zone → Reset school** wipes everything except your own account (typed confirmation).
 

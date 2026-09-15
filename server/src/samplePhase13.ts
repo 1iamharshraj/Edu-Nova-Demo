@@ -46,14 +46,14 @@ export async function loadPhase13(tx: Tx, a: Phase13Args) {
   // ── two profiles linked back to existing sample students (see file header note) ──
   const kabir = await tx.alumniProfile.create({
     data: {
-      schoolId, studentUserId: a.userId('u-s3'), name: 'Kabir Singh', email: 'kabir.s@edunova.in', phone: null,
+      schoolId, studentUserId: a.userId('u-s3'), name: 'Kabir Singh', email: 'kabir.s@edkonic.in', phone: null,
       graduationYear: 2026, lastClassLabel: 'X-B CBSE', currentOccupation: 'Student (continuing to XI elsewhere)', currentCity: 'Chennai',
       convertedById: admin, convertedAt: toDate('2026-04-01'), createdAt: toDate('2026-04-01'),
     },
   })
   const rohan = await tx.alumniProfile.create({
     data: {
-      schoolId, studentUserId: a.userId('u-s4'), name: 'Rohan Gupta', email: 'rohan.g@edunova.in', phone: null,
+      schoolId, studentUserId: a.userId('u-s4'), name: 'Rohan Gupta', email: 'rohan.g@edkonic.in', phone: null,
       graduationYear: 2026, lastClassLabel: 'X-B CBSE', currentOccupation: 'Student (continuing to XI elsewhere)', currentCity: 'Chennai',
       convertedById: admin, convertedAt: toDate('2026-04-02'), createdAt: toDate('2026-04-02'),
     },

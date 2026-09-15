@@ -14,7 +14,7 @@ import type { createMeeting, decideMeeting, meetingsQuery } from './schema'
 
 const shortId = (id: string) => id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toLowerCase()
 const jitsiLink = (schoolId: string, meetingId: string) =>
-  process.env.MEET_PROVIDER === 'none' ? null : `https://meet.jit.si/edunova-${shortId(schoolId)}-${meetingId}`
+  process.env.MEET_PROVIDER === 'none' ? null : `https://meet.jit.si/edkonic-${shortId(schoolId)}-${meetingId}`
 
 export const serializeMeeting = (m: Meeting) => ({
   id: m.id, requesterId: m.requesterId, withUserId: m.withUserId, studentId: m.studentId ?? undefined,

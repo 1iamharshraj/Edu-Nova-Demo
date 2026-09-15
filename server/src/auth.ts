@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import jwt from 'jsonwebtoken'
 import type { Request, Response, NextFunction } from 'express'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'edunova_dev_jwt_secret_change_me'
+const JWT_SECRET = process.env.JWT_SECRET || 'edkonic_dev_jwt_secret_change_me'
 
 // Access tokens are short-lived; a rotating refresh token (see routes/auth.ts `/refresh`, backed by the
 // `Session` table) is what keeps a session alive without re-entering credentials. See

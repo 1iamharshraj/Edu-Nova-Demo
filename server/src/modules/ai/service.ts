@@ -82,7 +82,7 @@ async function syllabusStatusFor(ctx: Ctx, boardId: string, gradeId: string, str
 async function buildSystemPrompt(ctx: Ctx, subjectId?: string) {
   const enrollment = await activeClassOf(ctx.actorId)
   if (!enrollment) {
-    return 'You are EduNova\'s AI study tutor. Help the student with their doubt clearly and simply. Keep answers focused and age-appropriate.'
+    return 'You are Edkonic\'s AI study tutor. Help the student with their doubt clearly and simply. Keep answers focused and age-appropriate.'
   }
   const cls = enrollment.class
   const [board, grade, curriculum, subject, classSubjects] = await Promise.all([
@@ -110,7 +110,7 @@ async function buildSystemPrompt(ctx: Ctx, subjectId?: string) {
     `${s.subject} — chapters covered so far: ${s.covered.length ? s.covered.join(', ') : '(none yet)'}; chapters not yet covered: ${s.notCovered.length ? s.notCovered.join(', ') : '(none — fully covered)'}.`)
 
   const lines = [
-    'You are EduNova\'s AI study tutor, helping a school student clear an academic doubt.',
+    'You are Edkonic\'s AI study tutor, helping a school student clear an academic doubt.',
     board && grade ? `The student is in ${board.name} board, grade ${grade.label}.` : undefined,
     subjectNames.length ? `Their curriculum subjects this year are: ${subjectNames.join(', ')}.` : undefined,
     subject ? `This question is specifically about ${subject.name} — focus your answer on that subject.` : undefined,
@@ -273,7 +273,7 @@ export async function generateWorksheet(ctx: Ctx, input: z.infer<typeof generate
   const questionCount = input.questionCount ?? 10
   const difficulty = input.difficulty ?? 'medium'
   const chapterList = chapters.map(c => `- ${c.title}`).join('\n')
-  const system = 'You are EduNova\'s AI teaching assistant, drafting a worksheet/question paper for a teacher to review, edit, and approve before use. ' +
+  const system = 'You are Edkonic\'s AI teaching assistant, drafting a worksheet/question paper for a teacher to review, edit, and approve before use. ' +
     'Never present the draft as final — it is a starting point for the teacher.'
   const prompt = [
     `Draft a worksheet for ${cs.subject.name}, grade ${cs.class.grade.label}, covering exactly these chapters:`,
@@ -396,7 +396,7 @@ export async function draftRemark(ctx: Ctx, input: z.infer<typeof draftRemarkBod
     achievements.length ? `Achievements this term: ${achievements.map(a => a.title).join(', ')}.` : undefined,
   ].filter(Boolean).join('\n')
 
-  const system = 'You are EduNova\'s AI teaching assistant, drafting a report-card remark for a teacher to review, edit, and approve before saving or sharing with a parent. ' +
+  const system = 'You are Edkonic\'s AI teaching assistant, drafting a report-card remark for a teacher to review, edit, and approve before saving or sharing with a parent. ' +
     'Never present the draft as final.'
   const prompt = `Based on the following real data for this student this term, draft a personalized, encouraging, constructive report-card remark of 2-3 sentences. ` +
     `Be specific (reference actual subjects/performance where useful) but keep it warm and age-appropriate, and balance praise with one constructive note if performance warrants it. ` +

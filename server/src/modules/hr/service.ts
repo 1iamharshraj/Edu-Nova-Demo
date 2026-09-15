@@ -153,7 +153,7 @@ export async function contractPdf(ctx: Ctx, id: string) {
       { label: 'Employee signed', value: contract.employeeSignedAt ? fmtLong(contract.employeeSignedAt) : 'Not signed' },
       { label: 'Admin signed', value: contract.adminSignedAt ? fmtLong(contract.adminSignedAt) : 'Not signed' },
     ])
-    await drawFooter(doc, { issuedBy: school.name, issuedOn: fmtLong(now), qrText: `EduNova contract ${contract.id} | ${user.name}` })
+    await drawFooter(doc, { issuedBy: school.name, issuedOn: fmtLong(now), qrText: `Edkonic contract ${contract.id} | ${user.name}` })
   })
   return { bytes, name: `Contract-${user.name.replace(/\s+/g, '-')}-${contract.id.slice(0, 8)}.pdf` }
 }

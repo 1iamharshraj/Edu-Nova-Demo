@@ -3,7 +3,7 @@ import dotenv from 'dotenv'
 
 // Loaded here (main vitest process) so DATABASE_URL is already pointed at the test database before
 // any test file (and therefore src/prisma.ts) is imported. See test/helpers/db.ts and TESTING notes
-// in the Phase 10 test suite report for why this must never point at the dev "edunova" database.
+// in the Phase 10 test suite report for why this must never point at the dev "edkonic" database.
 dotenv.config({ path: '.env.test' })
 process.env.DATABASE_URL = process.env.DATABASE_URL_TEST
 process.env.NODE_ENV = 'test'

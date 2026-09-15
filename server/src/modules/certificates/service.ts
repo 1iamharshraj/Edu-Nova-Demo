@@ -94,7 +94,7 @@ export async function issue(ctx: Ctx, kind: CertificateKind, studentId: string, 
       { label: 'Date of issue', value: fmtLong(now) },
       { label: 'Issued by', value: `${issuer.name} (${issuer.title})` },
     ])
-    await drawFooter(doc, { issuedBy: issuer.name, issuedOn: fmtLong(now), qrText: `EduNova certificate ${row.serialNo} | ${student.name} | ${kind}` })
+    await drawFooter(doc, { issuedBy: issuer.name, issuedOn: fmtLong(now), qrText: `Edkonic certificate ${row.serialNo} | ${student.name} | ${kind}` })
   })
   const file = await storePdf(ctx.schoolId, ctx.actorId, `${kind}-${row.serialNo.replace(/\//g, '-')}.pdf`, bytes)
   const done = await prisma.certificate.update({ where: { id: row.id }, data: { pdfFileId: file.id } })

@@ -63,7 +63,7 @@ export async function sendEmail(msg: EmailMessage): Promise<void> {
     if (provider === 'resend') {
       const { Resend } = await import('resend')
       const resend = new Resend(process.env.RESEND_API_KEY)
-      const from = process.env.RESEND_FROM || 'EduNova <no-reply@edunova.in>'
+      const from = process.env.RESEND_FROM || 'Edkonic <no-reply@edkonic.in>'
       const { error } = await resend.emails.send({ from, to: msg.to, subject: msg.subject, text: msg.body })
       if (error) console.error('[notify] resend email failed:', error)
       return

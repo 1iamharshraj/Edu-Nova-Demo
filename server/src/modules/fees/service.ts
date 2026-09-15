@@ -400,7 +400,7 @@ async function receiptPdfBytes(school: { name: string }, invoice: FeeInvoice, st
     const paid = payments.reduce((a, p) => a + p.amount, 0)
     doc.moveDown(0.5)
     drawFields(doc, [{ label: 'Amount paid', value: `Rs. ${paid.toFixed(2)}` }, { label: 'Balance', value: `Rs. ${Math.max(0, invoice.total - invoice.concession - paid).toFixed(2)}` }])
-    await drawFooter(doc, { issuedBy: school.name, issuedOn: fmtLong(now), qrText: `EduNova invoice ${invoice.invoiceNo} | ${student.name}` })
+    await drawFooter(doc, { issuedBy: school.name, issuedOn: fmtLong(now), qrText: `Edkonic invoice ${invoice.invoiceNo} | ${student.name}` })
   })
 }
 
@@ -635,7 +635,7 @@ export async function createReminderRow(ctx: Ctx, input: z.infer<typeof createRe
     const recipients = guardians.length ? guardians.map(g => g.parent) : student ? [student] : []
     const body = `Fee reminder for ${student?.name ?? 'your ward'}: invoice ${invoice.invoiceNo} of ₹${balance} is due ${fmtDate(invoice.dueDate)}.${input.note ? ` Note: ${input.note}` : ''}`
     await Promise.all(recipients.map(r => input.channel === 'Email'
-      ? (r.email && sendEmail({ to: r.email, subject: 'EduNova fee reminder', body }))
+      ? (r.email && sendEmail({ to: r.email, subject: 'Edkonic fee reminder', body }))
       : (r.phone && sendSms({ to: r.phone, body }))))
     // Phase 23 item 3: WhatsApp alongside whichever channel fired above, same best-effort pattern —
     // only when a phone is on file (independent of the InApp/Email/SMS `channel` this reminder chose).

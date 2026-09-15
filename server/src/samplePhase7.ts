@@ -5,7 +5,7 @@ import type { Prisma } from '@prisma/client'
 // phase-7-communication.md → Sample data.
 //
 // Deviations from the legacy seed (documented — the legacy shapes don't map 1:1 onto real users):
-//  - Feed authors: the legacy feed has posts "by" EduNova School / Science Club / Art Society, which
+//  - Feed authors: the legacy feed has posts "by" Edkonic School / Science Club / Art Society, which
 //    aren't real users. All 5 posts are authored by the admin (u-a); the legacy `tag` becomes the
 //    post title so the club/section name isn't lost.
 //  - Reaction counts: the legacy `likes` numbers (98–301) don't correspond to real users (~20 seed
@@ -23,7 +23,7 @@ export interface Phase7Args {
 
 const shortId = (id: string) => id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toLowerCase()
 const jitsiLink = (schoolId: string, meetingId: string) =>
-  process.env.MEET_PROVIDER === 'none' ? null : `https://meet.jit.si/edunova-${shortId(schoolId)}-${meetingId}`
+  process.env.MEET_PROVIDER === 'none' ? null : `https://meet.jit.si/edkonic-${shortId(schoolId)}-${meetingId}`
 
 const FEED_POSTS: { id: string; tag: string; text: string; hoursAgo: number; comments: { by: string; text: string }[]; likes: string[] }[] = [
   { id: 'f1', tag: 'Announcement', text: 'Annual Sports Day 2026 was a blockbuster — 14 records broken, and X-A takes the overall trophy. Full photo album is live.', hoursAgo: 2, comments: [{ by: 'u-s2', text: 'That 4×100 finish was unreal!' }], likes: ['u-s', 'u-p', 'u-t2'] },

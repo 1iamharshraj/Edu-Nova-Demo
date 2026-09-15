@@ -17,7 +17,7 @@ export const fmtLong = (d: Date) => d.toLocaleDateString('en-IN', { day: '2-digi
 
 export function renderToBuffer(draw: (doc: PDFKit.PDFDocument) => void | Promise<void>): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', margin: 56, info: { Producer: 'EduNova' } })
+    const doc = new PDFDocument({ size: 'A4', margin: 56, info: { Producer: 'Edkonic' } })
     const chunks: Buffer[] = []
     doc.on('data', (c: Buffer) => chunks.push(c))
     doc.on('end', () => resolve(Buffer.concat(chunks)))
@@ -32,7 +32,7 @@ export function drawHeader(doc: PDFKit.PDFDocument, h: DocHeader) {
   const width = doc.page.width - left - doc.page.margins.right
   doc.font('Helvetica-Bold').fontSize(20).fillColor('#111827').text(h.schoolName, left, 56, { width, align: 'center' })
   doc.moveDown(0.3)
-  doc.font('Helvetica').fontSize(10).fillColor('#6b7280').text('EduNova School Management System', { width, align: 'center' })
+  doc.font('Helvetica').fontSize(10).fillColor('#6b7280').text('Edkonic School Management System', { width, align: 'center' })
   doc.moveDown(1.2)
   doc.font('Helvetica-Bold').fontSize(16).fillColor('#111827').text(h.title.toUpperCase(), { width, align: 'center', characterSpacing: 1.5 })
   if (h.subtitle) { doc.moveDown(0.2); doc.font('Helvetica').fontSize(10).fillColor('#6b7280').text(h.subtitle, { width, align: 'center' }) }
@@ -93,7 +93,7 @@ export async function drawFooter(doc: PDFKit.PDFDocument, opts: { issuedBy: stri
   doc.image(qr, left + width - 96, y, { width: 96 })
   doc.font('Helvetica').fontSize(8).fillColor('#6b7280').text('Scan to verify', left + width - 96, y + 100, { width: 96, align: 'center' })
 
-  doc.font('Helvetica').fontSize(10).fillColor('#374151').text(`Place: ${opts.place ?? 'EduNova Campus'}`, left, y + 10)
+  doc.font('Helvetica').fontSize(10).fillColor('#374151').text(`Place: ${opts.place ?? 'Edkonic Campus'}`, left, y + 10)
   doc.text(`Date: ${opts.issuedOn}`, left, y + 26)
   doc.moveTo(left, y + 74).lineTo(left + 200, y + 74).lineWidth(0.8).strokeColor('#9ca3af').stroke()
   doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827').text(opts.issuedBy, left, y + 80, { width: 200 })

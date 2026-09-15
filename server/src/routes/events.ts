@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken'
 import type { JwtPayload } from '../auth'
 import { addClient, removeClient } from '../lib/realtime'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'edunova_dev_jwt_secret_change_me'
+const JWT_SECRET = process.env.JWT_SECRET || 'edkonic_dev_jwt_secret_change_me'
 
 // GET /api/events/stream — SSE. EventSource can't set headers, so auth travels as `?token=`
 // (see phase-7-communication.md → Realtime). Broadcasts {type:"message"|"notification", payload}

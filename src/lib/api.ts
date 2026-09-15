@@ -1,11 +1,11 @@
-// Typed fetch client for the EduNova API. Every module talks to the server through this —
+// Typed fetch client for the Edkonic API. Every module talks to the server through this —
 // never through raw fetch — so auth headers, error shapes and the base URL live in one place.
 
 import type { FileRec } from './data'
 
 export const API_BASE = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE || 'http://localhost:4000/api'
-const TOKEN_KEY = 'edunova_token_v1'
-const REFRESH_TOKEN_KEY = 'edunova_refresh_token_v1'
+const TOKEN_KEY = 'edkonic_token_v1'
+const REFRESH_TOKEN_KEY = 'edkonic_refresh_token_v1'
 
 export class ApiError extends Error {
   status: number

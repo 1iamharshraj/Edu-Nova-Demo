@@ -99,7 +99,7 @@ export async function idCardPdf(ctx: Ctx, userId: string) {
       { label: 'Department', value: user.department ?? '—' },
       { label: 'Issued on', value: fmtLong(now) },
     ])
-    await drawFooter(doc, { issuedBy: school.name, issuedOn: fmtLong(now), qrText: `EduNova employee ${user.employeeId} | ${user.name}` })
+    await drawFooter(doc, { issuedBy: school.name, issuedOn: fmtLong(now), qrText: `Edkonic employee ${user.employeeId} | ${user.name}` })
   })
   return { bytes, name: `ID-Card-${user.employeeId}.pdf` }
 }

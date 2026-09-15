@@ -164,7 +164,7 @@ export async function requestPickupOtp(ctx: Ctx, id: string) {
   })
   const guardians = await prisma.guardian.findMany({ where: { studentId: row.studentId }, include: { parent: true } })
   const student = await prisma.user.findUnique({ where: { id: row.studentId }, select: { name: true } })
-  const body = `EduNova: OTP ${code} to approve pickup of ${student?.name ?? 'your child'} by ${row.pickedUpByName} (${row.pickedUpByRelation}). Valid ${OTP_TTL_MS / 60000} min.`
+  const body = `Edkonic: OTP ${code} to approve pickup of ${student?.name ?? 'your child'} by ${row.pickedUpByName} (${row.pickedUpByRelation}). Valid ${OTP_TTL_MS / 60000} min.`
   await Promise.all(guardians.flatMap(g => [
     sendEmail({ to: g.parent.email, subject: 'Pickup approval code', body }),
     g.parent.phone ? sendSms({ to: g.parent.phone, body }) : Promise.resolve(),

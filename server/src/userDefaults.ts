@@ -12,12 +12,12 @@ export const EMPLOYEE_ROLES: Role[] = ['teacher', 'staff', 'admin', 'superadmin'
 
 export function makeEmail(name: string, role: Role) {
   const base = name.toLowerCase().replace(/[^a-z]+/g, '.').replace(/(^\.|\.$)/g, '')
-  if (role === 'student') return `${base}@edunova.in`
-  if (role === 'parent') return `parent.${base}@edunova.in`
-  if (role === 'teacher') return `${base}@edunova.in`
-  if (role === 'staff') return `${base}@edunova.in`
-  if (role === 'admin') return `${base}@edunova.in`
-  return `${base}@edunova.in`
+  if (role === 'student') return `${base}@edkonic.in`
+  if (role === 'parent') return `parent.${base}@edkonic.in`
+  if (role === 'teacher') return `${base}@edkonic.in`
+  if (role === 'staff') return `${base}@edkonic.in`
+  if (role === 'admin') return `${base}@edkonic.in`
+  return `${base}@edkonic.in`
 }
 
 // Random one-time password — same generator used by admissions (applications/service.ts) and

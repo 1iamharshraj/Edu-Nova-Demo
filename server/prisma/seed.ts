@@ -3,7 +3,7 @@ import { prisma } from '../src/prisma'
 
 async function main() {
   const schoolId = await seedSchool()
-  console.log(`Seeded school ${schoolId} with superadmin principal@edunova.in / principal123 (mustChangePassword)`)
+  console.log(`Seeded school ${schoolId} with superadmin principal@edkonic.in / principal123 (mustChangePassword)`)
 }
 
 main()

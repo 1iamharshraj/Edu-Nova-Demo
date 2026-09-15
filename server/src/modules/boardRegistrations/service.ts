@@ -222,7 +222,7 @@ export async function marksheetPdf(ctx: Ctx, id: string, termId: string) {
       { label: 'Rank in class', value: card.overall.rank ? `${card.overall.rank} of ${card.overall.classSize}` : '—' },
       { label: 'Grade scale', value: card.scale?.name ?? '—' },
     ])
-    await drawFooter(doc, { issuedBy: issuer.name, issuedOn: fmtLong(now), qrText: `EduNova marksheet | ${reg.nameOnCertificate} | ${reg.registrationNo ?? reg.id} | ${term.name}` })
+    await drawFooter(doc, { issuedBy: issuer.name, issuedOn: fmtLong(now), qrText: `Edkonic marksheet | ${reg.nameOnCertificate} | ${reg.registrationNo ?? reg.id} | ${term.name}` })
   })
   return { bytes, name: `Marksheet-${reg.nameOnCertificate.replace(/\s+/g, '_')}-${term.name.replace(/\s+/g, '_')}.pdf` }
 }

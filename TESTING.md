@@ -1,4 +1,4 @@
-# EduNova — Manual end-to-end test (Phase 0 + 1)
+# Edkonic — Manual end-to-end test (Phase 0 + 1)
 
 Work through this top to bottom in one sitting (~45 min). Tick each box; if anything doesn't match the **Expect** line, note the section number and what you saw.
 
@@ -18,18 +18,18 @@ npm run dev            # frontend on :3000 (second terminal)
 
 - [ ] `curl http://localhost:4000/api/health` → `{"ok":true}`
 - [ ] http://localhost:3000 loads the landing page
-- [ ] Open DevTools → Application → Local Storage → clear `edunova_*` keys (start from a clean session)
+- [ ] Open DevTools → Application → Local Storage → clear `edkonic_*` keys (start from a clean session)
 
 Reference accounts (only the first exists on a fresh school):
 
 | Role | Email | Password |
 |---|---|---|
-| Superadmin | principal@edunova.in | principal123 |
-| Sample admin | admin@edunova.in | admin123 |
-| Sample staff | staff@edunova.in | staff123 |
-| Sample teacher | teacher@edunova.in | teacher123 |
-| Sample parent | parent@edunova.in | parent123 |
-| Sample student | student@edunova.in | student123 |
+| Superadmin | principal@edkonic.in | principal123 |
+| Sample admin | admin@edkonic.in | admin123 |
+| Sample staff | staff@edkonic.in | staff123 |
+| Sample teacher | teacher@edkonic.in | teacher123 |
+| Sample parent | parent@edkonic.in | parent123 |
+| Sample student | student@edkonic.in | student123 |
 
 ---
 
@@ -38,11 +38,11 @@ Reference accounts (only the first exists on a fresh school):
 - [ ] **1.1** Go to `/login`, pick **Superadmin**, sign in.
   **Expect:** lands on `/portal`, header shows "superadmin portal", sidebar has groups *Main · Academic Setup · Manage · Finance · System*.
 - [ ] **1.2** Refresh the page.
-  **Expect:** still signed in (JWT in localStorage `edunova_token_v1`), no flash of the login page beyond "Loading EduNova…".
+  **Expect:** still signed in (JWT in localStorage `edkonic_token_v1`), no flash of the login page beyond "Loading Edkonic…".
 - [ ] **1.3** Sign out → try `/portal` directly.
   **Expect:** redirected to `/login`.
-- [ ] **1.4** Pick **Student** on the login page and sign in with the prefilled `student@edunova.in`.
-  **Expect:** error "Those credentials don't match any EduNova account…" — the sample accounts don't exist on a fresh school.
+- [ ] **1.4** Pick **Student** on the login page and sign in with the prefilled `student@edkonic.in`.
+  **Expect:** error "Those credentials don't match any Edkonic account…" — the sample accounts don't exist on a fresh school.
 - [ ] **1.5** Sign in as superadmin with a wrong password.
   **Expect:** same error, no portal access.
 - [ ] **1.6** (Phase 10) Fail login 11+ times in under 15 minutes.
@@ -143,7 +143,7 @@ Prerequisites: §3–4 done (classes with subjects and teachers, a current term)
 - [ ] **Student in VIII-B (unpublished)** → *Timetable not published yet*.
 - [ ] **Teacher Kavya → My Timetable.** **Expect:** her periods across VIII-A and VIII-B with the class label leading; Overview **Classes today** count matches.
 - [ ] As principal, add a **substitution** via the API is not in the UI yet? → It is: Timetable (admin view) → pick a class → click an entry → "Cover this period" with a date and substitute teacher. If that control is missing in your build, skip. **Expect (if present):** the substitute's My Timetable shows the covered period for that week.
-- [ ] Sample school: **Load sample school** → student@edunova.in Timetable shows a full published week for Term 3; teacher@edunova.in sees ~27 periods across 4 classes.
+- [ ] Sample school: **Load sample school** → student@edkonic.in Timetable shows a full published week for Term 3; teacher@edkonic.in sees ~27 periods across 4 classes.
 
 ## 3c. Attendance, gradebook, homework (Phase 3)
 
@@ -164,7 +164,7 @@ Prerequisites: §3–4 and §3b (published timetable for CBSE VIII-A with Kavya 
 - [ ] **Kavya → Create Assignment → Worksheet 3 → submissions**: Ishaan's file downloads; grade `A1`, feedback text → Ishaan sees *Graded A1* + feedback.
 - [ ] **Meenakshi → Homework Status** shows the same for Ishaan.
 - [ ] **My Report** (Ishaan) shows attendance %, marks and rank from the same data.
-- [ ] Sample school: student@edunova.in has ~95% attendance, 3 published assessments per subject per term, rank 1 of 2; teacher@edunova.in Gradebook shows X-A Mathematics with marks.
+- [ ] Sample school: student@edkonic.in has ~95% attendance, 3 published assessments per subject per term, rank 1 of 2; teacher@edkonic.in Gradebook shows X-A Mathematics with marks.
 
 ## 3g. Communication (Phase 7)
 
@@ -211,7 +211,7 @@ Prerequisites: §3–4 and §3b (published timetable for CBSE VIII-A with Kavya 
 
 ### 4.1 Teachers
 - [ ] **People & Roles → Teachers → Add person**: name `Kavya Nair`, joining date today, salary `55000`, *Class teacher of* → `VIII-A`. Create.
-  **Expect:** an **Account created** modal showing the email (`kavya.nair@edunova.in`) and a one-time password (`teacher123`), with copy buttons. Write these down.
+  **Expect:** an **Account created** modal showing the email (`kavya.nair@edkonic.in`) and a one-time password (`teacher123`), with copy buttons. Write these down.
 - [ ] Teacher row.
   **Expect:** shows *Class teacher of VIII-A* and **no** subject pills yet, plus the hint to assign subjects in Academic Setup.
 - [ ] Add a second teacher `Rahul Menon`, no class-teacher assignment.
@@ -230,7 +230,7 @@ Prerequisites: §3–4 and §3b (published timetable for CBSE VIII-A with Kavya 
 ### 4.3 Students
 - [ ] **People → Students**. **Expect:** *Add student* is enabled (classes exist). (If you want to confirm the guard: it should be disabled with a tooltip on a school with no classes.)
 - [ ] Add student: `Ishaan Rao`, class `VIII-A · CBSE` (the dropdown lists `VIII-A · CBSE`, `VIII-A · ICSE`, `VIII-B · CBSE`), roll `7`, DOB `2013-02-11`, no parent yet.
-  **Expect:** Account created modal (email `ishaan.rao@edunova.in`, password `student123`). Row shows **VIII-A** with a **CBSE** pill · Roll 7.
+  **Expect:** Account created modal (email `ishaan.rao@edkonic.in`, password `student123`). Row shows **VIII-A** with a **CBSE** pill · Roll 7.
 - [ ] Add `Diya Patel`, class `VIII-A · CBSE`, roll `4`. Add `Arjun Iyer`, class `VIII-B · CBSE`, roll `1`. Add `Zara Khan`, class `VIII-A · ICSE`, roll `1`.
 - [ ] Filter by class `VIII-A · CBSE`. **Expect:** only Ishaan and Diya — Zara (ICSE VIII-A) is not listed. Clear the filter.
 - [ ] Search `diya`. **Expect:** only Diya. Clear.
@@ -242,7 +242,7 @@ Prerequisites: §3–4 and §3b (published timetable for CBSE VIII-A with Kavya 
 
 ### 4.4 Parents
 - [ ] **People → Parents → Add person**: `Meenakshi Rao`, phone `+91 90000 00001`, wards → tick **Ishaan Rao** (the checklist shows each student's class label).
-  **Expect:** Account created modal (email `parent.meenakshi.rao@edunova.in`, password `parent123`). Row shows ward *Ishaan Rao (VIII-A)*.
+  **Expect:** Account created modal (email `parent.meenakshi.rao@edkonic.in`, password `parent123`). Row shows ward *Ishaan Rao (VIII-A)*.
 - [ ] **People → Students** → Ishaan's row. **Expect:** shows guardian *Meenakshi Rao*.
 - [ ] Edit Meenakshi → also tick **Diya Patel** → save. **Expect:** two wards listed.
 - [ ] Edit Meenakshi → untick Diya → save. **Expect:** back to one ward.
@@ -294,7 +294,7 @@ Prerequisites: §3–4 and §3b (published timetable for CBSE VIII-A with Kavya 
 Open a **second browser / private window** for these so you can keep the principal signed in.
 
 ### 5.1 Teacher
-- [ ] Sign in as `kavya.nair@edunova.in` / `teacher123`.
+- [ ] Sign in as `kavya.nair@edkonic.in` / `teacher123`.
   **Expect:** teacher portal. Overview tile **My classes** = `1` with *VIII-A*.
 - [ ] **Take Attendance**. **Expect:** class VIII-A with Ishaan and Diya listed (no picker needed since she has one class). *(Saving here is still a stub — see §9.)*
 - [ ] **Upload Grades**. **Expect:** same two students; subject dropdown includes Mathematics.
@@ -302,14 +302,14 @@ Open a **second browser / private window** for these so you can keep the princip
 - [ ] She must **not** see Academic Setup, People, or Settings in the sidebar.
 
 ### 5.2 Student
-- [ ] Sign in as `ishaan.rao@edunova.in` / `student123`.
+- [ ] Sign in as `ishaan.rao@edkonic.in` / `student123`.
   **Expect:** Overview tile **My class = VIII-A · 2 students**; *Class rank —*; Attendance *—*.
 - [ ] **Timetable** heading subtitle says **Class VIII-A**; grid shows the empty state.
 - [ ] **Attendance**, **Marks & Grades**, **Rank List**: each shows an empty state for the term — no crash.
 - [ ] **My Report**: opens for Ishaan; *Health records* section is visible (he's the student).
 
 ### 5.3 Parent
-- [ ] Sign in as `parent.meenakshi.rao@edunova.in` / `parent123`.
+- [ ] Sign in as `parent.meenakshi.rao@edkonic.in` / `parent123`.
   **Expect:** Overview tile **Attendance** subtitle mentions *Ishaan*; **Fees due ₹0**.
 - [ ] **Student Report**: opens Ishaan's report automatically (no picker).
 - [ ] **Holiday Requests → New**: the student is prefilled/selected as **Ishaan Rao** (not "Aarav"). Submit one.
@@ -324,7 +324,7 @@ Open a **second browser / private window** for these so you can keep the princip
 ### 5.5 Permission enforcement is server-side
 - [ ] In the **student** window, open DevTools → Console and run:
   ```js
-  fetch('http://localhost:4000/api/academic/classes', {method:'POST', headers:{'Content-Type':'application/json', Authorization:'Bearer '+localStorage.getItem('edunova_token_v1')}, body: JSON.stringify({academicYearId:'x', grade:'I', section:'A'})}).then(r=>r.status).then(console.log)
+  fetch('http://localhost:4000/api/academic/classes', {method:'POST', headers:{'Content-Type':'application/json', Authorization:'Bearer '+localStorage.getItem('edkonic_token_v1')}, body: JSON.stringify({academicYearId:'x', grade:'I', section:'A'})}).then(r=>r.status).then(console.log)
   ```
   **Expect:** `403`.
 - [ ] Same call in the **principal** window (with a real `academicYearId` from Years & Terms, or just watch for `400`/`404` rather than `403`).
@@ -341,7 +341,7 @@ Open a **second browser / private window** for these so you can keep the princip
 - [ ] **Teacher → My Contract → Resign**: submit with a last-working-date less than 30 days out → accepted, shown as short-notice.
 - [ ] **Admin → Contracts & Exit → Resignations**: approve it. If the last-working-date has already passed, that account **cannot log in again** (`Account inactive`); if it's in the future, they can still log in until then.
 - [ ] **Duties**: staff/admin create a duty with an assignee (a teacher); the assignee can mark it **Done** but cannot revert it; staff/admin can toggle freely; delete a duty.
-- [ ] Sample school: teacher@edunova.in has an Active, both-signed contract and 1 seed duty; admin sees resignation `res1` (Pending, for Rahul Verma / u-t4).
+- [ ] Sample school: teacher@edkonic.in has an Active, both-signed contract and 1 seed duty; admin sees resignation `res1` (Pending, for Rahul Verma / u-t4).
 
 ---
 
@@ -372,18 +372,18 @@ As principal:
 
 The point here is regression: the old demo flows still work now that data comes from the server. Sign in as each sample account.
 
-**Student (`student@edunova.in`)**
+**Student (`student@edkonic.in`)**
 - [ ] Timetable shows the full X-A grid, cards readable without hovering (subject, teacher, room, time); legend shows all three break types.
-- [ ] Attendance, Marks, Rank List all show data for Term 3; Rank List's "You" row is **Aarav Sharma** (he's the logged-in student, not a hardcode — confirm by logging in as `diya.p@edunova.in` / `student123`: her Rank "You" row is Diya).
+- [ ] Attendance, Marks, Rank List all show data for Term 3; Rank List's "You" row is **Aarav Sharma** (he's the logged-in student, not a hardcode — confirm by logging in as `diya.p@edkonic.in` / `student123`: her Rank "You" row is Diya).
 - [ ] School Feed: like a post, add a comment → both persist after reload.
 - [ ] Event Highlights: **No highlights published yet** (Rickroll placeholders are gone).
 
-**Parent (`parent@edunova.in`)**
+**Parent (`parent@edkonic.in`)**
 - [ ] Overview: Attendance subtitle *Term 3 · Aarav*; Fees due **₹6,500** (computed from Aarav's due receipts, not a literal — verify by paying it in *Payments* and watching the tile drop to ₹0).
 - [ ] Messages: threads render; sending a message persists after reload.
 - [ ] Permission Slips / Health Records / Achievements: lists populated; add an achievement → persists.
 
-**Teacher (`teacher@edunova.in`)**
+**Teacher (`teacher@edkonic.in`)**
 - [ ] Overview: *My classes 1 · X-A*. Take Attendance / Upload Grades show the X-A roster.
 - [ ] Board Registration: only X-A students.
 
@@ -398,7 +398,7 @@ The point here is regression: the old demo flows still work now that data comes 
 - [ ] Do any write (e.g. add a room) in one browser; reload the **other** browser as principal.
   **Expect:** the room is there — data lives on the server, not in the browser.
 - [ ] Stop the API (`Ctrl-C` on `server:dev`), reload the app.
-  **Expect:** "Loading EduNova…" then the login page (token check failed) — no crash. Restart the API; sign in works again and all data is intact.
+  **Expect:** "Loading Edkonic…" then the login page (token check failed) — no crash. Restart the API; sign in works again and all data is intact.
 - [ ] Restart Postgres (`docker compose restart`) → data still intact (named volume).
 
 ---
@@ -422,9 +422,9 @@ Do this on a spare machine or VM, not your dev box (it binds :80 by default and 
 - [ ] `cp .env.example .env` and fill in `POSTGRES_PASSWORD` + `JWT_SECRET` with real random values.
 - [ ] `docker compose -f docker-compose.prod.yml build` completes without error (three images: `api`, `nginx`, plus pulled `postgres`/`backup`).
 - [ ] `docker compose -f docker-compose.prod.yml up -d` — all four containers (`postgres`, `api`, `nginx`, `backup`) reach `Up`/`healthy`.
-- [ ] `docker compose -f docker-compose.prod.yml logs api` shows `prisma migrate deploy` running and applying migrations, then `EduNova API listening on http://localhost:4000`, before the container is considered ready.
+- [ ] `docker compose -f docker-compose.prod.yml logs api` shows `prisma migrate deploy` running and applying migrations, then `Edkonic API listening on http://localhost:4000`, before the container is considered ready.
 - [ ] `curl http://localhost/healthz` → `{"ok":true,"db":true}` (through nginx's proxy, not hitting `api` directly).
-- [ ] Visit `http://localhost/` in a browser → the EduNova login page loads (confirms the SPA build + nginx SPA fallback for client-side routes — try refreshing on a deep link like `/login`).
+- [ ] Visit `http://localhost/` in a browser → the Edkonic login page loads (confirms the SPA build + nginx SPA fallback for client-side routes — try refreshing on a deep link like `/login`).
 - [ ] Sign in and confirm API calls succeed (Network tab shows same-origin `/api/...` requests, no CORS errors).
 - [ ] Upload something (e.g. an avatar or a certificate attachment) and confirm it persists across `docker compose ... restart api`.
 - [ ] After the stack has run past the `SCHEDULE` window (or trigger a manual `docker compose -f docker-compose.prod.yml exec backup /backup.sh` if the image supports it), confirm a `.sql.gz` file appears under `./backups/daily/`.

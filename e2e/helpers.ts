@@ -7,7 +7,7 @@ import type { APIRequestContext, Page } from '@playwright/test'
 
 export const API_BASE = 'http://localhost:4000/api'
 
-export const SUPERADMIN = { email: 'principal@edunova.in', password: 'principal123' }
+export const SUPERADMIN = { email: 'principal@edkonic.in', password: 'principal123' }
 
 // Where global-setup.ts caches the one-time superadmin login. Kept outside e2e/ so it never gets
 // mistaken for a test file.
@@ -74,8 +74,8 @@ export async function tokenLogin(page: Page, token: string, refreshToken: string
   await page.goto('/login')
   await page.locator('input[type="email"]').waitFor()
   await page.evaluate(([t, r]) => {
-    localStorage.setItem('edunova_token_v1', t)
-    localStorage.setItem('edunova_refresh_token_v1', r)
+    localStorage.setItem('edkonic_token_v1', t)
+    localStorage.setItem('edkonic_refresh_token_v1', r)
   }, [token, refreshToken])
   await page.goto('/portal')
 }

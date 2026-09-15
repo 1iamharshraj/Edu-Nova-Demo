@@ -153,7 +153,7 @@ export async function payslipPdf(ctx: Ctx, id: string) {
       { label: 'Gross', value: `Rs. ${slip.gross.toFixed(2)}` },
       { label: 'Net pay', value: `Rs. ${slip.net.toFixed(2)}` },
     ])
-    await drawFooter(doc, { issuedBy: school.name, issuedOn: fmtLong(now), qrText: `EduNova payslip ${slip.slipNo} | ${user.name} | ${slip.month}` })
+    await drawFooter(doc, { issuedBy: school.name, issuedOn: fmtLong(now), qrText: `Edkonic payslip ${slip.slipNo} | ${user.name} | ${slip.month}` })
   })
   return { bytes, name: `Payslip-${slip.slipNo.replace(/\//g, '-')}.pdf` }
 }

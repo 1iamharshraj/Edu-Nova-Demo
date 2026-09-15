@@ -336,12 +336,12 @@ async function approveAdmission(ctx: Ctx, app: ApplicationFull): Promise<{ row: 
   // Credential delivery (Phase 9 — see phase-9-10-integrations-hardening.md → item 3). Best-effort;
   // the credentials are also returned in the API response for the admitting staff member to hand over.
   await sendEmail({
-    to: result.student.email, subject: 'Your EduNova student account',
-    body: `Welcome to EduNova, ${result.student.name}.\nLogin email: ${result.student.email}\nTemporary password: ${studentPassword}\nYou will be asked to set a new password on first login.`,
+    to: result.student.email, subject: 'Your Edkonic student account',
+    body: `Welcome to Edkonic, ${result.student.name}.\nLogin email: ${result.student.email}\nTemporary password: ${studentPassword}\nYou will be asked to set a new password on first login.`,
   })
   if (!result.existing) {
-    const parentBody = `Welcome to EduNova. An account has been created for you as guardian of ${app.applicantName}.\nLogin email: ${result.parent.email}\nTemporary password: ${parentPassword}\nYou will be asked to set a new password on first login.`
-    await sendEmail({ to: result.parent.email, subject: 'Your EduNova parent account', body: parentBody })
+    const parentBody = `Welcome to Edkonic. An account has been created for you as guardian of ${app.applicantName}.\nLogin email: ${result.parent.email}\nTemporary password: ${parentPassword}\nYou will be asked to set a new password on first login.`
+    await sendEmail({ to: result.parent.email, subject: 'Your Edkonic parent account', body: parentBody })
     // Phase 23 item 3: WhatsApp alongside email/SMS, same best-effort pattern — only when a phone is on file.
     if (result.parent.phone) await sendWhatsApp({ to: result.parent.phone, body: parentBody })
   }

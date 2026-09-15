@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Moon, Sun } from 'lucide-react'
 
-const KEY = 'edunova_theme'
+const KEY = 'edkonic_theme'
 
 function initial(): 'light' | 'dark' {
   try {

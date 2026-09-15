@@ -198,9 +198,9 @@ async function notifyDecision(ctx: Ctx, row: LeaveRequest, decision: 'Approved' 
   const title = `Leave request ${decision.toLowerCase()}`
   const body = `Your leave request for ${fmtDate(row.fromDate)}–${fmtDate(row.toDate)} was ${decision.toLowerCase()}.${row.decisionNote ? ` Note: ${row.decisionNote}` : ''}`
   await notify(ctx.schoolId, requester.id, 'leave', title, body)
-  await sendEmail({ to: requester.email, subject: `EduNova — ${title}`, body })
+  await sendEmail({ to: requester.email, subject: `Edkonic — ${title}`, body })
   // Phase 23 item 3: WhatsApp alongside email, same best-effort pattern — only when a phone is on file.
-  if (requester.phone) await sendWhatsApp({ to: requester.phone, body: `EduNova — ${title}\n${body}` })
+  if (requester.phone) await sendWhatsApp({ to: requester.phone, body: `Edkonic — ${title}\n${body}` })
 }
 
 export async function approve(ctx: Ctx, id: string, input: z.infer<typeof decideBody>) {

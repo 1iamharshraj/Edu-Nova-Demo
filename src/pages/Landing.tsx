@@ -111,7 +111,7 @@ function Navbar() {
               ))}
             </div>
           </MegaMenu>
-          <a href="#why" className="rounded-full px-4 py-2 text-[15px] font-medium text-black/70 dark:text-white/70 transition-colors hover:text-black dark:hover:text-white">Why EduNova</a>
+          <a href="#why" className="rounded-full px-4 py-2 text-[15px] font-medium text-black/70 dark:text-white/70 transition-colors hover:text-black dark:hover:text-white">Why Edkonic</a>
           <a href="#contact" className="rounded-full px-4 py-2 text-[15px] font-medium text-black/70 dark:text-white/70 transition-colors hover:text-black dark:hover:text-white">Contact</a>
         </nav>
         <div className="flex items-center gap-2.5">
@@ -147,7 +147,7 @@ function Navbar() {
           </div>
           <p className="px-2 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-[.18em] text-black/40 dark:text-white/40">Explore</p>
           <div className="space-y-1">
-            {[['Features', '#features'], ['Why EduNova', '#why'], ['Contact', '#contact']].map(([l, h]) => (
+            {[['Features', '#features'], ['Why Edkonic', '#why'], ['Contact', '#contact']].map(([l, h]) => (
               <a key={l} href={h} onClick={() => setMobileOpen(false)}
                 className="flex items-center justify-between rounded-2xl px-3 py-3 text-[15px] font-medium hover:bg-black/[.04] dark:hover:bg-white/[.08]">
                 {l} <ArrowUpRight size={16} className="text-black/30 dark:text-white/30" />
@@ -177,7 +177,7 @@ function Hero() {
           <Sparkles size={14} className="text-indigo-600" /> New — AI doubt clearing for every student
         </div>
         <h1 className="font-display rise-in rise-1 mt-7 max-w-4xl text-[clamp(2.8rem,7vw,5.6rem)] font-medium leading-[1.02] tracking-tight">
-          Meet EduNova, the <span className="text-grad">school OS</span> that never sleeps.
+          Meet Edkonic, the <span className="text-grad">school OS</span> that never sleeps.
         </h1>
         <p className="rise-in rise-2 mt-6 max-w-xl text-lg leading-relaxed text-black/60 dark:text-white/60">
           One login for parents, students, teachers, staff and admin — timetables, marks, fees,
@@ -276,7 +276,7 @@ function Why() {
     <section id="why" className="aurora-soft grain relative border-y border-black/[.06] dark:border-white/[.08] py-28">
       <div className="mx-auto grid max-w-7xl items-center gap-14 px-6 lg:grid-cols-2">
         <Reveal>
-          <p className="text-[13px] font-semibold uppercase tracking-[.2em] text-indigo-600 dark:text-indigo-400">Why EduNova</p>
+          <p className="text-[13px] font-semibold uppercase tracking-[.2em] text-indigo-600 dark:text-indigo-400">Why Edkonic</p>
           <h2 className="font-display mt-4 text-[clamp(2rem,4.5vw,3.2rem)] font-medium leading-tight tracking-tight">
             Built like a product, not a register.
           </h2>
@@ -360,7 +360,7 @@ function CTA() {
           </h2>
           <p className="mx-auto mt-4 max-w-md text-white/55">Five portals. Zero paper. One login to rule the timetable chaos.</p>
           <button onClick={() => navigate('/login')} className="glow-pulse mx-auto mt-8 flex items-center gap-2 rounded-full bg-white px-8 py-4 text-[15px] font-semibold text-black transition-transform hover:-translate-y-0.5">
-            Launch EduNova <ArrowRight size={17} />
+            Launch Edkonic <ArrowRight size={17} />
           </button>
         </div>
       </Reveal>
@@ -373,8 +373,8 @@ function Footer() {
     <footer id="contact" className="border-t border-black/[.07] dark:border-white/[.09] bg-white/60 dark:bg-[#14141f]/70">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-6 px-6 py-12">
         <Logo />
-        <p className="text-[14px] text-black/45 dark:text-white/45">hello@edunova.in · +91 484 555 0100 · Kochi, Kerala</p>
-        <p className="text-[13px] text-black/35 dark:text-white/35">© 2026 EduNova School OS. Demo experience.</p>
+        <p className="text-[14px] text-black/45 dark:text-white/45">hello@edkonic.in · +91 484 555 0100 · Kochi, Kerala</p>
+        <p className="text-[13px] text-black/35 dark:text-white/35">© 2026 Edkonic School OS. Demo experience.</p>
       </div>
     </footer>
   )

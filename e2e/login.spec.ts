@@ -15,6 +15,6 @@ test.describe('login', () => {
   test('invalid credentials show an error and keep the user on the login page', async ({ page }) => {
     await uiLogin(page, SUPERADMIN.email, 'wrong-password')
     await expect(page).toHaveURL(/\/login/)
-    await expect(page.getByText(/credentials don.t match any EduNova account/i)).toBeVisible()
+    await expect(page.getByText(/credentials don.t match any Edkonic account/i)).toBeVisible()
   })
 })

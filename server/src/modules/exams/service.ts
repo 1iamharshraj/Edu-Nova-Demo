@@ -131,7 +131,7 @@ export async function seatingPlanPdf(ctx: Ctx, id: string) {
     drawTable(doc, [
       { label: 'Seat', w: 1, align: 'right' }, { label: 'Student', w: 4 }, { label: 'Class', w: 2 }, { label: 'Subject', w: 3 },
     ], rows)
-    await drawFooter(doc, { issuedBy: school.name, issuedOn: fmtLong(now), qrText: `EduNova seating plan ${plan.id} | ${plan.room.name} | ${fmtDate(plan.date)}` })
+    await drawFooter(doc, { issuedBy: school.name, issuedOn: fmtLong(now), qrText: `Edkonic seating plan ${plan.id} | ${plan.room.name} | ${fmtDate(plan.date)}` })
   })
   return { bytes, name: `Seating-${plan.room.name.replace(/\s+/g, '-')}-${fmtDate(plan.date)}.pdf` }
 }
@@ -347,7 +347,7 @@ export async function hallTicketPdf(ctx: Ctx, studentId: string, termId: string)
     drawTable(doc, [
       { label: 'Subject', w: 2.5 }, { label: 'Assessment', w: 2.5 }, { label: 'Date', w: 1.5 }, { label: 'Room', w: 1.5 }, { label: 'Seat', w: 1, align: 'right' },
     ], rows)
-    await drawFooter(doc, { issuedBy: school.name, issuedOn: fmtLong(now), qrText: `EduNova hall ticket | ${student.name} | ${term.name}` })
+    await drawFooter(doc, { issuedBy: school.name, issuedOn: fmtLong(now), qrText: `Edkonic hall ticket | ${student.name} | ${term.name}` })
   })
   return { bytes, name: `HallTicket-${student.name.replace(/\s+/g, '-')}-${term.name.replace(/\s+/g, '-')}.pdf` }
 }

@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────
-   EduNova Service Worker
+   Edkonic Service Worker
    Strategy:
    · Precache app shell + offline page (versioned cache)
    · Cache-first  → hashed static assets (/assets/), icons
@@ -10,7 +10,7 @@
      SKIP_WAITING message from the registration script.
    ───────────────────────────────────────────────────────── */
 
-const VERSION = 'edunova-pwa-v1'
+const VERSION = 'edkonic-pwa-v1'
 const SHELL_CACHE = `${VERSION}-shell`
 const RUNTIME_CACHE = `${VERSION}-runtime`
 const FONT_CACHE = `${VERSION}-fonts`
@@ -56,13 +56,13 @@ self.addEventListener('message', (event) => {
    Phase 29B — Background Sync for the offline attendance queue.
    The service worker has no access to the app's auth token (it lives in the page's localStorage), so it
    can't replay queued submissions itself. Instead, when the browser fires 'sync' (connectivity restored,
-   possibly with the tab in the background/not focused), it wakes every open EduNova tab and asks it to
+   possibly with the tab in the background/not focused), it wakes every open Edkonic tab and asks it to
    run the real replay (src/lib/offlineAttendance.ts `flushQueue`, wired up in
    src/lib/hooks/useOfflineSync.ts). Browsers without Background Sync (notably Safari) never fire this —
    those rely entirely on the in-page 'online' + focus/visibility fallback instead.
    ───────────────────────────────────────────────────────── */
 self.addEventListener('sync', (event) => {
-  if (event.tag !== 'edunova-attendance-sync') return
+  if (event.tag !== 'edkonic-attendance-sync') return
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       clients.forEach((client) => client.postMessage({ type: 'EDUNOVA_ATTENDANCE_SYNC' }))

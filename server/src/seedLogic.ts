@@ -1,8 +1,8 @@
 import bcrypt from 'bcryptjs'
 import { prisma } from './prisma'
 
-const SCHOOL_NAME = 'EduNova Senior Secondary School'
-export const PRINCIPAL = { id: 'u-sa', email: 'principal@edunova.in', password: 'principal123', name: 'Dr. Arun Nambiar' }
+const SCHOOL_NAME = 'Edkonic Senior Secondary School'
+export const PRINCIPAL = { id: 'u-sa', email: 'principal@edkonic.in', password: 'principal123', name: 'Dr. Arun Nambiar' }
 
 // Idempotent: ensures exactly one School and one superadmin (principal) exist. Nothing else.
 // The demo content is loaded separately via POST /api/admin/load-sample-data (src/sampleData.ts).

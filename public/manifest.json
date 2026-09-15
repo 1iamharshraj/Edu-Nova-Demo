@@ -1,6 +1,6 @@
 {
-  "name": "EduNova — School OS",
-  "short_name": "EduNova",
+  "name": "Edkonic — School OS",
+  "short_name": "Edkonic",
   "description": "One login for parents, students, teachers, staff and admin — timetables, marks, fees, chats, certificates and approvals, all in one calm interface.",
   "id": "/",
   "start_url": "/",
@@ -27,14 +27,14 @@
       "sizes": "1920x1080",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "EduNova landing — the school OS that never sleeps"
+      "label": "Edkonic landing — the school OS that never sleeps"
     },
     {
       "src": "/screenshots/mobile.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "EduNova parent portal — marks, attendance and more"
+      "label": "Edkonic parent portal — marks, attendance and more"
     }
   ],
   "shortcuts": [
@@ -48,7 +48,7 @@
     {
       "name": "Login",
       "short_name": "Login",
-      "description": "Sign in to EduNova",
+      "description": "Sign in to Edkonic",
       "url": "/login",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }

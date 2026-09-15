@@ -222,7 +222,7 @@ export async function portfolioPdf(ctx: Ctx, studentId: string) {
       )
     }
 
-    await drawFooter(doc, { issuedBy: 'EduNova School Management System', issuedOn: fmtLong(now), qrText: `EduNova portfolio | ${student.name} | ${student.id}` })
+    await drawFooter(doc, { issuedBy: 'Edkonic School Management System', issuedOn: fmtLong(now), qrText: `Edkonic portfolio | ${student.name} | ${student.id}` })
   })
 
   return { bytes, name: `Portfolio-${student.name.replace(/[^a-z0-9]+/gi, '-')}.pdf` }

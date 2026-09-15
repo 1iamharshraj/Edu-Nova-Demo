@@ -155,7 +155,7 @@ authRouter.post('/forgot', forgotLimiter, wrap(async (req, res) => {
   const base = process.env.APP_URL || process.env.CORS_ORIGIN || 'http://localhost:3000'
   const url = `${base.replace(/\/$/, '')}/reset?token=${token}`
   console.log(`[auth] password reset for ${user.email}: ${url}`)
-  await sendEmail({ to: user.email, subject: 'Reset your EduNova password', body: `Reset your password: ${url}\nThis link expires in 1 hour.` })
+  await sendEmail({ to: user.email, subject: 'Reset your Edkonic password', body: `Reset your password: ${url}\nThis link expires in 1 hour.` })
   await audit(user.schoolId, user.id, 'forgot-password', 'user', user.id)
   res.json({ ok: true, ...(process.env.NODE_ENV !== 'production' ? { devResetUrl: url } : {}) })
 }))

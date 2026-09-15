@@ -62,7 +62,7 @@ export async function loadPhase8(tx: Tx, a: Phase8Args) {
   // ── achievements ──
   await tx.achievement.create({ data: { id: 'a1', schoolId, userId: uid('u-s'), title: 'Gold — State Math Olympiad', detail: 'Ranked 3rd across Kerala, senior category.', date: new Date('2026-01-19T00:00:00.000Z'), category: 'Academic', verifiedById: uid('u-t'), verifiedAt: new Date('2026-01-20T00:00:00.000Z') } })
   await tx.achievement.create({ data: { id: 'a2', schoolId, userId: uid('u-t'), title: 'Best Paper — NCERT Teaching Summit', detail: '“Gamified algebra for grade 10”.', date: new Date('2025-12-02T00:00:00.000Z'), category: 'Academic', verifiedById: uid('u-a'), verifiedAt: new Date('2025-12-03T00:00:00.000Z') } })
-  await tx.achievement.create({ data: { id: 'a3', schoolId, userId: uid('u-s2'), title: 'Inter-school Debate Winner', detail: 'Represented EduNova at the state-level debate championship.', date: new Date('2025-11-15T00:00:00.000Z'), category: 'Arts' } })
+  await tx.achievement.create({ data: { id: 'a3', schoolId, userId: uid('u-s2'), title: 'Inter-school Debate Winner', detail: 'Represented Edkonic at the state-level debate championship.', date: new Date('2025-11-15T00:00:00.000Z'), category: 'Arts' } })
 
   // ── disciplinary cases dc1 / dc2 (both X-B students) ──
   await tx.disciplinaryCase.create({

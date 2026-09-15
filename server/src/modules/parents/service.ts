@@ -192,7 +192,7 @@ export async function sendDigestToParent(ctx: Ctx, parentId: string): Promise<{ 
   const summary = await familySummary(parentCtx)
   if (!summary.wards.length) return { parentId, sent: false, reason: 'no-wards' }
 
-  const title = 'Your daily EduNova digest'
+  const title = 'Your daily Edkonic digest'
   const body = summary.wards.map(w => {
     const att = w.attendanceToday.status ?? 'not yet marked'
     const hw = w.homeworkDueThisWeek.length

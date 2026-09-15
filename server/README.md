@@ -1,6 +1,6 @@
-# EduNova backend
+# Edkonic backend
 
-Node + Express + TypeScript + Prisma + Postgres backend for the EduNova demo.
+Node + Express + TypeScript + Prisma + Postgres backend for the Edkonic demo.
 
 ## Architecture
 
@@ -53,12 +53,12 @@ the full demo school exists with the same emails/passwords as before (from `seed
 
 | Role | Email | Password |
 |---|---|---|
-| Superadmin (Principal) | principal@edunova.in | principal123 |
-| Admin | admin@edunova.in | admin123 |
-| Staff | staff@edunova.in | staff123 |
-| Teacher | teacher@edunova.in | teacher123 |
-| Parent | parent@edunova.in | parent123 |
-| Student | student@edunova.in | student123 |
+| Superadmin (Principal) | principal@edkonic.in | principal123 |
+| Admin | admin@edkonic.in | admin123 |
+| Staff | staff@edkonic.in | staff123 |
+| Teacher | teacher@edkonic.in | teacher123 |
+| Parent | parent@edkonic.in | parent123 |
+| Student | student@edkonic.in | student123 |
 
 (Plus several more teacher/staff/student/parent accounts seeded with the same per-role passwords —
 see `seedDB()` for the full list.)

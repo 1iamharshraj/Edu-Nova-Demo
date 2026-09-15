@@ -1,4 +1,4 @@
-# EduNova — Complete School Management ERP
+# Edkonic — Complete School Management ERP
 
 ### One platform for everything a school runs on — academics, operations, finance, and people — built in 2026, not patched together since 2012.
 
@@ -14,11 +14,11 @@ Every school we spoke to and every platform we researched (Fedena, Entab, Edsys,
 4. **Employee management stops at payroll.** Academic features get all the attention; HR is usually just "pay the staff and track their leave." No reporting lines, no performance history, no real employee record.
 5. **The software feels like 2012.** Reviewers of the most established Indian platforms flag complex installs, non-intuitive navigation, and finance modules that are "very complex" to use — because the codebases underneath are over a decade old.
 
-EduNova was built to fix all five, from a blank slate, in 2026.
+Edkonic was built to fix all five, from a blank slate, in 2026.
 
 ---
 
-## What EduNova actually is
+## What Edkonic actually is
 
 A single, real, end-to-end platform — not a demo, not a prototype. Every module below is backed by a real database, real server-side authorization (checked by an 87-test automated suite that runs on every change, plus a further end-to-end browser test suite), and a real, working UI for every role in the school: superadmin, admin, staff, teacher, student, and parent.
 
@@ -75,14 +75,14 @@ A single, real, end-to-end platform — not a demo, not a prototype. Every modul
 
 ---
 
-## What genuinely sets EduNova apart
+## What genuinely sets Edkonic apart
 
 Based on direct research into the current Indian school-ERP market (see methodology note at the bottom):
 
-| | The market | EduNova |
+| | The market | Edkonic |
 |---|---|---|
 | **Accounting** | Fee collection only; real books kept separately in Tally, reconciled by hand | A real double-entry GL, auto-posted from fees and payroll, balanced by design |
-| **Data ownership** | Almost universally cloud-SaaS only, with no way to bring your data home | A genuine self-hosted option — run EduNova entirely on your own servers if you want full control of your students' data |
+| **Data ownership** | Almost universally cloud-SaaS only, with no way to bring your data home | A genuine self-hosted option — run Edkonic entirely on your own servers if you want full control of your students' data |
 | **Multi-board depth** | "Board" is typically a label or a grading-template switch | Board, Grade, Stream, and Curriculum are independent, structured entities from day one |
 | **AI for students** | Not offered by any major platform we found | A real AI doubt-clearing tutor, built into the student portal |
 | **Employee management** | Payroll and leave, little else | Org structure, performance reviews, and a permanent employment history |
@@ -124,7 +124,7 @@ That's the complete list. There is no sixth line item that appears on your invoi
 
 ## Why this pricing, and why we can afford to include everything
 
-Typical Indian school ERP pricing for a mid-size school (500–1,500 students) runs **₹50,000 to ₹1,50,000 a year** before add-ons, per independent market research — and that's *before* the setup, training, and per-module costs that commonly push real first-year spend 40–60% higher. EduNova's pricing sits inside that same band, but the number you see is the number you pay, because every module is already included in every tier. We'd rather compete on the product than on how well we can hide a fee schedule.
+Typical Indian school ERP pricing for a mid-size school (500–1,500 students) runs **₹50,000 to ₹1,50,000 a year** before add-ons, per independent market research — and that's *before* the setup, training, and per-module costs that commonly push real first-year spend 40–60% higher. Edkonic's pricing sits inside that same band, but the number you see is the number you pay, because every module is already included in every tier. We'd rather compete on the product than on how well we can hide a fee schedule.
 
 ---
 
@@ -132,7 +132,7 @@ Typical Indian school ERP pricing for a mid-size school (500–1,500 students) r
 
 - **See it running**: we'll walk your team through a live demo on your own sample data — no generic canned demo.
 - **Try before you commit**: a 30-day pilot on a subset of your students/staff, at no cost, before any contract is signed.
-- **Migrate at your pace**: run EduNova alongside your current system for one full term if you'd rather not switch everything at once.
+- **Migrate at your pace**: run Edkonic alongside your current system for one full term if you'd rather not switch everything at once.
 
 ---
 

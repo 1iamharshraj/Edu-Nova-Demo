@@ -2,7 +2,8 @@ import { PrismaClient } from '@prisma/client'
 
 // vitest.config.ts points DATABASE_URL at DATABASE_URL_TEST (edunova_test) before this (or any test
 // file, or src/prisma.ts) is ever imported. This guard just makes a misconfiguration loud instead of
-// quietly running against the dev database.
+// quietly running against the dev database. (Local infra database names weren't renamed as part of the
+// Edkonic rebrand — see server/.env* for the real values.)
 if (!/edunova_test/.test(process.env.DATABASE_URL || '')) {
   throw new Error(`Tests must run against edunova_test, got DATABASE_URL=${process.env.DATABASE_URL}`)
 }

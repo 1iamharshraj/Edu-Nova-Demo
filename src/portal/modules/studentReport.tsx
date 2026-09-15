@@ -92,7 +92,7 @@ export function StudentReportMod({ studentId }: StudentReportModProps) {
 
   const downloadTxt = () => {
     const lines = [
-      `EduNova Student Profile Report`,
+      `Edkonic Student Profile Report`,
       `Generated: ${new Date().toLocaleString('en-IN')}`,
       ``,
       `Student: ${student.name}`,

@@ -41,7 +41,7 @@ export default function Forgot() {
   if (sent) {
     const link = devUrl ? resetLink(devUrl) : null
     return (
-      <AuthShell title="Check your inbox" sub={`If ${email} belongs to an EduNova account, a reset link is on its way. It expires after a short while.`}>
+      <AuthShell title="Check your inbox" sub={`If ${email} belongs to an Edkonic account, a reset link is on its way. It expires after a short while.`}>
         <div className="flex items-center gap-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 p-4 text-[13.5px] text-emerald-800 dark:text-emerald-300">
           <MailCheck size={20} className="shrink-0" /> Request received.
         </div>
@@ -60,7 +60,7 @@ export default function Forgot() {
   }
 
   return (
-    <AuthShell title="Forgot your password?" sub="Enter the email on your EduNova account and we’ll send a link to choose a new one.">
+    <AuthShell title="Forgot your password?" sub="Enter the email on your Edkonic account and we’ll send a link to choose a new one.">
       <form onSubmit={submit} className="space-y-4">
         <AuthField label="Email">
           <input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus autoComplete="email" className={authInputCls} />

@@ -49,14 +49,14 @@ describe('group: creation + membership is a platform-level action gated by ordin
   })
 
   it('a superadmin (of any school — documented platform-level limitation) can create a group, and becomes its first GroupAdmin', async () => {
-    const res = await request(app).post('/api/group').set(authHeader(fx.tokens.superadmin)).send({ name: 'EduNova Trust' })
+    const res = await request(app).post('/api/group').set(authHeader(fx.tokens.superadmin)).send({ name: 'Edkonic Trust' })
     expect(res.status).toBe(201)
     groupId = res.body.item.id
-    expect(res.body.item.name).toBe('EduNova Trust')
+    expect(res.body.item.name).toBe('Edkonic Trust')
 
     const mine = await request(app).get('/api/group/mine').set(authHeader(fx.tokens.superadmin))
     expect(mine.status).toBe(200)
-    expect(mine.body.memberships).toEqual([{ groupId, groupName: 'EduNova Trust', role: 'GroupAdmin' }])
+    expect(mine.body.memberships).toEqual([{ groupId, groupName: 'Edkonic Trust', role: 'GroupAdmin' }])
   })
 
   it('rejects a malformed create body', async () => {
