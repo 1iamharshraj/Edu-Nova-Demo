@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import {
   AlertTriangle, Award, Banknote, BarChart3, BedDouble, BookMarked, BookOpen, Boxes, BrainCircuit, Bus, Calculator, CalendarClock, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock3,
   CloudUpload, CreditCard, DoorOpen, FileBadge, FileBarChart2, FileWarning, FolderCog, Gavel, GraduationCap, Handshake, HeartHandshake, HeartPulse, Home, IdCard, KeyRound, Landmark, LayoutGrid, Layers,
@@ -768,14 +768,26 @@ export default function Portal() {
   const { user, logout } = useStore()
   const { currentTerm } = useAcademic()
   const navigate = useNavigate()
-  const [active, setActive] = useState('home')
+  // The active module lives in the URL (?m=...), not plain useState, so it survives navigating away
+  // to a real route (e.g. an employee detail page) and back — otherwise Portal remounts on return and
+  // useState's default ('home') would always win, making the browser Back button dump you on Overview
+  // no matter which module you were actually on.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const active = searchParams.get('m') || 'home'
+  const setActive = useCallback((id: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.set('m', id)
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
   const { memberships } = useGroupMemberships()
   const mods = useMemo(() => {
     const list = modulesFor(user?.role ?? 'parent', setActive)
     if (user?.isCounselor) list.push({ id: 'counseling', label: 'Counseling Records', icon: HeartHandshake, el: <CounselingRecordsMod />, group: 'Manage' })
     if (memberships.length > 0) list.push({ id: 'group', label: 'Group', icon: Network, el: <GroupMod />, group: 'Manage' })
     return list
-  }, [user?.role, user?.isCounselor, memberships.length])
+  }, [user?.role, user?.isCounselor, memberships.length, setActive])
   // '' means "follow the school's current term" until the user picks one explicitly.
   const [pickedTerm, setTerm] = useState('')
   const term = pickedTerm || currentTerm?.id || ''
