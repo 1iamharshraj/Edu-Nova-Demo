@@ -1,7 +1,7 @@
 {
   "name": "Edkonic Prep — Coaching Institute OS",
   "short_name": "Edkonic Prep",
-  "description": "One platform for coaching institutes — leads and enrollments, batch timetables, test scores and rankings, fees, faculty and parent updates.",
+  "description": "One platform for coaching institutes — batch timetables, attendance, test scores and rankings, fees, faculty and parent updates.",
   "id": "/",
   "start_url": "/",
   "scope": "/",

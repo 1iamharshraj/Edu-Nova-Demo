@@ -1,8 +1,7 @@
 import { test, expect } from '@playwright/test'
 
-// Click-through coverage for this batch's mock endpoints: /alumni, /culture, /canteen, /messages,
-// /notifications, /reviews, /ai. See e2e/smoke.spec.ts for the shared login pattern and
-// .agents/edunova/static-demo-plan.md for the mock backend's Testing note.
+// Coaching demo: success stories, faculty reviews, parent↔faculty messaging and the student AI doubt
+// solver. Seed data lives in src/lib/mock/seed/community.ts.
 
 async function login(page: import('@playwright/test').Page, email: string, password: string) {
   await page.goto('/login')
@@ -20,40 +19,20 @@ async function assertNoErrorToast(page: import('@playwright/test').Page) {
   await expect(page.locator('[data-sonner-toast][data-type="error"]')).toHaveCount(0)
 }
 
-test('superadmin — alumni directory, house leaderboard, team reviews, canteen reconciliation', async ({ page }) => {
+test('director — success stories and faculty team reviews', async ({ page }) => {
   await login(page, 'principal@edkonic.in', 'principal123')
 
   await nav(page, 'Success Stories').click()
   await expect(page.getByText('Rohit Malhotra').first()).toBeVisible({ timeout: 10_000 })
   await assertNoErrorToast(page)
 
-  await nav(page, 'House Leaderboard').click()
-  // The page also has an "Award points" house-picker <select> whose hidden <option>s match on text
-  // before the visible leaderboard row does — scope to :visible so `.first()` finds the real one.
-  await expect(page.locator(':visible:text("Nilgiri House")').first()).toBeVisible({ timeout: 10_000 })
-  await expect(page.locator(':visible:text("Shivalik House")').first()).toBeVisible()
-  await assertNoErrorToast(page)
-
   await nav(page, 'Team Reviews').click()
-  // pr-1/pr-2 seeded in src/lib/mock/seed/community.ts against Meera Krishnan (u-t) and Arjun Nair (u-t2).
   await expect(page.getByText('Meera Krishnan').first()).toBeVisible({ timeout: 10_000 })
-  await assertNoErrorToast(page)
-
-  await nav(page, 'Canteen Reconciliation').click()
-  await expect(page.getByText('Reconciled').first()).toBeVisible({ timeout: 10_000 })
-  await expect(page.getByText('Yes', { exact: true }).first()).toBeVisible()
   await assertNoErrorToast(page)
 })
 
-test('parent — canteen wallet top-up and messaging a teacher', async ({ page }) => {
+test('parent — messaging faculty', async ({ page }) => {
   await login(page, 'parent@edkonic.in', 'parent123')
-
-  await nav(page, 'Canteen Wallet').click()
-  await expect(page.getByText(/₹495\.00/).first()).toBeVisible({ timeout: 10_000 })
-  await page.getByRole('button', { name: /top up/i }).click()
-  await page.getByRole('button', { name: /add.*to wallet/i }).click()
-  await expect(page.getByText(/added to/i).first()).toBeVisible({ timeout: 10_000 })
-  await assertNoErrorToast(page)
 
   await nav(page, 'Messages').click()
   await expect(page.getByText('Meera Krishnan').first()).toBeVisible({ timeout: 10_000 })
@@ -66,10 +45,10 @@ test('parent — canteen wallet top-up and messaging a teacher', async ({ page }
   await assertNoErrorToast(page)
 })
 
-test('student — AI doubt tutor history and asking a new question', async ({ page }) => {
+test('student — AI doubt solver history and asking a new question', async ({ page }) => {
   await login(page, 'ravi.k@edkonic.in', 'student123')
 
-  await nav(page, 'AI Doubt Clearing').click()
+  await nav(page, 'AI Doubt Solver').click()
   await expect(page.getByText(/quadratic equations/i).first()).toBeVisible({ timeout: 10_000 })
 
   const askBox = page.getByPlaceholder('Type your doubt…')

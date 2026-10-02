@@ -34,7 +34,6 @@ import DisciplinaryCaseDetail from './pages/portal/DisciplinaryCaseDetail'
 import StudentPortfolio from './pages/portal/StudentPortfolio'
 import HousePointsLedger from './pages/portal/HousePointsLedger'
 import ApplicationDetail from './pages/portal/ApplicationDetail'
-import LeadDetail from './pages/portal/LeadDetail'
 import TcIssuance from './pages/portal/TcIssuance'
 import SectioningDraftReview from './pages/portal/SectioningDraftReview'
 import TeachingRequirements from './pages/portal/TeachingRequirements'
@@ -89,7 +88,6 @@ export default function App() {
         <Route path="/portal/group/schools/:id" element={<Guard><SchoolDetail /></Guard>} />
         <Route path="/portal/admissions/new" element={<Guard><AdmissionNew /></Guard>} />
         <Route path="/portal/admissions/:id" element={<Guard><ApplicationDetail /></Guard>} />
-        <Route path="/portal/leads/:id" element={<Guard><LeadDetail /></Guard>} />
         <Route path="/portal/tc-issuance/:studentId" element={<Guard><TcIssuance /></Guard>} />
         <Route path="/portal/sectioning/versions/:id" element={<Guard><SectioningDraftReview /></Guard>} />
         <Route path="/portal/academic/cohorts/:id/requirements" element={<Guard><TeachingRequirements /></Guard>} />

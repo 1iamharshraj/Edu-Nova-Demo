@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router'
 import {
   ArrowRight, ArrowUpRight, Bell, BookOpen, BrainCircuit, CalendarDays, CheckCircle2,
   ChevronDown, CreditCard, GraduationCap, Landmark, LayoutDashboard, Menu,
-  MessagesSquare, Rocket, ShieldCheck, Sparkles, Target, TrendingUp, Users, Wallet, X,
+  MessagesSquare, Rocket, ShieldCheck, Sparkles, TrendingUp, Users, Wallet, X,
 } from 'lucide-react'
 import { Logo } from '@/components/Logo'
 import { useStore } from '@/lib/store'
@@ -16,9 +16,9 @@ const PORTALS = [
   { icon: Users, title: 'For Parents', desc: 'Test scores, rankings, attendance, fees and faculty chat.', role: 'parent' },
   { icon: GraduationCap, title: 'For Students', desc: 'Batch timetable, DPPs, test rankings and an AI doubt solver.', role: 'student' },
   { icon: BookOpen, title: 'For Faculty', desc: 'Attendance, test grading, syllabus progress, AI question papers.', role: 'teacher' },
-  { icon: LayoutDashboard, title: 'For Front Desk', desc: 'Leads from ads, walk-ins and Google Sheets, enrollments, fees.', role: 'staff' },
+  { icon: LayoutDashboard, title: 'For Front Desk', desc: 'Student records, fee collection and parent communication.', role: 'staff' },
   { icon: Landmark, title: 'For Directors', desc: 'Batches, scheduling, finance, faculty and full oversight.', role: 'admin' },
-  { icon: Target, title: 'Lead Pipeline', desc: 'Every enquiry tracked from first call to enrolled student.', role: 'staff' },
+  { icon: CalendarDays, title: 'Batch Scheduling', desc: 'Clash-free timetables for every batch, faculty and classroom.', role: 'admin' },
 ]
 
 const FEATURES = [
@@ -27,7 +27,7 @@ const FEATURES = [
   { icon: MessagesSquare, title: 'Parent updates', desc: 'Chats, announcements and PTMs so parents see progress weekly.' },
   { icon: CreditCard, title: 'Fees & installments', desc: 'Course fees, installment plans and defaulter follow-ups.' },
   { icon: BrainCircuit, title: 'AI doubt solver', desc: 'Students get instant, syllabus-aware answers between classes.' },
-  { icon: Target, title: 'Lead management', desc: 'Website, Google/Meta ads, walk-ins and Sheet imports in one pipeline.' },
+  { icon: Sparkles, title: 'AI question generator', desc: 'Faculty build DPPs and practice papers from the syllabus in seconds.' },
 ]
 
 /* ── scroll reveal ─────────────────────────────────────── */
@@ -174,14 +174,14 @@ function Hero() {
     <section className="aurora grain relative overflow-hidden pb-28 pt-40">
       <div className="mx-auto max-w-7xl px-6">
         <div className="rise-in inline-flex items-center gap-2 rounded-full border border-black/10 dark:border-white/15 bg-white/70 dark:bg-[#14141f]/80 px-4 py-1.5 text-[13px] font-medium text-black/70 dark:text-white/70 backdrop-blur">
-          <Sparkles size={14} className="text-indigo-600" /> New — lead management for ads, walk-ins and Google Sheets
+          <Sparkles size={14} className="text-indigo-600" /> New — AI question generator for DPPs and practice papers
         </div>
         <h1 className="font-display rise-in rise-1 mt-7 max-w-4xl text-[clamp(2.8rem,7vw,5.6rem)] font-medium leading-[1.02] tracking-tight">
           Meet Edkonic Prep, the <span className="text-grad">coaching institute OS</span>.
         </h1>
         <p className="rise-in rise-2 mt-6 max-w-xl text-lg leading-relaxed text-black/60 dark:text-white/60">
-          From the first enquiry to the final rank list — leads, enrollments, batch timetables,
-          tests, fees and parent updates in one place, so your faculty stays focused on results.
+          From batch timetables to the final rank list — attendance, tests, rankings, fees,
+          faculty and parent updates in one place, so your team stays focused on results.
         </p>
         <div className="rise-in rise-3 mt-9 flex flex-wrap items-center gap-4">
           <button onClick={() => navigate('/login')} className="btn-ink flex items-center gap-2 px-7 py-3.5 text-[15px] font-semibold">
@@ -204,7 +204,7 @@ function Hero() {
                 {[
                   { icon: CalendarDays, k: 'Next class', v: 'Physics · Room 2', s: 'starts 4:15 pm' },
                   { icon: TrendingUp, k: 'Mock test 6 rank', v: '#4 of 212', s: '+11 places vs Mock 5' },
-                  { icon: Bell, k: 'New leads', v: '14 today', s: '6 from Google Ads' },
+                  { icon: Bell, k: 'DPP due', v: 'Chapter 7', s: 'submit by 9 pm tonight' },
                 ].map((c) => (
                   <div key={c.k} className="rounded-2xl bg-white/[.06] p-5">
                     <c.icon size={18} className="text-indigo-300" />
@@ -222,7 +222,7 @@ function Hero() {
   )
 }
 
-const MARQUEE = ['Lead Pipeline', 'Google Sheet Import', 'Enrollments', 'Batch Timetables', 'Attendance', 'Test Scores', 'Rankings', 'DPPs', 'Syllabus Tracking', 'AI Doubt Solver', 'Fee Installments', 'Payroll', 'Parent Updates', 'Success Stories']
+const MARQUEE = ['Batch Timetables', 'Attendance', 'Test Scores', 'Rankings', 'DPPs', 'Syllabus Tracking', 'AI Doubt Solver', 'Fee Installments', 'Payroll', 'Parent Updates', 'Success Stories']
 
 function Marquee() {
   return (
@@ -244,7 +244,7 @@ function Features() {
       <Reveal>
         <p className="text-[13px] font-semibold uppercase tracking-[.2em] text-indigo-600 dark:text-indigo-400">Everything, end to end</p>
         <h2 className="font-display mt-4 max-w-2xl text-[clamp(2rem,4.5vw,3.4rem)] font-medium leading-tight tracking-tight">
-          Every enquiry, batch, test and receipt — in one calm interface.
+          Every batch, test, rank and receipt — in one calm interface.
         </h2>
       </Reveal>
       <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -269,7 +269,7 @@ function Why() {
   const stats = [
     { v: '5', k: 'roles, one login' },
     { v: '40+', k: 'workflows automated' },
-    { v: '7', k: 'lead sources tracked' },
+    { v: '1', k: 'click to publish rankings' },
     { v: '0', k: 'spreadsheets to chase' },
   ]
   return (
@@ -281,14 +281,14 @@ function Why() {
             Built for how coaching actually runs.
           </h2>
           <p className="mt-5 max-w-md text-lg leading-relaxed text-black/60 dark:text-white/60">
-            Leads from every ad and walk-in land in one pipeline. Faculty grade tests in seconds and
+            Timetables schedule themselves without clashes. Faculty grade tests in seconds and
             rankings update instantly. Parents see weekly progress, and directors see every batch,
             every rupee and every result.
           </p>
           <div className="mt-8 flex items-center gap-3 rounded-2xl border border-black/[.08] dark:border-white/[.10] bg-white/70 dark:bg-[#14141f]/80 p-5 backdrop-blur">
             <ShieldCheck size={26} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
             <p className="text-[15px] leading-snug text-black/70 dark:text-white/70">
-              <span className="font-semibold text-black dark:text-white">Lead to enrollment in one click</span> — a converted lead gets a student login and a batch seat instantly.
+              <span className="font-semibold text-black dark:text-white">Clash-free by design</span> — the timetable engine never double-books a faculty member or a classroom.
             </p>
           </div>
         </Reveal>
@@ -313,7 +313,7 @@ function PortalCards() {
     { role: 'parent', name: 'Parent Portal', desc: 'Follow test scores, rankings, attendance and fees — and message faculty.', grad: 'from-indigo-500 to-violet-500' },
     { role: 'student', name: 'Student Portal', desc: 'Batch timetable, DPPs, test rankings and the AI doubt solver.', grad: 'from-sky-500 to-cyan-400' },
     { role: 'teacher', name: 'Faculty Portal', desc: 'Take attendance, grade tests, track syllabus and generate question papers.', grad: 'from-emerald-500 to-teal-400' },
-    { role: 'staff', name: 'Front Desk', desc: 'Work the lead pipeline, enroll students and collect fees from one desk.', grad: 'from-amber-500 to-orange-400' },
+    { role: 'staff', name: 'Front Desk', desc: 'Manage student records, attendance and fee collection from one desk.', grad: 'from-amber-500 to-orange-400' },
     { role: 'admin', name: 'Director Console', desc: 'Batches, scheduling, finance and faculty — institute-wide control.', grad: 'from-rose-500 to-pink-400' },
   ]
   return (
@@ -358,7 +358,7 @@ function CTA() {
           <h2 className="font-display mx-auto mt-6 max-w-2xl text-[clamp(2rem,4.5vw,3.2rem)] font-medium leading-tight">
             Your institute, already organised.
           </h2>
-          <p className="mx-auto mt-4 max-w-md text-white/55">From enquiry to rank list. One login for every batch.</p>
+          <p className="mx-auto mt-4 max-w-md text-white/55">From timetable to rank list. One login for every batch.</p>
           <button onClick={() => navigate('/login')} className="glow-pulse mx-auto mt-8 flex items-center gap-2 rounded-full bg-white px-8 py-4 text-[15px] font-semibold text-black transition-transform hover:-translate-y-0.5">
             Launch Edkonic Prep <ArrowRight size={17} />
           </button>

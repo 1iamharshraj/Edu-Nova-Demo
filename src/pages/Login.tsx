@@ -76,7 +76,7 @@ export default function Login() {
             One login.<br />Every <span className="text-grad">batch, test and rank</span>.
           </h1>
           <p className="mt-5 max-w-md text-lg leading-relaxed text-black/60 dark:text-white/60">
-            Pick a role to prefill its demo account — director, front desk, faculty, parent or student. This demo institute comes pre-loaded with batches, tests, leads and fees.
+            Pick a role to prefill its demo account — director, front desk, faculty, parent or student. This demo institute comes pre-loaded with batches, tests, rankings and fees.
           </p>
           <div className="mt-8 space-y-3">
             {ROLES.map((r) => (

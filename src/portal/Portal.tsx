@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import {
   Banknote, BarChart3, BookMarked, BookOpen, Boxes, BrainCircuit, Calculator, CalendarClock, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock3,
   CreditCard, DoorOpen, FileBadge, FileBarChart2, GraduationCap, Home, Landmark, LayoutGrid, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, NotebookPen, PencilLine, ScrollText, Settings, ShoppingCart, Shuffle,
-  ShieldAlert, ShieldCheck, Star, Target, Trophy, Truck, UserCircle2, Umbrella, Users, Users2, Video, Wallet, Wand2, type LucideIcon,
+  ShieldAlert, ShieldCheck, Star, Trophy, Truck, UserCircle2, Umbrella, Users, Users2, Video, Wallet, Wand2, type LucideIcon,
 } from 'lucide-react'
 import { Logo } from '@/components/Logo'
 import { api, errorMessage } from '@/lib/api'
@@ -28,7 +28,6 @@ import {
 import { useSlips, useDisciplinaryCases } from '@/lib/hooks/useWelfare'
 import { useCalendarEvents } from '@/lib/hooks/useComms'
 import { MeetingsMod } from './modules/meetings'
-import { LeadsMod } from './modules/leads'
 import { FeeDefaultersAndCallsMod } from './modules/feeDefaulters'
 import { PaymentGatewayMod } from './modules/paymentGateway'
 import { CollectionsMod, FeeSetupMod, MyPayslipsMod, PayrollMod } from './modules/finance'
@@ -69,12 +68,8 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
   // Coaching-institute information architecture. Groups are ordered by how often each role actually
   // reaches for them; school-only surfaces (houses, board registration, TCs, quota catalogues, pickups,
   // canteen, health/medication, permission slips, UDISE) are deliberately absent from this demo.
-  const staffDesk = (): Mod[] => [
-    M('leads', 'Leads', Target, <LeadsMod />, 'Admissions'),
-  ]
   const adminMods = (superadmin: boolean): Mod[] => [
     M('home', 'Overview', Home, <Overview />, 'Main'),
-    ...staffDesk(),
     M('classes', 'Batches', GraduationCap, <ClassesMod />, 'Batches & Scheduling'),
     M('ttb', 'Timetable Builder', CalendarDays, <TimetableBuilderMod />, 'Batches & Scheduling'),
     M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Batches & Scheduling'),
@@ -176,8 +171,7 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
     ]
     case 'staff': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
-      ...staffDesk(),
-      M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Students'),
+        M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Students'),
       M('atrisk', 'Students at Risk', ShieldAlert, <StudentsAtRiskMod />, 'Students'),
       M('reports', 'Progress Reports', FileBadge, <StudentReportsMod />, 'Students'),
         M('seating', 'Test Seating Plans', ClipboardCheck, <SeatingPlanMod />, 'Tests & Results'),
@@ -485,7 +479,7 @@ function Overview() {
     { done: academic.years.length > 0, label: 'Create the academic session and its terms', where: 'Sessions & Terms' },
     { done: academic.classes.length > 0, label: 'Create batches and assign faculty', where: 'Batches' },
     { done: academic.periodTemplates.length > 0, label: 'Define the daily time slots', where: 'Time Slots' },
-    { done: db.users.some(u => u.role === 'student'), label: 'Enroll students — straight from the lead pipeline', where: 'Leads' },
+    { done: db.users.some(u => u.role === 'student'), label: 'Add students and enroll them into batches', where: 'People & Roles' },
   ]
   const setupComplete = setupSteps.every(s => s.done)
 
