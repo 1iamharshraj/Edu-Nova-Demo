@@ -463,14 +463,14 @@ function Overview() {
         { k: 'Permission slips', v: String(slips), s: 'active', tone: 'from-sky-500 to-cyan-400' },
       ]
       case 'admin': return [
-        { k: 'Students', v: String(students), s: `${academic.classes.length} classes`, tone: 'from-sky-500 to-cyan-400' },
-        { k: 'Teachers', v: String(teachers), s: `${academic.subjects.length} subjects`, tone: 'from-indigo-500 to-violet-500' },
+        { k: 'Students', v: String(students), s: `${academic.classes.length} batches`, tone: 'from-sky-500 to-cyan-400' },
+        { k: 'Faculty', v: String(teachers), s: `${academic.subjects.length} subjects`, tone: 'from-indigo-500 to-violet-500' },
         { k: 'Fee defaulters', v: String(defaulters), s: 'students with dues', tone: 'from-rose-500 to-pink-400' },
         { k: 'Applications', v: String(pendingApps), s: 'need a decision', tone: 'from-amber-500 to-orange-400' },
       ]
       case 'superadmin': return [
-        { k: 'Students', v: String(students), s: `${academic.classes.length} classes`, tone: 'from-sky-500 to-cyan-400' },
-        { k: 'Teachers', v: String(teachers), s: `${academic.subjects.length} subjects`, tone: 'from-indigo-500 to-violet-500' },
+        { k: 'Students', v: String(students), s: `${academic.classes.length} batches`, tone: 'from-sky-500 to-cyan-400' },
+        { k: 'Faculty', v: String(teachers), s: `${academic.subjects.length} subjects`, tone: 'from-indigo-500 to-violet-500' },
         { k: 'Admins', v: String(db.users.filter(u => u.role === 'admin').length), s: 'institute administrators', tone: 'from-fuchsia-500 to-pink-500' },
         { k: 'Resignations', v: String(pendingResignations), s: 'pending approval', tone: 'from-amber-500 to-orange-400' },
       ]
@@ -482,11 +482,10 @@ function Overview() {
   const nextEvents = (calendarEvents ?? []).slice(0, 4)
   const isSetupRole = role === 'admin' || role === 'superadmin'
   const setupSteps = [
-    { done: academic.years.length > 0, label: 'Create the academic year and its terms', where: 'Years & Terms' },
-    { done: academic.boards.length > 0 && academic.grades.length > 0, label: 'Add the boards you run and the grade ladder', where: 'Boards & Grades' },
-    { done: academic.curriculum.length > 0, label: 'Define each board’s grade-wise subjects', where: 'Curriculum' },
-    { done: academic.classes.length > 0, label: 'Create sections and assign teachers', where: 'Batches' },
-    { done: db.users.some(u => u.role === 'student'), label: 'Enrol students and link parents', where: 'People & Roles' },
+    { done: academic.years.length > 0, label: 'Create the academic session and its terms', where: 'Sessions & Terms' },
+    { done: academic.classes.length > 0, label: 'Create batches and assign faculty', where: 'Batches' },
+    { done: academic.periodTemplates.length > 0, label: 'Define the daily time slots', where: 'Time Slots' },
+    { done: db.users.some(u => u.role === 'student'), label: 'Enroll students — straight from the lead pipeline', where: 'Leads' },
   ]
   const setupComplete = setupSteps.every(s => s.done)
 
