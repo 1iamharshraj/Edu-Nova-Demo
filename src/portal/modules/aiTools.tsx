@@ -290,7 +290,7 @@ export function ReportCardRemarksMod() {
     <PageHead title="Report Card Remarks" sub="One overall remark per student per term — draft with AI, then review and save it yourself">
       <div className="flex flex-wrap items-center gap-2">
         {classList.length > 0 && (
-          <select value={classId} onChange={e => setPicked(e.target.value)} className={`${inputCls} w-auto min-w-[160px] py-2 text-[13.5px]`} aria-label="Class">
+          <select value={classId} onChange={e => setPicked(e.target.value)} className={`${inputCls} w-auto min-w-[160px] py-2 text-[13.5px]`} aria-label="Batch">
             {classList.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
         )}
@@ -299,7 +299,7 @@ export function ReportCardRemarksMod() {
     </PageHead>
   )
 
-  if (classList.length === 0) return <div>{header}<Empty text={isTeacher ? "You aren't the class teacher of any class yet." : 'No classes yet.'} /></div>
+  if (classList.length === 0) return <div>{header}<Empty text={isTeacher ? "You aren't the class teacher of any class yet." : 'No batches yet.'} /></div>
   if (!term) return <div>{header}<Empty text="Create a term first." /></div>
 
   return (

@@ -592,7 +592,7 @@ function ProgramProfitabilityView() {
       {error && <Empty text={error} />}
       {!loading && !error && data && (
         <div className="space-y-5">
-          {data.programs.length === 0 ? <Card><Empty text="No classes found for this term's academic year." /></Card> : (
+          {data.programs.length === 0 ? <Card><Empty text="No batches found for this term's academic year." /></Card> : (
             <Card className="p-0">
               {data.programs.map(p => (
                 <div key={`${p.boardId}-${p.gradeId}`} className={rowCls}>

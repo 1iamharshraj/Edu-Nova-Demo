@@ -506,7 +506,7 @@ export function AdmissionForm({ onDone }: { onDone: () => void }) {
         </Field>
         <Field label="Admit to class">
           <select value={f.targetClassId} onChange={set('targetClassId')} className={inputCls}>
-            {options.length === 0 && <option value="">No classes in the current year</option>}
+            {options.length === 0 && <option value="">No batches in the current year</option>}
             {options.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
           </select>
         </Field>
@@ -966,7 +966,7 @@ export function PeopleMod() {
   const emptyText = filtersActive
     ? 'No people match the filters.'
     : tab === 'students'
-      ? (yearClasses.length === 0 ? 'No classes yet. Create a class in Academic Setup, then add students.' : 'No students yet. Add the first one.')
+      ? (yearClasses.length === 0 ? 'No batches yet. Create a class in Academic Setup, then add students.' : 'No students yet. Add the first one.')
       : `No ${tabLabel.toLowerCase()} yet.`
 
   const roleTone = (r: Role) => r === 'student' ? 'sky' : r === 'teacher' ? 'indigo' : r === 'parent' ? 'green' : r === 'staff' ? 'amber' : 'rose'
@@ -1072,7 +1072,7 @@ export function PeopleMod() {
           </div>
           {showClassFilter && (
             <select value={cls} onChange={e => setCls(e.target.value)} className={inputCls + ' w-auto min-w-[120px]'}>
-              <option value="">All classes</option>
+              <option value="">All batches</option>
               {yearClasses.map(c => <option key={c.id} value={c.id}>{classOption(c)}</option>)}
             </select>
           )}
@@ -1300,15 +1300,15 @@ export function CalendarAdminMod() {
               </Field>
               <Field label="Audience">
                 <select value={audience} onChange={e => setAudience(e.target.value as 'School' | 'Class')} className={inputCls}>
-                  <option value="School">Whole school</option>
-                  <option value="Class">One class</option>
+                  <option value="School">Whole institute</option>
+                  <option value="Class">One batch</option>
                 </select>
               </Field>
             </div>
             {audience === 'Class' && (
-              <Field label="Class">
+              <Field label="Batch">
                 <select value={classId} onChange={e => setClassId(e.target.value)} className={inputCls} disabled={academic.classes.length === 0}>
-                  <option value="">{academic.classes.length === 0 ? 'No classes yet' : 'Select a class'}</option>
+                  <option value="">{academic.classes.length === 0 ? 'No batches yet' : 'Select a batch'}</option>
                   {academic.classes.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
                 </select>
               </Field>
@@ -1331,7 +1331,7 @@ export function CalendarAdminMod() {
               <div key={e.id} className="flex items-center gap-3 border-b border-black/[.05] dark:border-white/[.07] px-6 py-3 last:border-0">
                 <span className="flex-1 text-[13.5px] font-medium">{e.title}</span>
                 <span className="text-[12px] text-black/40 dark:text-white/40">{e.date}</span>
-                <Pill tone="slate">{e.audience === 'Class' ? classLabel(e.classId) : 'School'}</Pill>
+                <Pill tone="slate">{e.audience === 'Class' ? classLabel(e.classId) : 'Everyone'}</Pill>
                 <Pill tone={e.type === 'holiday' ? 'rose' : e.type === 'exam' ? 'amber' : 'indigo'}>{e.type}</Pill>
                 <button onClick={() => edit(e)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15" aria-label="Edit"><Pencil size={14} className="text-black/50 dark:text-white/50" /></button>
                 <button onClick={() => remove(e)} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-rose-50 dark:hover:bg-rose-500/10" aria-label="Delete"><Trash2 size={14} className="text-rose-500" /></button>
@@ -1537,8 +1537,8 @@ function BoardReadinessDashboard() {
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <select value={cls} onChange={e => setClassId(e.target.value)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Class">
-          {classList.length === 0 && <option value="">No classes</option>}
+        <select value={cls} onChange={e => setClassId(e.target.value)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Batch">
+          {classList.length === 0 && <option value="">No batches</option>}
           {classList.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
         </select>
         <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)} className={`${inputCls} w-auto py-1.5 text-[12.5px]`} aria-label="Sort by">
@@ -1563,7 +1563,7 @@ function BoardReadinessDashboard() {
       <Card className="p-0 overflow-x-auto">
         {readiness.loading ? <div className="p-6 text-center text-[13px] text-black/40 dark:text-white/40">Loading…</div>
           : readiness.error ? <div className="p-6"><Empty text={readiness.error} /></div>
-          : rows.length === 0 ? <div className="p-6"><Empty text={classList.length === 0 ? 'No classes to show yet.' : needsAttentionOnly ? 'No students need attention right now.' : 'No students in this class.'} /></div>
+          : rows.length === 0 ? <div className="p-6"><Empty text={classList.length === 0 ? 'No batches to show yet.' : needsAttentionOnly ? 'No students need attention right now.' : 'No students in this class.'} /></div>
           : (
             <table className="w-full text-left text-[13.5px]">
               <thead>

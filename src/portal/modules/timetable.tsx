@@ -69,7 +69,7 @@ export function TimetableGrid({ template, days, renderCell, now, dense }: {
   // the whole point of sizing it to fit. minmax(0, …) lets a track actually shrink to its share of the
   // available space, so cell text truncates (compact view) instead of the grid overflowing further.
   const colTemplate = `${dayColWidth}px ${periods.map(p => p.kind === 'break' ? 'minmax(0,0.36fr)' : 'minmax(0,1fr)').join(' ')}`
-  // Sized to fit a full 8-period school day on a 1280–1440px laptop screen without scrolling (a short
+  // Sized to fit a full 8-period teaching day on a 1280–1440px laptop screen without scrolling (a short
   // subject/teacher label reads fine at this width; the full label is available on hover/focus via
   // PeriodCard's detail overlay, so this doesn't need to be wide enough for the longest possible name).
   // Longer templates still scroll horizontally — the edge-fade + sticky day column below make that obvious.
@@ -490,11 +490,11 @@ function ClassPicker({ term }: { term: string }) {
   const template = data?.template ?? templateFor(classId)
   const byKey = new Map(entries.map(e => [cellKey(e.dayOfWeek, e.periodIdx), e]))
 
-  if (list.length === 0) return <Empty text="No classes in the current year yet." />
+  if (list.length === 0) return <Empty text="No batches in the current year yet." />
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <select value={classId} onChange={e => setPicked(e.target.value)} className={inputCls + ' w-auto min-w-[160px] py-2 text-[13.5px]'} aria-label="Class">
+        <select value={classId} onChange={e => setPicked(e.target.value)} className={inputCls + ' w-auto min-w-[160px] py-2 text-[13.5px]'} aria-label="Batch">
           {list.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
         </select>
         {data && (data.published ? <Pill tone="green">Published</Pill> : <Pill tone="amber">Draft</Pill>)}

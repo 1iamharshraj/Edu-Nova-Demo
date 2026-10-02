@@ -143,7 +143,7 @@ export function TeachingProgressMod() {
         )}
       </PageHead>
 
-      {rows.length === 0 ? <Empty text="No class-subjects assigned to you yet. Ask the admin to assign you a class-subject under Classes & Sections → Subjects." /> : (
+      {rows.length === 0 ? <Empty text="No class-subjects assigned to you yet. Ask the admin to assign you a class-subject under Batches → Subjects." /> : (
         <div className="space-y-5">
           <Card>
             {pace.loading ? <p className={muted}>Computing pace…</p>

@@ -1,25 +1,58 @@
 {
-  "name": "Edkonic — School OS",
-  "short_name": "Edkonic",
-  "description": "One login for parents, students, teachers, staff and admin — timetables, marks, fees, chats, certificates and approvals, all in one calm interface.",
+  "name": "Edkonic Prep — Coaching Institute OS",
+  "short_name": "Edkonic Prep",
+  "description": "One platform for coaching institutes — leads and enrollments, batch timetables, test scores and rankings, fees, faculty and parent updates.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["window-controls-overlay", "standalone", "minimal-ui", "browser"],
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui",
+    "browser"
+  ],
   "orientation": "any",
-  "theme_color": "#090911",
-  "background_color": "#090911",
+  "theme_color": "#f6f6f4",
+  "background_color": "#f6f6f4",
   "lang": "en-IN",
   "dir": "ltr",
-  "categories": ["education", "productivity"],
+  "categories": [
+    "education",
+    "productivity"
+  ],
   "prefer_related_applications": false,
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-384.png", "sizes": "384x384", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ],
   "screenshots": [
     {
@@ -27,14 +60,14 @@
       "sizes": "1920x1080",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "Edkonic landing — the school OS that never sleeps"
+      "label": "Edkonic Prep — the coaching institute OS"
     },
     {
       "src": "/screenshots/mobile.png",
       "sizes": "1080x1920",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "Edkonic parent portal — marks, attendance and more"
+      "label": "Edkonic Prep parent portal — test scores, attendance and more"
     }
   ],
   "shortcuts": [
@@ -43,14 +76,24 @@
       "short_name": "Portal",
       "description": "Jump straight into your role portal",
       "url": "/portal",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     },
     {
       "name": "Login",
       "short_name": "Login",
-      "description": "Sign in to Edkonic",
+      "description": "Sign in to Edkonic Prep",
       "url": "/login",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
   ]
 }

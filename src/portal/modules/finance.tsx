@@ -333,7 +333,7 @@ function StructuresTab() {
           <table className="w-full min-w-[520px] text-[13.5px]">
             <thead>
               <tr className="border-b border-black/[.06] dark:border-white/[.08] text-left text-[12px] uppercase tracking-wider text-black/40 dark:text-white/40">
-                <th className="px-6 py-3.5 font-semibold">Class</th>
+                <th className="px-6 py-3.5 font-semibold">Batch</th>
                 {termList.map(t => <th key={t.id} className="px-4 py-3.5 font-semibold">{t.name}</th>)}
               </tr>
             </thead>
@@ -409,9 +409,9 @@ function InvoicesTab() {
   return (
     <>
       <div className="mb-5 flex flex-wrap items-end gap-3">
-        <Field label="Class">
+        <Field label="Batch">
           <select value={classId} onChange={e => setClassId(e.target.value)} className={`${inputCls} w-auto min-w-[150px]`}>
-            <option value="">All classes</option>
+            <option value="">All batches</option>
             {classList.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
         </Field>

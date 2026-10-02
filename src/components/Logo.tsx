@@ -3,7 +3,7 @@ export function Logo({ size = 34, dark = true }: { size?: number; dark?: boolean
     <span className="inline-flex items-center gap-2.5 select-none">
       <img src="/brand/icon-transparent.png" alt="" width={size} height={size} style={{ width: size, height: size }} className="shrink-0" />
       <span className={`font-display text-[1.35rem] font-medium tracking-tight ${dark ? 'text-[#0b0b10] dark:text-white' : 'text-white'}`}>
-        Edkonic
+        Edkonic<span className="ml-1.5 align-middle rounded-md bg-blue-600 px-1.5 py-0.5 font-sans text-[0.6em] font-bold uppercase tracking-wider text-white">Prep</span>
       </span>
     </span>
   )

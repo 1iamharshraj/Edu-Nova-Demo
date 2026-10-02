@@ -1,7 +1,7 @@
 // Lead Management — coaching-institute demo. Every enquiry (online, offline, paid-ad, or bulk-imported
 // from a Google Sheet) is a `Lead` row moving through a pipeline (New → Contacted → Trial Scheduled →
-// Trial Attended → Enrolled/Lost). A lead converts into a real admissions `Application` via
-// `POST /leads/:id/convert`, reusing the existing admissions pipeline rather than forking a second one.
+// Trial Attended → Enrolled/Lost). `POST /leads/:id/convert` enrolls the lead straight into a batch
+// (creates the student login + an active enrollment) — no school-style application/TC paperwork.
 //
 // Google Sheet import: this is a static, backend-less demo, so there's no live Google Sheets API call —
 // `POST /leads/import` accepts either pasted/uploaded CSV rows (genuinely parsed) or a Google Sheet URL
@@ -27,7 +27,8 @@ function serializeLead(l: Row) {
     status: l.status, score: l.score ?? 0, assignedToId: l.assignedToId ?? undefined,
     assignedToName: assignee?.name as string | undefined,
     importBatch: l.importBatch ?? undefined, notes: l.notes ?? [],
-    convertedApplicationId: l.convertedApplicationId ?? undefined,
+    convertedStudentId: l.convertedStudentId ?? undefined,
+    enrolledBatch: l.enrolledClassId ? (() => { const c = table('Class').find(x => x.id === l.enrolledClassId); return c ? batchLabel(c) : undefined })() : undefined,
     createdAt: l.createdAt,
   }
 }
@@ -136,9 +137,9 @@ route('POST', '/leads/import', (ctx) => {
     // flagged via `simulated: true` in the response so the UI can tell the operator what actually happened.
     simulated = true
     const sample: ImportRow[] = [
-      { name: 'Ishaan Verma', phone: '+91 90001 11111', email: 'ishaan.verma@gmail.com', interestedCourse: 'JEE Main 2027 — Batch A' },
+      { name: 'Ishaan Verma', phone: '+91 90001 11111', email: 'ishaan.verma@gmail.com', interestedCourse: 'JEE 2027 · A' },
       { name: 'Riya Kapoor', phone: '+91 90001 22222', email: 'riya.kapoor@gmail.com', interestedCourse: 'NEET Dropper Batch' },
-      { name: 'Aryan Joshi', phone: '+91 90001 33333', interestedCourse: 'Foundation Batch — Class X' },
+      { name: 'Aryan Joshi', phone: '+91 90001 33333', interestedCourse: 'Foundation IX · A' },
     ]
     imported = sample.map(r => ({
       id: uid('lead'), schoolId: actor.schoolId, name: r.name, phone: r.phone, email: r.email ?? null,
@@ -162,31 +163,58 @@ route('POST', '/leads/import', (ctx) => {
   return status(201, { imported: imported.length, simulated, items: imported.map(serializeLead) })
 })
 
-// ── Convert a lead into a real admissions Application (Admission kind, Pending status) — reuses the
-// existing admissions pipeline rather than a second parallel one. ──
+// ── Enroll a lead straight into a batch — how a coaching institute actually onboards: no school-style
+// application/TC paperwork, just a student login plus an active enrollment in the chosen batch. ──
+function batchLabel(cls: Row) {
+  const grade = table('Grade').find(g => g.id === cls.gradeId)
+  return `${grade?.label ?? ''} · ${cls.section}`.trim()
+}
+
+function uniqueStudentEmail(name: string): string {
+  const parts = name.toLowerCase().replace(/[^a-z ]/g, '').split(/\s+/).filter(Boolean)
+  const base = parts.length > 1 ? `${parts[0]}.${parts[parts.length - 1][0]}` : (parts[0] ?? 'student')
+  const users = table('User')
+  let email = `${base}@edkonic.in`
+  for (let n = 2; users.some(u => String(u.email).toLowerCase() === email); n++) email = `${base}${n}@edkonic.in`
+  return email
+}
+
 route('POST', '/leads/:id/convert', (ctx) => {
   const actor = requireRole(ctx, ...STAFF_ROLES)
   const rows = table('Lead')
   const idx = rows.findIndex(l => l.id === ctx.params.id && l.schoolId === actor.schoolId)
   if (idx === -1) throw notFound('Lead')
   const lead = rows[idx]
-  if (lead.convertedApplicationId) throw badRequest('This lead has already been converted')
+  if (lead.convertedStudentId) throw badRequest('This lead is already enrolled')
+  const { classId } = ctx.body as { classId?: string }
+  if (!classId) throw badRequest('Pick a batch to enroll into')
+  const cls = table('Class').find(c => c.id === classId && c.schoolId === actor.schoolId)
+  if (!cls) throw notFound('Batch')
 
-  const applications = table('Application')
-  const application: Row = {
-    id: uid('application'), schoolId: actor.schoolId, kind: 'Admission', applicantName: lead.name,
-    dob: null, gender: null,
-    guardian: { name: `${lead.name} (self/guardian)`, phone: lead.phone, email: lead.email ?? undefined },
-    targetClassId: null, targetBoardId: null, documents: [], status: 'Pending',
-    notes: `Converted from lead ${lead.id} — interested in: ${lead.interestedCourse}. Source: ${lead.source}${lead.campaign ? ` (${lead.campaign})` : ''}.`,
-    submittedById: actor.userId, createdAt: nowIso(),
+  const users = table('User')
+  const email = uniqueStudentEmail(String(lead.name))
+  const password = 'student123'
+  const student: Row = {
+    id: uid('u-s'), schoolId: actor.schoolId, role: 'student', name: lead.name, email, password,
+    title: `Student · ${batchLabel(cls)}`, avatarHue: Math.floor(Math.random() * 360), verified: true, active: true,
+    mustChangePassword: false, isCounselor: false, phone: lead.phone, createdAt: nowIso(),
   }
-  applications.push(application)
-  saveTable('Application', applications)
+  users.push(student)
+  saveTable('User', users)
 
-  rows[idx] = { ...lead, status: 'Enrolled', convertedApplicationId: application.id }
+  const enrollments = table('Enrollment')
+  const rollNo = String(enrollments.filter(e => e.classId === cls.id).length + 1).padStart(2, '0')
+  enrollments.push({
+    id: uid('enr'), schoolId: actor.schoolId, studentId: student.id, classId: cls.id,
+    academicYearId: cls.academicYearId ?? 'ay-2025', status: 'active', rollNo,
+  } as Row)
+  saveTable('Enrollment', enrollments)
+
+  const by = table('User').find(u => u.id === actor.userId)
+  const notes = [...((lead.notes as Row[] | undefined) ?? []), { at: nowIso(), by: (by?.name as string) ?? 'Staff', text: `Enrolled into ${batchLabel(cls)} (roll ${rollNo}). Student login: ${email}` }]
+  rows[idx] = { ...lead, status: 'Enrolled', convertedStudentId: student.id, enrolledClassId: cls.id, notes }
   saveTable('Lead', rows)
-  return status(201, { item: serializeLead(rows[idx]), applicationId: application.id })
+  return status(201, { item: serializeLead(rows[idx]), studentId: student.id, email, password, batch: batchLabel(cls) })
 })
 
 // ── Summary for the pipeline header (counts per status + per source, this week's new leads). ──

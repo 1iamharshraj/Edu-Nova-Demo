@@ -20,7 +20,7 @@ import {
 
 const CLASSES = ['class-9a', 'class-9b', 'class-10a', 'class-10b'] as const
 const GRADE_OF: Record<string, string> = { 'class-9a': 'grade-9', 'class-9b': 'grade-9', 'class-10a': 'grade-10', 'class-10b': 'grade-10' }
-const LABEL_OF: Record<string, string> = { 'class-9a': 'IX-A', 'class-9b': 'IX-B', 'class-10a': 'X-A', 'class-10b': 'X-B' }
+const LABEL_OF: Record<string, string> = { 'class-9a': 'Foundation IX · A', 'class-9b': 'Foundation IX · B', 'class-10a': 'JEE 2027 · A', 'class-10b': 'JEE 2027 · B' }
 
 /** ISO-ish weekday (1=Mon..5=Fri) -> a concrete date in the week containing today's anchor (2026-09-14, a
  * Monday), so seeded substitution/date examples are internally consistent without depending on real time. */

@@ -48,7 +48,7 @@ function ComposeModal({ open, onClose, editing, onSaved }: { open: boolean; onCl
 
   const save = async () => {
     if (!body.trim()) return
-    if (audience === 'Class' && !classId) { toast.error('Pick a class'); return }
+    if (audience === 'Class' && !classId) { toast.error('Pick a batch'); return }
     setBusy(true)
     try {
       const payload = {
@@ -82,15 +82,15 @@ function ComposeModal({ open, onClose, editing, onSaved }: { open: boolean; onCl
             {(['School', 'Class', ...(isTeacher ? [] : ['Role'])] as ('School' | 'Class' | 'Role')[]).map(a => (
               <button key={a} type="button" onClick={() => setAudience(a)}
                 className={`rounded-full px-4 py-1.5 text-[12.5px] font-semibold transition-all ${audience === a ? 'bg-black text-white shadow' : 'text-black/50 dark:text-white/50 hover:text-black dark:hover:text-white'}`}>
-                {a === 'School' ? 'Everyone' : a === 'Class' ? (isTeacher ? 'My classes' : 'A class') : 'A role'}
+                {a === 'School' ? 'Everyone' : a === 'Class' ? (isTeacher ? 'My batches' : 'A batch') : 'A role'}
               </button>
             ))}
           </div>
         </Field>
         {audience === 'Class' && (
-          <Field label="Class">
+          <Field label="Batch">
             <select value={classId} onChange={e => setClassId(e.target.value)} className={inputCls}>
-              {myClasses.length === 0 && <option value="">No classes available</option>}
+              {myClasses.length === 0 && <option value="">No batches available</option>}
               {myClasses.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           </Field>
@@ -167,7 +167,7 @@ function PostCard({ post, onPin, onEdit, onDelete }: {
     catch (e) { toast.error(errorMessage(e)) }
   }
 
-  const classLabel = post.classId ? classById.get(post.classId)?.label ?? 'A class' : 'A class'
+  const classLabel = post.classId ? classById.get(post.classId)?.label ?? 'A batch' : 'A batch'
   const audienceLabel = post.audience === 'School' ? 'Everyone' : post.audience === 'Class' ? classLabel : `${ROLE_LABEL[post.role as Role] ?? post.role}s`
 
   return (
@@ -257,7 +257,7 @@ export function FeedMod() {
 
   return (
     <div>
-      <PageHead title="School Feed" sub="Everything happening around campus, as it happens">
+      <PageHead title="Announcements" sub="Institute-wide updates, batch notices and reminders">
         {canPost && (
           <button onClick={openNew} className="btn-ink flex items-center gap-2 px-4 py-2 text-[13.5px] font-semibold"><Plus size={15} /> New post</button>
         )}
@@ -332,9 +332,9 @@ function ContactPicker({ open, onClose, onCreated }: { open: boolean; onClose: (
         )}
         {mode === 'group' && canGroup ? (
           <div className="space-y-4">
-            <Field label="Class">
+            <Field label="Batch">
               <select value={classId} onChange={e => setClassId(e.target.value)} className={inputCls}>
-                {myClasses.length === 0 && <option value="">No classes available</option>}
+                {myClasses.length === 0 && <option value="">No batches available</option>}
                 {myClasses.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
             </Field>
@@ -683,7 +683,7 @@ function HighlightForm({ onSaved }: { onSaved: () => void }) {
 
   const save = async () => {
     if (!title.trim() || !url.trim()) return
-    if (audience === 'Class' && !classId) { toast.error('Pick a class'); return }
+    if (audience === 'Class' && !classId) { toast.error('Pick a batch'); return }
     setBusy(true)
     try {
       await api.post('/highlights', { title: title.trim(), url: url.trim(), audience, classId: audience === 'Class' ? classId : undefined })
@@ -701,14 +701,14 @@ function HighlightForm({ onSaved }: { onSaved: () => void }) {
         <Field label="Video URL (YouTube or Drive)"><input value={url} onChange={e => setUrl(e.target.value)} className={inputCls} placeholder="https://youtube.com/watch?v=…" /></Field>
         <Field label="Audience">
           <select value={audience} onChange={e => setAudience(e.target.value as HighlightAudience)} className={inputCls}>
-            <option value="School">Whole school</option>
-            <option value="Class">One class</option>
+            <option value="School">Whole institute</option>
+            <option value="Class">One batch</option>
           </select>
         </Field>
         {audience === 'Class' && (
-          <Field label="Class">
+          <Field label="Batch">
             <select value={classId} onChange={e => setClassId(e.target.value)} className={inputCls} disabled={classes.length === 0}>
-              <option value="">{classes.length === 0 ? 'No classes yet' : 'Select a class'}</option>
+              <option value="">{classes.length === 0 ? 'No batches yet' : 'Select a batch'}</option>
               {classes.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           </Field>
@@ -899,7 +899,7 @@ export function AIDoubtsMod() {
       <BrainCircuit size={30} className="mx-auto text-black/25 dark:text-white/25" />
       <p className="mt-3 text-[15px] font-semibold">AI tutor not configured</p>
       <p className="mx-auto mt-1 max-w-sm text-[13px] text-black/40 dark:text-white/40">
-        The school hasn’t connected an AI provider yet. Ask your admin to set it up, or check back later.
+        The institute hasn’t connected an AI provider yet. Ask your admin to set it up, or check back later.
       </p>
     </div>
   )

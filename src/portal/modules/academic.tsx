@@ -134,7 +134,7 @@ export function AcademicYearsMod() {
 
   return (
     <div>
-      <PageHead title="Academic Years & Terms" sub="Define the school year and split it into terms">
+      <PageHead title="Academic Years & Terms" sub="Define the academic session and split it into terms">
         {sortedYears.length > 0 && <AddButton label="Add year" onClick={openAddYear} />}
       </PageHead>
 
@@ -312,7 +312,7 @@ export function BoardsMod() {
 
   return (
     <div>
-      <PageHead title="Boards & Grades" sub="The boards your school is affiliated to, the grade ladder from the first year to the last, and optional streams for senior grades" />
+      <PageHead title="Boards & Grades" sub="The boards your institute is affiliated to, the grade ladder from the first year to the last, and optional streams for senior grades" />
 
       <div className="grid gap-5 lg:grid-cols-3">
         {/* boards */}
@@ -323,7 +323,7 @@ export function BoardsMod() {
           </div>
           {sortedBoards.length === 0 ? (
             <div className="p-6">
-              <Empty text="No boards yet. Add the boards your school is affiliated to." />
+              <Empty text="No boards yet. Add the boards your institute is affiliated to." />
               <div className="mt-4 flex justify-center"><AddButton label="Add first board" onClick={openAddBoard} /></div>
             </div>
           ) : sortedBoards.map(b => (
@@ -547,7 +547,7 @@ export function CurriculumMod() {
           </div>
           {sortedSubjects.length === 0 ? (
             <div className="p-6">
-              <Empty text="No subjects yet. Add every subject taught in your school — the catalogue is shared across boards." />
+              <Empty text="No subjects yet. Add every subject taught in your institute — the catalogue is shared across boards." />
               <div className="mt-4 flex justify-center"><AddButton label="Add first subject" onClick={openAdd} /></div>
             </div>
           ) : sortedSubjects.map(s => (
@@ -712,7 +712,7 @@ export function SubjectsMod() {
   return <CurriculumMod />
 }
 
-/* ── 4. Classes & Sections ─────────────────────────────── */
+/* ── 4. Batches ─────────────────────────────── */
 
 interface ClassForm { boardId: string; gradeId: string; streamId: string; section: string; classTeacherId: string; capacity: string; periodTemplateId: string }
 const emptyClassForm = (): ClassForm => ({ boardId: '', gradeId: '', streamId: '', section: '', classTeacherId: '', capacity: '', periodTemplateId: '' })
@@ -807,7 +807,7 @@ export function ClassesMod() {
   // ── Cohorts (Phase T1 §1 — layered on top of Class, per roadmap D2) ──
   // Every class gets an implicit 1:1 SECTION cohort automatically (server-side, on class create). This
   // panel surfaces those plus lets an admin define additional cross-section cohorts (grade-wide "12-ALL",
-  // JEE/NEET tracks, elective baskets) referencing 2+ classes. Kept inside Classes & Sections (not a
+  // JEE/NEET tracks, elective baskets) referencing 2+ classes. Kept inside Batches (not a
   // separate sidebar page) — it's a light, occasional-use extension of "what classes exist this year", the
   // same judgment call already made for Subjects/Roster living inside a class card rather than get their
   // own top-level nav entry.
@@ -838,7 +838,7 @@ export function ClassesMod() {
 
   return (
     <div>
-      <PageHead title="Classes & Sections" sub="Create classes per board and grade, assign class teachers, subjects and rosters">
+      <PageHead title="Batches" sub="Create classes per board and grade, assign class teachers, subjects and rosters">
         <div className="flex flex-wrap items-center gap-3">
           {sortedYears.length > 0 && <YearSelect years={sortedYears} value={yearId} onChange={setYearId} />}
           {selectedYear && setupReady && <AddButton label="Add class" onClick={openAdd} />}
@@ -856,7 +856,7 @@ export function ClassesMod() {
       ) : yearClasses.length === 0 ? (
         <Card className="flex flex-col items-center py-14 text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600"><LayoutGrid size={26} /></div>
-          <p className="mt-4 font-display text-xl font-medium">No classes in {selectedYear?.label}</p>
+          <p className="mt-4 font-display text-xl font-medium">No batches in {selectedYear?.label}</p>
           <p className="mt-1 max-w-sm text-[14px] text-black/50 dark:text-white/50">Pick a board, grade and section, choose a class teacher, then enrol students from the roster.</p>
           <div className="mt-5"><AddButton label="Add first class" onClick={openAdd} /></div>
         </Card>
@@ -1022,7 +1022,7 @@ export function ClassesMod() {
             <Field label="Capacity"><input type="number" min={0} value={form.capacity} onChange={e => setForm({ ...form, capacity: e.target.value })} placeholder="Optional" className={inputCls} /></Field>
             <Field label="Period template">
               <select value={form.periodTemplateId} onChange={e => setForm({ ...form, periodTemplateId: e.target.value })} className={inputCls} disabled={periodTemplates.length === 0}>
-                <option value="">{defaultTemplate ? `School default (${defaultTemplate.name})` : 'No templates defined'}</option>
+                <option value="">{defaultTemplate ? `Institute default (${defaultTemplate.name})` : 'No templates defined'}</option>
                 {periodTemplates.filter(t => t.id !== defaultTemplate?.id).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </Field>
@@ -1300,7 +1300,7 @@ export function PeriodsMod() {
 
   return (
     <div>
-      <PageHead title="Periods" sub="The daily bell schedule — periods and breaks with their timings. Classes use the school default unless overridden.">
+      <PageHead title="Periods" sub="The daily bell schedule — periods and breaks with their timings. Classes use the institute default unless overridden.">
         {sorted.length > 0 && <AddButton label="Add template" onClick={openAdd} />}
       </PageHead>
 
@@ -1308,7 +1308,7 @@ export function PeriodsMod() {
         <Card className="flex flex-col items-center py-14 text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600"><Clock3 size={26} /></div>
           <p className="mt-4 font-display text-xl font-medium">No period template yet</p>
-          <p className="mt-1 max-w-sm text-[14px] text-black/50 dark:text-white/50">Define the periods of a school day before building timetables. The first template you create becomes the school default.</p>
+          <p className="mt-1 max-w-sm text-[14px] text-black/50 dark:text-white/50">Define the periods of a teaching day before building timetables. The first template you create becomes the institute default.</p>
           <div className="mt-5"><AddButton label="Create template" onClick={openAdd} /></div>
         </Card>
       ) : (
@@ -1347,7 +1347,7 @@ export function PeriodsMod() {
                 </div>
                 {!t.isDefault && (
                   <div className="border-t border-black/[.06] dark:border-white/[.08] pt-3">
-                    <button onClick={() => templates.action(t.id, 'set-default', `${t.name} is now the school default`)} disabled={templates.busy} className={ghostBtn}>
+                    <button onClick={() => templates.action(t.id, 'set-default', `${t.name} is now the institute default`)} disabled={templates.busy} className={ghostBtn}>
                       <span className="flex items-center gap-1"><Star size={12} /> Set as default</span>
                     </button>
                   </div>
@@ -1376,7 +1376,7 @@ export function PeriodsMod() {
                   <input type="time" value={r.start} onChange={e => patchRow(i, { start: e.target.value })} className={inputCls + ' py-2 text-[13.5px]'} aria-label="Start" />
                   <input type="time" value={r.end} onChange={e => patchRow(i, { end: e.target.value })} className={inputCls + ' py-2 text-[13.5px]'} aria-label="End" />
                   <select value={r.kind} onChange={e => patchRow(i, { kind: e.target.value as PeriodKind })} className={inputCls + ` py-2 text-[13.5px] ${r.kind === 'break' ? 'text-amber-700 dark:text-amber-300' : ''}`} aria-label="Kind">
-                    <option value="class">Class</option>
+                    <option value="class">Batch</option>
                     <option value="break">Break</option>
                   </select>
                   <div className="flex items-center justify-end gap-1">
@@ -1390,13 +1390,13 @@ export function PeriodsMod() {
             {form.rows.length === 0 && <Empty text="Add at least one period." />}
             {form.rows.some(r => r.start && r.end && r.start >= r.end) && <p className="mt-2 text-[12.5px] text-rose-500">Every period must end after it starts.</p>}
           </div>
-          {!editing && templates.items.length === 0 && <p className={muted}>This is your first template, so it becomes the school default.</p>}
+          {!editing && templates.items.length === 0 && <p className={muted}>This is your first template, so it becomes the institute default.</p>}
           <FormActions onCancel={() => setFormOpen(false)} onSave={save} label={editing ? 'Save changes' : 'Create template'} disabled={!formValid || templates.busy} />
         </div>
       </Modal>
 
       <ConfirmModal open={!!del} onClose={() => setDel(null)} title={`Delete ${del?.name ?? 'template'}?`}
-        body={del?.isDefault ? 'This is the school default. It cannot be deleted while any class has timetable entries — set another template as default first.' : 'Classes overriding to this template fall back to the school default. Existing timetable entries are kept.'}
+        body={del?.isDefault ? 'This is the institute default. It cannot be deleted while any class has timetable entries — set another template as default first.' : 'Classes overriding to this template fall back to the institute default. Existing timetable entries are kept.'}
         action="Delete template" busy={templates.busy}
         onConfirm={async () => { if (del && await templates.remove(del.id, 'Template deleted')) setDel(null) }} />
     </div>

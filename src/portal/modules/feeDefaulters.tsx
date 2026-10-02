@@ -97,9 +97,9 @@ export function FeeDefaultersAndCallsMod() {
       {tab === 'defaulters' ? (
         <div className="space-y-5">
           <div className="flex flex-wrap items-end gap-3">
-            <Field label="Class">
+            <Field label="Batch">
               <select value={classId} onChange={e => setClassId(e.target.value)} className={`${inputCls} w-auto min-w-[150px]`}>
-                <option value="">All classes</option>
+                <option value="">All batches</option>
                 {classList.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
             </Field>

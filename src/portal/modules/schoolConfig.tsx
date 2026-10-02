@@ -367,7 +367,7 @@ function PeriodOverridesCard() {
                   <input type="time" value={r.start} onChange={e => patchRow(i, { start: e.target.value })} className={inputCls + ' py-2 text-[13.5px]'} aria-label="Start" />
                   <input type="time" value={r.end} onChange={e => patchRow(i, { end: e.target.value })} className={inputCls + ' py-2 text-[13.5px]'} aria-label="End" />
                   <select value={r.kind} onChange={e => patchRow(i, { kind: e.target.value as PeriodRow['kind'] })} className={inputCls + ` py-2 text-[13.5px] ${r.kind === 'break' ? 'text-amber-700 dark:text-amber-300' : ''}`} aria-label="Kind">
-                    <option value="class">Class</option>
+                    <option value="class">Batch</option>
                     <option value="break">Break</option>
                   </select>
                   <div className="flex items-center justify-end gap-1">

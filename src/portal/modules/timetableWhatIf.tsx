@@ -17,7 +17,7 @@ import { DiagnosticsPanel } from './timetable'
 const EVENT_TYPES: { type: WhatIfChangeEventType; label: string; hint: string }[] = [
   { type: 'TEACHER_UNAVAILABLE', label: 'Teacher unavailable', hint: 'A teacher can\'t take specific periods (illness, leave, training)' },
   { type: 'ROOM_UNAVAILABLE', label: 'Room unavailable', hint: 'A room is out of use for specific periods (maintenance, damage)' },
-  { type: 'PERIOD_REMOVED', label: 'Period removed', hint: 'One period slot is being dropped from the school day' },
+  { type: 'PERIOD_REMOVED', label: 'Period removed', hint: 'One period slot is being dropped from the teaching day' },
   { type: 'EVENT_BLOCKING_SLOTS', label: 'School event blocking slots', hint: 'An assembly, exam, or function blocks specific slots' },
   { type: 'REQUIREMENT_ADDED', label: 'Teaching requirement added', hint: 'A cohort needs more periods of a subject than currently placed' },
   { type: 'REQUIREMENT_CHANGED', label: 'Teaching requirement reduced', hint: 'A cohort needs fewer periods of a subject than currently placed' },

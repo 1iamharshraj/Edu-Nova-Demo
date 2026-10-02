@@ -63,7 +63,7 @@ export function StudentsAtRiskMod() {
       <PageHead title="Students at Risk" sub={isStaffAdmin ? 'Flagged students in any class, with the factors behind each score' : 'Flagged students in your class, with the factors behind each score'}>
         <div className="flex flex-wrap items-center gap-2">
           {classList.length > 1 && (
-            <select value={classId} onChange={e => setPicked(e.target.value)} className={`${inputCls} w-auto min-w-[150px] py-2 text-[13.5px]`} aria-label="Class">
+            <select value={classId} onChange={e => setPicked(e.target.value)} className={`${inputCls} w-auto min-w-[150px] py-2 text-[13.5px]`} aria-label="Batch">
               {classList.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           )}
@@ -78,7 +78,7 @@ export function StudentsAtRiskMod() {
       </PageHead>
 
       {classList.length === 0 ? (
-        <Empty text={isStaffAdmin ? 'No classes yet — set up classes first.' : 'You are not the class teacher of any class.'} />
+        <Empty text={isStaffAdmin ? 'No batches yet — set up classes first.' : 'You are not the class teacher of any class.'} />
       ) : loading ? <div className="py-10 text-center text-[14px] text-black/40 dark:text-white/40">Loading…</div>
         : error ? <Empty text={error} />
         : rows.length === 0 ? <Empty text={`No risk snapshots for ${cls?.label ?? 'this class'} yet — click Recompute to generate them.`} />

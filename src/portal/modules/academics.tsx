@@ -294,7 +294,7 @@ export function RanksMod() {
         <div className="flex flex-wrap items-center gap-2">
           <WardPicker students={students} value={wardId} onChange={setWardId} />
           {pickable.length > 1 && (
-            <select value={classId ?? ''} onChange={e => setPicked(e.target.value)} className={`${inputCls} w-auto py-2 text-[13.5px]`} aria-label="Class">
+            <select value={classId ?? ''} onChange={e => setPicked(e.target.value)} className={`${inputCls} w-auto py-2 text-[13.5px]`} aria-label="Batch">
               {pickable.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
             </select>
           )}
@@ -302,7 +302,7 @@ export function RanksMod() {
         </div>
       </PageHead>
       <Card className="p-0">
-        {!classId ? <div className="p-6"><Empty text={isViewer ? (ward ? `${firstName(ward.name)} isn't enrolled in a class yet.` : 'No student is linked to your account yet.') : 'No classes to rank yet.'} /></div>
+        {!classId ? <div className="p-6"><Empty text={isViewer ? (ward ? `${firstName(ward.name)} isn't enrolled in a class yet.` : 'No student is linked to your account yet.') : 'No batches to rank yet.'} /></div>
           : loading ? loadingRow('Loading ranks…')
           : error ? <div className="p-6"><Empty text={error} /></div>
           : rows.length === 0 ? <div className="p-6"><Empty text="No rankings for this term yet — ranks appear once assessments are published." /></div>

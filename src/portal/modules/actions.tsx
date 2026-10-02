@@ -161,7 +161,7 @@ function SlipCard({ slip, canManage, wards, isParent, classLabel, onChanged }: {
     <Card>
       <div className="flex items-start justify-between gap-3">
         <p className="font-display text-[16.5px] font-medium leading-snug">{slip.title}</p>
-        <Pill tone={slip.classId ? 'sky' : 'slate'}>{slip.classId ? (classLabel ?? 'One class') : 'All classes'}</Pill>
+        <Pill tone={slip.classId ? 'sky' : 'slate'}>{slip.classId ? (classLabel ?? 'One class') : 'All batches'}</Pill>
       </div>
       <p className="mt-2 text-[13.5px] leading-relaxed text-black/55 dark:text-white/55">{slip.detail}</p>
       <p className="mt-3 text-[12.5px] font-medium text-black/45 dark:text-white/45">Respond by {fmtDate(slip.dueDate, { day: 'numeric', month: 'short', year: 'numeric' })}</p>
@@ -268,9 +268,9 @@ export function SlipsMod() {
           <Field label="Details"><textarea value={detail} onChange={e => setDetail(e.target.value)} rows={3} placeholder="What parents need to know, cost, timing…" className={inputCls} /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Respond by"><input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className={inputCls} /></Field>
-            <Field label="Class">
+            <Field label="Batch">
               <select value={classId} onChange={e => setClassId(e.target.value)} className={inputCls}>
-                <option value="">All classes</option>
+                <option value="">All batches</option>
                 {myClasses.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
             </Field>

@@ -180,7 +180,7 @@ export function TakeAttendanceMod() {
       <PageHead title="Take Attendance" sub={cls ? `${cls.label} · ${effectiveStudents.length} students` : 'No class assigned to you yet'}>
         <div className="flex flex-wrap items-center gap-2">
           {myClasses.length > 1 && (
-            <select value={classId} onChange={e => setPicked(e.target.value)} className={`${inputCls} w-auto py-2 text-[13.5px]`} aria-label="Class">
+            <select value={classId} onChange={e => setPicked(e.target.value)} className={`${inputCls} w-auto py-2 text-[13.5px]`} aria-label="Batch">
               {myClasses.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
             </select>
           )}
@@ -223,7 +223,7 @@ export function TakeAttendanceMod() {
         </div>
       )}
 
-      {myClasses.length === 0 ? <Empty text="No classes assigned to you yet. Ask the admin to assign you in Academic Setup." />
+      {myClasses.length === 0 ? <Empty text="No batches assigned to you yet. Ask the admin to assign you in Academic Setup." />
         : effectiveStudents.length === 0 ? <Empty text={sessions.error ? 'No cached data for this class yet — connect once online to enable offline attendance for it.' : `No students enrolled in ${cls?.label ?? 'this class'} yet.`} />
         : (
           <Card className="p-0">
@@ -352,7 +352,7 @@ export function AttendanceMgmtMod() {
       {tab === 'students' ? (
         <>
           <div className="mb-5 flex flex-wrap items-end gap-3">
-            <Field label="Class">
+            <Field label="Batch">
               <select value={classId} onChange={e => setPicked(e.target.value)} className={`${inputCls} w-auto min-w-[160px]`} disabled={classList.length === 0}>
                 {classList.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
               </select>
@@ -559,7 +559,7 @@ export function GradebookMod() {
     </PageHead>
   )
 
-  if (rows.length === 0) return <div>{header}<Empty text={user?.role === 'teacher' ? 'No subjects assigned to you yet. Ask the admin to assign you under Classes & Sections → Subjects.' : 'No class subjects yet — set up classes and their curriculum first.'} /></div>
+  if (rows.length === 0) return <div>{header}<Empty text={user?.role === 'teacher' ? 'No subjects assigned to you yet. Ask the admin to assign you under Batches → Subjects.' : 'No class subjects yet — set up classes and their curriculum first.'} /></div>
   if (!term) return <div>{header}<Empty text="Create a term first — assessments belong to a term." /></div>
 
   return (
@@ -823,7 +823,7 @@ export function CreateAssignmentMod() {
           <TermTabs terms={db.terms} term={term} setTerm={setTerm} />
         </div>
       </PageHead>
-      {rows.length === 0 ? <Empty text="No subjects assigned to you yet. Ask the admin to assign you under Classes & Sections → Subjects." /> : (
+      {rows.length === 0 ? <Empty text="No subjects assigned to you yet. Ask the admin to assign you under Batches → Subjects." /> : (
         <div className="grid gap-5 lg:grid-cols-[1fr_1.3fr]">
           <Card className="h-fit">
             <div className="space-y-4">

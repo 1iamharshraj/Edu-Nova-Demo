@@ -50,8 +50,6 @@ function seedHr(db: Collections) {
     { id: 'leave-type-cl', schoolId: SCHOOL_ID, name: 'Casual Leave', daysPerYear: 12, appliesTo: 'staff', createdAt: '2025-04-01T00:00:00.000Z' },
     { id: 'leave-type-sl', schoolId: SCHOOL_ID, name: 'Sick Leave', daysPerYear: 10, appliesTo: 'staff', createdAt: '2025-04-01T00:00:00.000Z' },
     { id: 'leave-type-el', schoolId: SCHOOL_ID, name: 'Earned Leave', daysPerYear: 15, appliesTo: 'staff', createdAt: '2025-04-01T00:00:00.000Z' },
-    { id: 'leave-type-student-sick', schoolId: SCHOOL_ID, name: 'Sick Leave', daysPerYear: 10, appliesTo: 'student', createdAt: '2025-04-01T00:00:00.000Z' },
-    { id: 'leave-type-student-emergency', schoolId: SCHOOL_ID, name: 'Emergency/Family Leave', daysPerYear: 5, appliesTo: 'student', createdAt: '2025-04-01T00:00:00.000Z' },
   ].map(r => r as unknown as Row)
 
   // ═══════════════════════════ leave requests ═══════════════════════════
@@ -63,11 +61,8 @@ function seedHr(db: Collections) {
     // Staff — declined.
     { id: 'leave-req-3', schoolId: SCHOOL_ID, requesterId: 'u-st', forUserId: 'u-st', leaveTypeId: 'leave-type-el', fromDate: '2026-09-22', toDate: '2026-09-26', days: 4, reason: 'Personal travel during exam week.', status: 'Declined', decidedById: 'u-ad', decidedAt: '2026-09-10T10:00:00.000Z', decisionNote: 'Cannot spare front-office coverage during exam week — please reapply for a later date.', createdAt: '2026-09-08T09:00:00.000Z' },
     // Student — parent-filed, pending (class teacher decides).
-    { id: 'leave-req-4', schoolId: SCHOOL_ID, requesterId: 'u-p', forUserId: 'u-s1', leaveTypeId: 'leave-type-student-sick', fromDate: '2026-09-16', toDate: '2026-09-17', days: 2, reason: 'Down with fever, doctor advised rest.', status: 'Pending', decidedById: undefined, decidedAt: undefined, decisionNote: undefined, createdAt: '2026-09-14T07:30:00.000Z' },
     // Student — self-filed, approved.
-    { id: 'leave-req-5', schoolId: SCHOOL_ID, requesterId: 'u-s3', forUserId: 'u-s3', leaveTypeId: 'leave-type-student-emergency', fromDate: '2026-08-18', toDate: '2026-08-18', days: 1, reason: 'Family wedding.', status: 'Approved', decidedById: 'u-t3', decidedAt: '2026-08-15T11:00:00.000Z', decisionNote: undefined, createdAt: '2026-08-14T10:00:00.000Z' },
     // Student — cancelled by the requester.
-    { id: 'leave-req-6', schoolId: SCHOOL_ID, requesterId: 'u-s4', forUserId: 'u-s4', leaveTypeId: 'leave-type-student-sick', fromDate: '2026-09-01', toDate: '2026-09-02', days: 2, reason: 'Stomach infection.', status: 'Cancelled', decidedById: undefined, decidedAt: undefined, decisionNote: undefined, createdAt: '2026-08-30T09:00:00.000Z' },
   ].map(r => r as unknown as Row)
 
   // ═══════════════════════════ salary structures ═══════════════════════════

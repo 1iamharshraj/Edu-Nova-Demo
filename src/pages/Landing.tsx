@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import {
   ArrowRight, ArrowUpRight, Bell, BookOpen, BrainCircuit, CalendarDays, CheckCircle2,
-  ChevronDown, CreditCard, GraduationCap, HeartPulse, Landmark, LayoutDashboard, Menu,
-  MessagesSquare, Rocket, ShieldCheck, Sparkles, TrendingUp, Users, Wallet, X,
+  ChevronDown, CreditCard, GraduationCap, Landmark, LayoutDashboard, Menu,
+  MessagesSquare, Rocket, ShieldCheck, Sparkles, Target, TrendingUp, Users, Wallet, X,
 } from 'lucide-react'
 import { Logo } from '@/components/Logo'
 import { useStore } from '@/lib/store'
@@ -13,21 +13,21 @@ import { InstallButton } from '@/lib/pwa'
 /* ── mega menu content ─────────────────────────────────── */
 
 const PORTALS = [
-  { icon: Users, title: 'For Parents', desc: 'Timetable, marks, fees, permission slips, teacher chat.', role: 'parent' },
-  { icon: GraduationCap, title: 'For Students', desc: 'Homework uploads, clubs, events, rank lists, AI doubts.', role: 'student' },
-  { icon: BookOpen, title: 'For Teachers', desc: 'Attendance, grading, salary slips, leave workflows.', role: 'teacher' },
-  { icon: LayoutDashboard, title: 'For Staff', desc: 'Admissions ops, payments, timetable generation.', role: 'staff' },
-  { icon: Landmark, title: 'For Admin', desc: 'Certificates, contracts, fees and full oversight.', role: 'admin' },
-  { icon: ShieldCheck, title: 'Parent Verify', desc: 'A verified ID gates every sensitive action.', role: 'parent' },
+  { icon: Users, title: 'For Parents', desc: 'Test scores, rankings, attendance, fees and faculty chat.', role: 'parent' },
+  { icon: GraduationCap, title: 'For Students', desc: 'Batch timetable, DPPs, test rankings and an AI doubt solver.', role: 'student' },
+  { icon: BookOpen, title: 'For Faculty', desc: 'Attendance, test grading, syllabus progress, AI question papers.', role: 'teacher' },
+  { icon: LayoutDashboard, title: 'For Front Desk', desc: 'Leads from ads, walk-ins and Google Sheets, enrollments, fees.', role: 'staff' },
+  { icon: Landmark, title: 'For Directors', desc: 'Batches, scheduling, finance, faculty and full oversight.', role: 'admin' },
+  { icon: Target, title: 'Lead Pipeline', desc: 'Every enquiry tracked from first call to enrolled student.', role: 'staff' },
 ]
 
 const FEATURES = [
-  { icon: CalendarDays, title: 'Smart timetable', desc: 'Term-wise schedules for every role, always in sync.' },
-  { icon: TrendingUp, title: 'Marks & rank lists', desc: 'Subject, section and school ranks each term.' },
-  { icon: MessagesSquare, title: 'Teacher messaging', desc: 'Instagram-style chats with verified parent access.' },
-  { icon: CreditCard, title: 'Payments & receipts', desc: 'Fees, salary slips, downloads — all in one vault.' },
-  { icon: BrainCircuit, title: 'AI doubt clearing', desc: 'Students get instant, curriculum-aware answers.' },
-  { icon: HeartPulse, title: 'Health & e-sign', desc: 'Certificates uploaded and digitally signed by parents.' },
+  { icon: CalendarDays, title: 'Batch timetables', desc: 'Clash-free faculty and classroom scheduling, auto-generated.' },
+  { icon: TrendingUp, title: 'Test scores & rankings', desc: 'Every test ranked across batches, with progress reports.' },
+  { icon: MessagesSquare, title: 'Parent updates', desc: 'Chats, announcements and PTMs so parents see progress weekly.' },
+  { icon: CreditCard, title: 'Fees & installments', desc: 'Course fees, installment plans and defaulter follow-ups.' },
+  { icon: BrainCircuit, title: 'AI doubt solver', desc: 'Students get instant, syllabus-aware answers between classes.' },
+  { icon: Target, title: 'Lead management', desc: 'Website, Google/Meta ads, walk-ins and Sheet imports in one pipeline.' },
 ]
 
 /* ── scroll reveal ─────────────────────────────────────── */
@@ -98,7 +98,7 @@ function Navbar() {
             </div>
           </MegaMenu>
           <MegaMenu label="Features">
-            <p className="px-3 pb-2 pt-2 text-[11px] font-semibold uppercase tracking-[.18em] text-black/40 dark:text-white/40">The whole school, end to end</p>
+            <p className="px-3 pb-2 pt-2 text-[11px] font-semibold uppercase tracking-[.18em] text-black/40 dark:text-white/40">The whole institute, end to end</p>
             <div className="grid grid-cols-2 gap-2">
               {FEATURES.map((f) => (
                 <a key={f.title} href="#features" className="group flex gap-3.5 rounded-2xl bg-black/[.035] dark:bg-white/[.06] p-4 transition-colors hover:bg-black/[.07] dark:hover:bg-white/[.11]">
@@ -111,7 +111,7 @@ function Navbar() {
               ))}
             </div>
           </MegaMenu>
-          <a href="#why" className="rounded-full px-4 py-2 text-[15px] font-medium text-black/70 dark:text-white/70 transition-colors hover:text-black dark:hover:text-white">Why Edkonic</a>
+          <a href="#why" className="rounded-full px-4 py-2 text-[15px] font-medium text-black/70 dark:text-white/70 transition-colors hover:text-black dark:hover:text-white">Why Edkonic Prep</a>
           <a href="#contact" className="rounded-full px-4 py-2 text-[15px] font-medium text-black/70 dark:text-white/70 transition-colors hover:text-black dark:hover:text-white">Contact</a>
         </nav>
         <div className="flex items-center gap-2.5">
@@ -147,7 +147,7 @@ function Navbar() {
           </div>
           <p className="px-2 pb-2 pt-4 text-[11px] font-semibold uppercase tracking-[.18em] text-black/40 dark:text-white/40">Explore</p>
           <div className="space-y-1">
-            {[['Features', '#features'], ['Why Edkonic', '#why'], ['Contact', '#contact']].map(([l, h]) => (
+            {[['Features', '#features'], ['Why Edkonic Prep', '#why'], ['Contact', '#contact']].map(([l, h]) => (
               <a key={l} href={h} onClick={() => setMobileOpen(false)}
                 className="flex items-center justify-between rounded-2xl px-3 py-3 text-[15px] font-medium hover:bg-black/[.04] dark:hover:bg-white/[.08]">
                 {l} <ArrowUpRight size={16} className="text-black/30 dark:text-white/30" />
@@ -174,14 +174,14 @@ function Hero() {
     <section className="aurora grain relative overflow-hidden pb-28 pt-40">
       <div className="mx-auto max-w-7xl px-6">
         <div className="rise-in inline-flex items-center gap-2 rounded-full border border-black/10 dark:border-white/15 bg-white/70 dark:bg-[#14141f]/80 px-4 py-1.5 text-[13px] font-medium text-black/70 dark:text-white/70 backdrop-blur">
-          <Sparkles size={14} className="text-indigo-600" /> New — AI doubt clearing for every student
+          <Sparkles size={14} className="text-indigo-600" /> New — lead management for ads, walk-ins and Google Sheets
         </div>
         <h1 className="font-display rise-in rise-1 mt-7 max-w-4xl text-[clamp(2.8rem,7vw,5.6rem)] font-medium leading-[1.02] tracking-tight">
-          Meet Edkonic, the <span className="text-grad">school OS</span> that never sleeps.
+          Meet Edkonic Prep, the <span className="text-grad">coaching institute OS</span>.
         </h1>
         <p className="rise-in rise-2 mt-6 max-w-xl text-lg leading-relaxed text-black/60 dark:text-white/60">
-          One login for parents, students, teachers, staff and admin — timetables, marks, fees,
-          chats, certificates and approvals, all moving so your school stays focused on teaching.
+          From the first enquiry to the final rank list — leads, enrollments, batch timetables,
+          tests, fees and parent updates in one place, so your faculty stays focused on results.
         </p>
         <div className="rise-in rise-3 mt-9 flex flex-wrap items-center gap-4">
           <button onClick={() => navigate('/login')} className="btn-ink flex items-center gap-2 px-7 py-3.5 text-[15px] font-semibold">
@@ -197,14 +197,14 @@ function Hero() {
           <div className="rounded-[2rem] border border-black/[.07] dark:border-white/[.09] bg-white/80 dark:bg-[#14141f]/90 p-3 shadow-[0_40px_90px_-30px_rgba(30,30,80,.35)] backdrop-blur">
             <div className="rounded-3xl bg-[#0b0b10] p-6 text-white sm:p-8">
               <div className="flex items-center justify-between">
-                <p className="text-[13px] font-medium text-white/50">Today · Class X-A</p>
+                <p className="text-[13px] font-medium text-white/50">Today · JEE 2027 · Batch A</p>
                 <span className="flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-3 py-1 text-[12px] font-medium text-emerald-300"><span className="h-1.5 w-1.5 rounded-full bg-emerald-300" /> Live</span>
               </div>
               <div className="mt-6 grid gap-4 sm:grid-cols-3">
                 {[
-                  { icon: CalendarDays, k: 'Next period', v: 'Physics · Lab-2', s: 'starts 11:15' },
-                  { icon: TrendingUp, k: 'Term 3 average', v: '87.4%', s: '+3.2 vs Term 2' },
-                  { icon: Bell, k: 'Pending', v: '2 slips', s: 'need parent verify' },
+                  { icon: CalendarDays, k: 'Next class', v: 'Physics · Room 2', s: 'starts 4:15 pm' },
+                  { icon: TrendingUp, k: 'Mock test 6 rank', v: '#4 of 212', s: '+11 places vs Mock 5' },
+                  { icon: Bell, k: 'New leads', v: '14 today', s: '6 from Google Ads' },
                 ].map((c) => (
                   <div key={c.k} className="rounded-2xl bg-white/[.06] p-5">
                     <c.icon size={18} className="text-indigo-300" />
@@ -222,7 +222,7 @@ function Hero() {
   )
 }
 
-const MARQUEE = ['Timetables', 'Attendance', 'Marks & Grades', 'Rank Lists', 'Fee Payments', 'Salary Slips', 'Teacher Chat', 'Permission Slips', 'Health Records', 'Admissions', 'Certificates', 'Event Highlights', 'AI Doubts', 'School Feed']
+const MARQUEE = ['Lead Pipeline', 'Google Sheet Import', 'Enrollments', 'Batch Timetables', 'Attendance', 'Test Scores', 'Rankings', 'DPPs', 'Syllabus Tracking', 'AI Doubt Solver', 'Fee Installments', 'Payroll', 'Parent Updates', 'Success Stories']
 
 function Marquee() {
   return (
@@ -244,7 +244,7 @@ function Features() {
       <Reveal>
         <p className="text-[13px] font-semibold uppercase tracking-[.2em] text-indigo-600 dark:text-indigo-400">Everything, end to end</p>
         <h2 className="font-display mt-4 max-w-2xl text-[clamp(2rem,4.5vw,3.4rem)] font-medium leading-tight tracking-tight">
-          Every register, receipt and report — replaced by one calm interface.
+          Every enquiry, batch, test and receipt — in one calm interface.
         </h2>
       </Reveal>
       <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -267,28 +267,28 @@ function Features() {
 
 function Why() {
   const stats = [
-    { v: '5', k: 'portals, one login' },
+    { v: '5', k: 'roles, one login' },
     { v: '40+', k: 'workflows automated' },
-    { v: '100%', k: 'parent-verified actions' },
-    { v: '0', k: 'paper registers' },
+    { v: '7', k: 'lead sources tracked' },
+    { v: '0', k: 'spreadsheets to chase' },
   ]
   return (
     <section id="why" className="aurora-soft grain relative border-y border-black/[.06] dark:border-white/[.08] py-28">
       <div className="mx-auto grid max-w-7xl items-center gap-14 px-6 lg:grid-cols-2">
         <Reveal>
-          <p className="text-[13px] font-semibold uppercase tracking-[.2em] text-indigo-600 dark:text-indigo-400">Why Edkonic</p>
+          <p className="text-[13px] font-semibold uppercase tracking-[.2em] text-indigo-600 dark:text-indigo-400">Why Edkonic Prep</p>
           <h2 className="font-display mt-4 text-[clamp(2rem,4.5vw,3.2rem)] font-medium leading-tight tracking-tight">
-            Built like a product, not a register.
+            Built for how coaching actually runs.
           </h2>
           <p className="mt-5 max-w-md text-lg leading-relaxed text-black/60 dark:text-white/60">
-            Parents verify their identity with the school office before approving slips or
-            requesting leave. Teachers grade in seconds. Admin sees everything. Students finally
-            get a feed they actually open.
+            Leads from every ad and walk-in land in one pipeline. Faculty grade tests in seconds and
+            rankings update instantly. Parents see weekly progress, and directors see every batch,
+            every rupee and every result.
           </p>
           <div className="mt-8 flex items-center gap-3 rounded-2xl border border-black/[.08] dark:border-white/[.10] bg-white/70 dark:bg-[#14141f]/80 p-5 backdrop-blur">
             <ShieldCheck size={26} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
             <p className="text-[15px] leading-snug text-black/70 dark:text-white/70">
-              <span className="font-semibold text-black dark:text-white">Parent Verify</span> gates every sensitive action — so students can’t approve their own permission slips.
+              <span className="font-semibold text-black dark:text-white">Lead to enrollment in one click</span> — a converted lead gets a student login and a batch seat instantly.
             </p>
           </div>
         </Reveal>
@@ -310,11 +310,11 @@ function Why() {
 function PortalCards() {
   const navigate = useNavigate()
   const cards = [
-    { role: 'parent', name: 'Parent Portal', desc: 'Track marks, attendance, fees and approve slips with verified identity.', grad: 'from-indigo-500 to-violet-500' },
-    { role: 'student', name: 'Student Portal', desc: 'Upload homework, join clubs, check ranks and ask the AI anything.', grad: 'from-sky-500 to-cyan-400' },
-    { role: 'teacher', name: 'Teacher Portal', desc: 'Take attendance, post grades, message parents, download salary slips.', grad: 'from-emerald-500 to-teal-400' },
-    { role: 'staff', name: 'Staff Office', desc: 'Run admissions, payments and timetable generation from one desk.', grad: 'from-amber-500 to-orange-400' },
-    { role: 'admin', name: 'Admin Console', desc: 'Certificates, contracts, fees and institution-wide control.', grad: 'from-rose-500 to-pink-400' },
+    { role: 'parent', name: 'Parent Portal', desc: 'Follow test scores, rankings, attendance and fees — and message faculty.', grad: 'from-indigo-500 to-violet-500' },
+    { role: 'student', name: 'Student Portal', desc: 'Batch timetable, DPPs, test rankings and the AI doubt solver.', grad: 'from-sky-500 to-cyan-400' },
+    { role: 'teacher', name: 'Faculty Portal', desc: 'Take attendance, grade tests, track syllabus and generate question papers.', grad: 'from-emerald-500 to-teal-400' },
+    { role: 'staff', name: 'Front Desk', desc: 'Work the lead pipeline, enroll students and collect fees from one desk.', grad: 'from-amber-500 to-orange-400' },
+    { role: 'admin', name: 'Director Console', desc: 'Batches, scheduling, finance and faculty — institute-wide control.', grad: 'from-rose-500 to-pink-400' },
   ]
   return (
     <section className="mx-auto max-w-7xl px-6 py-28">
@@ -356,11 +356,11 @@ function CTA() {
             style={{ background: 'radial-gradient(40rem 20rem at 50% 120%, rgba(99,102,241,.5), transparent 65%)' }} />
           <Wallet size={28} className="mx-auto text-indigo-300" />
           <h2 className="font-display mx-auto mt-6 max-w-2xl text-[clamp(2rem,4.5vw,3.2rem)] font-medium leading-tight">
-            Your school day, already organised.
+            Your institute, already organised.
           </h2>
-          <p className="mx-auto mt-4 max-w-md text-white/55">Five portals. Zero paper. One login to rule the timetable chaos.</p>
+          <p className="mx-auto mt-4 max-w-md text-white/55">From enquiry to rank list. One login for every batch.</p>
           <button onClick={() => navigate('/login')} className="glow-pulse mx-auto mt-8 flex items-center gap-2 rounded-full bg-white px-8 py-4 text-[15px] font-semibold text-black transition-transform hover:-translate-y-0.5">
-            Launch Edkonic <ArrowRight size={17} />
+            Launch Edkonic Prep <ArrowRight size={17} />
           </button>
         </div>
       </Reveal>
@@ -374,7 +374,7 @@ function Footer() {
       <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-6 px-6 py-12">
         <Logo />
         <p className="text-[14px] text-black/45 dark:text-white/45">hello@edkonic.in · +91 484 555 0100 · Kochi, Kerala</p>
-        <p className="text-[13px] text-black/35 dark:text-white/35">© 2026 Edkonic School OS. Demo experience.</p>
+        <p className="text-[13px] text-black/35 dark:text-white/35">© 2026 Edkonic Prep — Coaching Institute OS. Demo experience.</p>
       </div>
     </footer>
   )

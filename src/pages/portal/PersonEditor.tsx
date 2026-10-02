@@ -254,7 +254,7 @@ export default function PersonEditor() {
           {form.role === 'student' && (
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Class">
+                <Field label="Batch">
                   {noClassForStudent ? (
                     <p className="rounded-xl border border-dashed border-amber-300 bg-amber-50/50 dark:border-amber-500/40 dark:bg-amber-500/10 px-3 py-2.5 text-[13px] text-amber-800 dark:text-amber-300">Create a class first in Academic Setup.</p>
                   ) : (
@@ -291,7 +291,7 @@ export default function PersonEditor() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Class teacher of">
                   <select value={form.classTeacherOf} onChange={e => patch({ classTeacherOf: e.target.value })} className={inputCls}>
-                    <option value="">{yearClasses.length ? 'None' : 'No classes yet'}</option>
+                    <option value="">{yearClasses.length ? 'None' : 'No batches yet'}</option>
                     {yearClasses.map(c => {
                       const other = c.classTeacherId && c.classTeacherId !== editing?.id ? userById.get(c.classTeacherId)?.name : undefined
                       return <option key={c.id} value={c.id}>{c.label}{other ? ` · currently ${other}` : ''}</option>
@@ -312,7 +312,7 @@ export default function PersonEditor() {
                     ? teachingOf(editing.id).map(x => <Pill key={x.id} tone="indigo">{x.label}</Pill>)
                     : <span className="text-[13px] text-black/45 dark:text-white/45">No subjects assigned yet.</span>}
                 </div>
-                <p className="mt-1.5 text-[12px] text-black/45 dark:text-white/45">Assign subjects in Classes & Sections → Subjects & teachers.</p>
+                <p className="mt-1.5 text-[12px] text-black/45 dark:text-white/45">Assign subjects in Batches → Subjects & teachers.</p>
               </div>
             </div>
           )}

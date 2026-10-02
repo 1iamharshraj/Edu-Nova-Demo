@@ -8,12 +8,12 @@ import { ApiError } from '@/lib/api'
 import type { Role } from '@/lib/data'
 
 const ROLES: { role: Role; label: string; icon: any; email: string; pass: string; grad: string; blurb: string }[] = [
-  { role: 'superadmin', label: 'Superadmin', icon: Crown, email: 'principal@edkonic.in', pass: 'principal123', grad: 'from-fuchsia-500 to-pink-500', blurb: 'Dr. Arun Nambiar · Principal' },
-  { role: 'admin', label: 'Admin', icon: Landmark, email: 'admin@edkonic.in', pass: 'admin123', grad: 'from-rose-500 to-pink-400', blurb: 'Priya Menon · Vice Principal & Admin' },
-  { role: 'staff', label: 'Staff', icon: LayoutDashboard, email: 'staff@edkonic.in', pass: 'staff123', grad: 'from-amber-500 to-orange-400', blurb: 'Kavita Joshi · Front Office' },
-  { role: 'teacher', label: 'Teacher', icon: BookOpen, email: 'teacher@edkonic.in', pass: 'teacher123', grad: 'from-emerald-500 to-teal-400', blurb: 'Meera Krishnan · Mathematics · Class Teacher X-A' },
-  { role: 'parent', label: 'Parent', icon: Users, email: 'parent@edkonic.in', pass: 'parent123', grad: 'from-indigo-500 to-violet-500', blurb: 'Sunil Kumar · Parent of Ravi, X-A' },
-  { role: 'student', label: 'Student', icon: GraduationCap, email: 'ravi.k@edkonic.in', pass: 'student123', grad: 'from-sky-500 to-cyan-400', blurb: 'Ravi Kumar · Class X-A, Roll 12' },
+  { role: 'superadmin', label: 'Director', icon: Crown, email: 'principal@edkonic.in', pass: 'principal123', grad: 'from-fuchsia-500 to-pink-500', blurb: 'Dr. Arun Nambiar · Institute Director' },
+  { role: 'admin', label: 'Admin', icon: Landmark, email: 'admin@edkonic.in', pass: 'admin123', grad: 'from-rose-500 to-pink-400', blurb: 'Priya Menon · Centre Manager' },
+  { role: 'staff', label: 'Staff', icon: LayoutDashboard, email: 'staff@edkonic.in', pass: 'staff123', grad: 'from-amber-500 to-orange-400', blurb: 'Kavita Joshi · Front Desk & Counselling' },
+  { role: 'teacher', label: 'Faculty', icon: BookOpen, email: 'teacher@edkonic.in', pass: 'teacher123', grad: 'from-emerald-500 to-teal-400', blurb: 'Meera Krishnan · Mathematics · JEE 2027 batch mentor' },
+  { role: 'parent', label: 'Parent', icon: Users, email: 'parent@edkonic.in', pass: 'parent123', grad: 'from-indigo-500 to-violet-500', blurb: 'Sunil Kumar · Parent of Ravi, JEE 2027 · A' },
+  { role: 'student', label: 'Student', icon: GraduationCap, email: 'ravi.k@edkonic.in', pass: 'student123', grad: 'from-sky-500 to-cyan-400', blurb: 'Ravi Kumar · JEE 2027 · Batch A, Roll 12' },
 ]
 
 export default function Login() {
@@ -39,7 +39,7 @@ export default function Login() {
     try {
       const u = await login(email, pass)
       if (u) navigate(u.mustChangePassword ? '/change-password' : '/portal')
-      else setError('Those credentials don’t match any Edkonic account. Try the demo login.')
+      else setError('Those credentials don’t match any Edkonic Prep account. Try the demo login.')
     } catch (err) {
       // A 429 (too many attempts) and a 403 (deactivated account) are not "wrong password" — show
       // the real reason instead of the generic credentials message, which was actively misleading.
@@ -48,9 +48,9 @@ export default function Login() {
         const mins = retryAfter ? Math.max(1, Math.ceil(retryAfter / 60)) : null
         setError(mins ? `Too many login attempts. Please try again in about ${mins} minute${mins === 1 ? '' : 's'}.` : 'Too many login attempts. Please try again shortly.')
       } else if (err instanceof ApiError && err.status === 403) {
-        setError(err.message || 'This account is inactive. Contact your school administrator.')
+        setError(err.message || 'This account is inactive. Contact your institute administrator.')
       } else {
-        setError('Those credentials don’t match any Edkonic account. Try the demo login.')
+        setError('Those credentials don’t match any Edkonic Prep account. Try the demo login.')
       }
     }
   }
@@ -73,10 +73,10 @@ export default function Login() {
         {/* left copy */}
         <div className="rise-in hidden flex-1 lg:block">
           <h1 className="font-display text-[clamp(2.4rem,4.5vw,3.8rem)] font-medium leading-[1.05] tracking-tight">
-            One login.<br />The whole <span className="text-grad">school day</span>.
+            One login.<br />Every <span className="text-grad">batch, test and rank</span>.
           </h1>
           <p className="mt-5 max-w-md text-lg leading-relaxed text-black/60 dark:text-white/60">
-            Pick a role to prefill its demo account. Demo accounts exist once a superadmin loads the sample school from Settings; a fresh school has only the principal.
+            Pick a role to prefill its demo account — director, front desk, faculty, parent or student. This demo institute comes pre-loaded with batches, tests, leads and fees.
           </p>
           <div className="mt-8 space-y-3">
             {ROLES.map((r) => (
@@ -136,7 +136,7 @@ export default function Login() {
               Sign in <ArrowRight size={17} />
             </button>
             <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-[12.5px] text-black/45 dark:text-white/45">
-              <ShieldCheck size={14} className="text-emerald-600" /> Signed in securely — data is stored on the Edkonic server.
+              <ShieldCheck size={14} className="text-emerald-600" /> Signed in securely — data is stored on the Edkonic Prep server.
             </p>
           </form>
         </div>

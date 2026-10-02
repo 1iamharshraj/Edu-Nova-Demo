@@ -1,10 +1,9 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import {
-  AlertTriangle, Award, Banknote, BarChart3, BookMarked, BookOpen, Boxes, BrainCircuit, Calculator, CalendarClock, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock3,
-  CloudUpload, CreditCard, DoorOpen, FileBadge, FileBarChart2, FileWarning, FolderCog, Gavel, GraduationCap, HeartHandshake, HeartPulse, Home, IdCard, KeyRound, Landmark, LayoutGrid, Layers,
-  LogOut, Megaphone, MessageCircleWarning, MessageSquare, MessagesSquare, Network, NotebookPen, PartyPopper, PencilLine, PillBottle, Play, Route as RouteIcon, School, ScrollText, Settings, ShoppingCart, Shuffle,
-  Scale, ShieldAlert, ShieldCheck, Sparkles, Star, Target, Trophy, Truck, UserCheck, UserCircle2, Umbrella, Undo2, Users, Users2, Video, Wallet, Wand2, type LucideIcon,
+  Banknote, BarChart3, BookMarked, BookOpen, Boxes, BrainCircuit, Calculator, CalendarClock, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock3,
+  CreditCard, DoorOpen, FileBadge, FileBarChart2, GraduationCap, Home, Landmark, LayoutGrid, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, NotebookPen, PencilLine, ScrollText, Settings, ShoppingCart, Shuffle,
+  ShieldAlert, ShieldCheck, Star, Target, Trophy, Truck, UserCircle2, Umbrella, Users, Users2, Video, Wallet, Wand2, type LucideIcon,
 } from 'lucide-react'
 import { Logo } from '@/components/Logo'
 import { api, errorMessage } from '@/lib/api'
@@ -21,48 +20,38 @@ import { todayAgenda, useClock, useEntryLookup, useMyTimetable } from '@/lib/hoo
 import { homeworkStatus, isOpen, useAttendanceSummary, useHomework, useReportCard } from '@/lib/hooks/useAcademics'
 import { TimetableMod } from './modules/timetable'
 import { TimetableBuilderMod } from './modules/timetableBuilder'
-import { AIDoubtsMod, FeedMod, HighlightsMod, MessagesMod, NotificationBell } from './modules/social'
-import { AchievementsMod, HealthMod, HomeworkMod, LeaveMod, MedicationMod, SlipsMod, WorkUploadMod } from './modules/actions'
+import { AIDoubtsMod, FeedMod, MessagesMod, NotificationBell } from './modules/social'
+import { HomeworkMod } from './modules/actions'
 import {
-  ActivitiesAdminMod, ApplicationsMod, AttendanceMgmtMod, CalendarAdminMod, CreateAssignmentMod,
-  BoardRegistrationMod, GradebookMod, PeopleMod, RegistrationsMod, TakeAttendanceMod, VerificationsMod,
-} from './modules/office'
+  AttendanceMgmtMod, CalendarAdminMod, CreateAssignmentMod,
+  GradebookMod, PeopleMod, TakeAttendanceMod, } from './modules/office'
 import { useSlips, useDisciplinaryCases } from '@/lib/hooks/useWelfare'
 import { useCalendarEvents } from '@/lib/hooks/useComms'
 import { MeetingsMod } from './modules/meetings'
 import { LeadsMod } from './modules/leads'
 import { FeeDefaultersAndCallsMod } from './modules/feeDefaulters'
-import { DisciplinaryCommitteeMod } from './modules/disciplinary'
 import { PaymentGatewayMod } from './modules/paymentGateway'
 import { CollectionsMod, FeeSetupMod, MyPayslipsMod, PayrollMod } from './modules/finance'
-import { ContractsResignationsAdminMod, DutiesMod, LeaveApprovalsMod, LeaveTypesMod, MyContractMod, MyLeaveMod } from './modules/hr'
+import { ContractsResignationsAdminMod, LeaveApprovalsMod, LeaveTypesMod, MyContractMod, MyLeaveMod } from './modules/hr'
 import { useLeaveRequests, useResignations } from '@/lib/hooks/useHr'
 import { useDefaulters, useInvoices } from '@/lib/hooks/useFinance'
 import { StudentReportMod } from './modules/studentReport'
-import { AcademicYearsMod, BoardsMod, ClassesMod, CurriculumMod, PeriodsMod, RoomsMod } from './modules/academic'
+import { AcademicYearsMod, ClassesMod, PeriodsMod, RoomsMod } from './modules/academic'
 import { WorkingDaysMod } from './modules/schoolConfig'
-import { AdmissionCatalogsMod, DocumentRecordsReportMod } from './modules/documents'
-import { EligibilityExceptionsReportMod, PerformanceBandsMod, SectioningTemplatesMod, TrackEligibilityMod, TrackRegistrationsMod } from './modules/sectioning'
+import { PerformanceBandsMod, SectioningTemplatesMod } from './modules/sectioning'
 import { SettingsMod } from './modules/settings'
 import { firstName } from './modules/viewer'
 import { MyTeamMod, MyReviewsMod, TeamReviewsMod, StaffConductMod } from './modules/employee'
 import { AlumniMod } from './modules/alumni'
-import { LibraryCatalogMod, LibraryIssueReturnsMod, LibrarySettingsMod, MyLoansMod } from './modules/library'
 import { InventoryCatalogMod, PurchaseOrdersMod, VendorsMod } from './modules/inventory'
 import { AccountingReportsMod, ChartOfAccountsMod, JournalMod } from './modules/accounting'
 import { TeachingProgressMod, SyllabusOverviewMod } from './modules/syllabus'
-import { StudentsAtRiskMod, LostInstructionalTimeMod } from './modules/analytics'
-import { ScholarshipsMod } from './modules/scholarships'
+import { StudentsAtRiskMod } from './modules/analytics'
 import { ReportCardRemarksMod, WorksheetGeneratorMod } from './modules/aiTools'
-import { AuthorizedPickupMod, PickupDeskMod, VisitorDeskMod } from './modules/safety'
-import { CounselingRecordsMod, ConcernReviewQueueMod, ReportConcernMod } from './modules/counseling'
 import { FamilyOverviewMod } from './modules/familyOverview'
-import { SeatingPlanMod, InvigilationRosterMod } from './modules/exams'
-import { LeaderboardMod, PortfolioMod } from './modules/culture'
+import { SeatingPlanMod } from './modules/exams'
 import { GroupMod } from './modules/group'
 import { useGroupMemberships } from '@/lib/hooks/useGroup'
-import { UdiseExportMod } from './modules/compliance'
-import { CanteenPOSMod, CanteenReconciliationMod, CanteenWalletMod, MyWalletMod } from './modules/canteen'
 import { toast } from 'sonner'
 
 /* ── term context ──────────────────────────────────────── */
@@ -77,316 +66,146 @@ interface Mod { id: string; label: string; icon: LucideIcon; el: React.ReactNode
 
 function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
   const M = (id: string, label: string, icon: LucideIcon, el: React.ReactNode, group: string): Mod => ({ id, label, icon, el, group })
+  // Coaching-institute information architecture. Groups are ordered by how often each role actually
+  // reaches for them; school-only surfaces (houses, board registration, TCs, quota catalogues, pickups,
+  // canteen, health/medication, permission slips, UDISE) are deliberately absent from this demo.
+  const staffDesk = (): Mod[] => [
+    M('leads', 'Leads', Target, <LeadsMod />, 'Admissions'),
+  ]
+  const adminMods = (superadmin: boolean): Mod[] => [
+    M('home', 'Overview', Home, <Overview />, 'Main'),
+    ...staffDesk(),
+    M('classes', 'Batches', GraduationCap, <ClassesMod />, 'Batches & Scheduling'),
+    M('ttb', 'Timetable Builder', CalendarDays, <TimetableBuilderMod />, 'Batches & Scheduling'),
+    M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Batches & Scheduling'),
+    M('sectemplates', 'Batch Allocation', Shuffle, <SectioningTemplatesMod />, 'Batches & Scheduling'),
+    M('bands', 'Score Bands', BarChart3, <PerformanceBandsMod />, 'Batches & Scheduling'),
+    M('rooms', 'Classrooms', DoorOpen, <RoomsMod />, 'Batches & Scheduling'),
+    M('periods', 'Time Slots', Clock3, <PeriodsMod />, 'Batches & Scheduling'),
+    M('workingdays', 'Working Days', CalendarClock, <WorkingDaysMod />, 'Batches & Scheduling'),
+    M('years', 'Sessions & Terms', CalendarRange, <AcademicYearsMod />, 'Batches & Scheduling'),
+    M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Students'),
+    M('atrisk', 'Students at Risk', ShieldAlert, <StudentsAtRiskMod />, 'Students'),
+    M('reports', 'Progress Reports', FileBadge, <StudentReportsMod />, 'Students'),
+    M('seating', 'Test Seating Plans', ClipboardCheck, <SeatingPlanMod />, 'Tests & Results'),
+    M('remarks', 'Report Remarks', MessageSquare, <ReportCardRemarksMod />, 'Tests & Results'),
+    M('syllabusov', 'Syllabus Coverage', BookMarked, <SyllabusOverviewMod />, 'Teaching'),
+    M('worksheets', 'AI Question Generator', Wand2, <WorksheetGeneratorMod />, 'Teaching'),
+    M('feed', 'Announcements', Megaphone, <FeedMod />, 'Communication'),
+    M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Communication'),
+    M('meet', 'Parent–Teacher Meetings', Video, <MeetingsMod />, 'Communication'),
+    M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Communication'),
+    M('fees', 'Fee Setup', CreditCard, <FeeSetupMod />, 'Finance'),
+    M('collect', 'Collections', Landmark, <CollectionsMod />, 'Finance'),
+    M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Finance'),
+    M('payroll', 'Payroll', Wallet, <PayrollMod />, 'Finance'),
+    M('coa', 'Chart of Accounts', Calculator, <ChartOfAccountsMod />, 'Finance'),
+    M('journal', 'Journal', NotebookPen, <JournalMod />, 'Finance'),
+    M('acctreports', 'Accounting Reports', FileBarChart2, <AccountingReportsMod />, 'Finance'),
+    M('people', 'People & Roles', Users, <PeopleMod />, 'Faculty & HR'),
+    M('contracts', 'Contracts & Exit', ScrollText, <ContractsResignationsAdminMod />, 'Faculty & HR'),
+    M('leaves', 'Faculty Leave Approvals', Umbrella, <LeaveApprovalsMod />, 'Faculty & HR'),
+    M('leavetypes', 'Leave Types', Umbrella, <LeaveTypesMod />, 'Faculty & HR'),
+    M('myteam', 'My Team', Users, <MyTeamMod />, 'Faculty & HR'),
+    M('teamreviews', 'Team Reviews', ClipboardList, <TeamReviewsMod />, 'Faculty & HR'),
+    M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'Faculty & HR'),
+    M('staffconduct', 'Staff Conduct', ShieldAlert, <StaffConductMod />, 'Faculty & HR'),
+    M('inv', 'Inventory', Boxes, <InventoryCatalogMod />, 'Resources'),
+    M('po', 'Purchase Orders', ShoppingCart, <PurchaseOrdersMod />, 'Resources'),
+    M('vendors', 'Vendors', Truck, <VendorsMod />, 'Resources'),
+    M('alumni', 'Success Stories', Trophy, <AlumniMod />, 'Success Stories'),
+    ...(superadmin ? [M('admins', 'Admin Management', ShieldCheck, <AdminManagementMod />, 'System')] : []),
+    M('settings', 'Settings', Settings, <SettingsMod />, 'System'),
+    M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
+  ]
   switch (role) {
     case 'parent': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
       M('family', 'Family Overview', Users2, <FamilyOverviewMod onNavigate={onNavigate} />, 'Main'),
-      M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Academics'),
-      M('att', 'Attendance', ClipboardCheck, <AttendanceMod />, 'Academics'),
-      M('marks', 'Marks & Grades', PencilLine, <MarksMod />, 'Academics'),
-      M('ranks', 'Rank List', Trophy, <RanksMod />, 'Academics'),
-      M('cal', 'Calendar', CalendarPlus, <CalendarMod />, 'Academics'),
-      M('teachers', 'Teachers', Users, <TeachersMod />, 'Academics'),
-      M('report', 'Student Report', FileBadge, <StudentReportsMod />, 'Academics'),
-      M('feed', 'School Feed', Megaphone, <FeedMod />, 'Community'),
-      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Community'),
-      M('meet', 'Meetings', Video, <MeetingsMod />, 'Community'),
-      M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Community'),
-      M('leaderboard', 'House Leaderboard', Trophy, <LeaderboardMod />, 'Community'),
-      M('portfolio', 'My Portfolio', IdCard, <PortfolioMod />, 'Community'),
-      M('hw', 'Homework Status', BookOpen, <HomeworkMod />, 'Actions'),
-      M('work', 'Work Upload', CloudUpload, <WorkUploadMod />, 'Actions'),
-      M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Actions'),
-      M('leave', 'Holiday Requests', Umbrella, <LeaveMod />, 'Actions'),
-      M('health', 'Health Records', HeartPulse, <HealthMod />, 'Actions'),
-      M('meds', 'Medication Log', PillBottle, <MedicationMod />, 'Actions'),
-      M('ach', 'Achievements', Award, <AchievementsMod />, 'Actions'),
-      M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Actions'),
-      M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Actions'),
-      M('pickups', 'Authorized Pickup', KeyRound, <AuthorizedPickupMod />, 'Actions'),
-      M('pay', 'Payments', CreditCard, <PaymentGatewayMod />, 'Office'),
-      M('canteen', 'Canteen Wallet', Wallet, <CanteenWalletMod />, 'Office'),
-      M('apps', 'TC & Bonafide', FileBadge, <ApplicationsMod approver={false} />, 'Office'),
-      M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Office'),
-      M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Office'),
-      M('concern', 'Report a Concern', MessageCircleWarning, <ReportConcernMod />, 'Office'),
+      M('tt', 'Batch Timetable', CalendarDays, <TimetableMod />, "Child's Progress"),
+      M('att', 'Attendance', ClipboardCheck, <AttendanceMod />, "Child's Progress"),
+      M('marks', 'Test Scores', PencilLine, <MarksMod />, "Child's Progress"),
+      M('ranks', 'Test Rankings', Trophy, <RanksMod />, "Child's Progress"),
+      M('report', 'Progress Report', FileBadge, <StudentReportsMod />, "Child's Progress"),
+      M('hw', 'DPP & Assignments', BookOpen, <HomeworkMod />, "Child's Progress"),
+      M('cal', 'Calendar', CalendarPlus, <CalendarMod />, "Child's Progress"),
+      M('teachers', 'Faculty', Users, <TeachersMod />, "Child's Progress"),
+      M('feed', 'Announcements', Megaphone, <FeedMod />, 'Communication'),
+      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Communication'),
+      M('meet', 'Parent–Teacher Meetings', Video, <MeetingsMod />, 'Communication'),
+      M('pay', 'Fee Payments', CreditCard, <PaymentGatewayMod />, 'Fees'),
       M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
     case 'student': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
-      M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Academics'),
-      M('att', 'Attendance', ClipboardCheck, <AttendanceMod />, 'Academics'),
-      M('marks', 'Marks & Grades', PencilLine, <MarksMod />, 'Academics'),
-      M('ranks', 'Rank List', Trophy, <RanksMod />, 'Academics'),
-      M('cal', 'Calendar', CalendarPlus, <CalendarMod />, 'Academics'),
-      M('hw', 'Homework Upload', BookOpen, <HomeworkMod uploader />, 'Academics'),
-      M('work', 'Work Upload', CloudUpload, <WorkUploadMod />, 'Academics'),
-      M('ai', 'AI Doubt Clearing', BrainCircuit, <AIDoubtsMod />, 'Academics'),
-      M('report', 'My Report', FileBadge, <StudentReportsMod />, 'Academics'),
-      M('feed', 'School Feed', Megaphone, <FeedMod />, 'Community'),
-      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Community'),
-      M('meet', 'Meetings', Video, <MeetingsMod />, 'Community'),
-      M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Community'),
-      M('leaderboard', 'House Leaderboard', Trophy, <LeaderboardMod />, 'Community'),
-      M('portfolio', 'My Portfolio', IdCard, <PortfolioMod />, 'Community'),
-      M('ffcs', 'Clubs & Chapters', Users, <RegistrationsMod kind="club" title="Clubs & Chapters (FFCS)" sub="Fully flexible club selection — pick what moves you" />, 'Activities'),
-      M('iha', 'Inter-House (IHA)', PartyPopper, <RegistrationsMod kind="house" title="Inter-House Activities" sub="Represent your house this term" />, 'Activities'),
-      M('exc', 'Extra-Curricular (EXC)', Sparkles, <RegistrationsMod kind="exc" title="EXC Registrations" sub="Weekend extra-curricular coaching" />, 'Activities'),
-      M('events', 'Event Registration', Play, <RegistrationsMod kind="event" title="Event Registration" sub="Sign up for upcoming school events" />, 'Activities'),
-      M('trackreg', 'Track & Stream Registration', RouteIcon, <TrackRegistrationsMod />, 'Actions'),
-      M('health', 'Health Records', HeartPulse, <HealthMod />, 'Actions'),
-      M('meds', 'Medication Log', PillBottle, <MedicationMod />, 'Actions'),
-      M('ach', 'Achievements', Award, <AchievementsMod />, 'Actions'),
-      M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Actions'),
-      M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Actions'),
-      M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Office'),
-      M('pay', 'Fee Payments', CreditCard, <PaymentGatewayMod />, 'Office'),
-      M('canteen', 'Canteen Wallet', Wallet, <MyWalletMod />, 'Office'),
-      M('apps', 'Applications', FileBadge, <ApplicationsMod approver={false} />, 'Office'),
-      M('concern', 'Report a Concern', MessageCircleWarning, <ReportConcernMod />, 'Office'),
+      M('tt', 'My Timetable', CalendarDays, <TimetableMod />, 'My Learning'),
+      M('att', 'Attendance', ClipboardCheck, <AttendanceMod />, 'My Learning'),
+      M('marks', 'Test Scores', PencilLine, <MarksMod />, 'My Learning'),
+      M('ranks', 'Test Rankings', Trophy, <RanksMod />, 'My Learning'),
+      M('hw', 'DPP & Assignments', BookOpen, <HomeworkMod uploader />, 'My Learning'),
+      M('ai', 'AI Doubt Solver', BrainCircuit, <AIDoubtsMod />, 'My Learning'),
+      M('report', 'Progress Report', FileBadge, <StudentReportsMod />, 'My Learning'),
+      M('cal', 'Calendar', CalendarPlus, <CalendarMod />, 'My Learning'),
+      M('feed', 'Announcements', Megaphone, <FeedMod />, 'Communication'),
+      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Communication'),
+      M('meet', 'Meetings', Video, <MeetingsMod />, 'Communication'),
+      M('pay', 'Fee Payments', CreditCard, <PaymentGatewayMod />, 'Fees'),
       M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
     case 'teacher': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
-      M('take', 'Take Attendance', ClipboardCheck, <TakeAttendanceMod />, 'Classroom'),
-      M('assign', 'Create Assignment', BookOpen, <CreateAssignmentMod />, 'Classroom'),
-      M('grades', 'Gradebook', PencilLine, <GradebookMod />, 'Classroom'),
-      M('leaderboard', 'House Leaderboard', Trophy, <LeaderboardMod />, 'Classroom'),
-      M('syllabus', 'Teaching Progress', BookMarked, <TeachingProgressMod />, 'Classroom'),
-      M('atrisk', 'Students at Risk', ShieldAlert, <StudentsAtRiskMod />, 'Classroom'),
-      M('worksheets', 'AI Worksheets', Wand2, <WorksheetGeneratorMod />, 'Classroom'),
-      M('remarks', 'Report Card Remarks', MessageSquare, <ReportCardRemarksMod />, 'Classroom'),
-      M('tt', 'My Timetable', CalendarDays, <TimetableMod />, 'Classroom'),
-      M('feed', 'School Feed', Megaphone, <FeedMod />, 'Classroom'),
-      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Classroom'),
-      M('meet', 'Meetings', Video, <MeetingsMod />, 'Classroom'),
-      M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Classroom'),
-      M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Classroom'),
-      M('health', 'Health Records', HeartPulse, <HealthMod />, 'Classroom'),
-      M('lapprove', 'Leave Approvals', Umbrella, <LeaveApprovalsMod />, 'Classroom'),
-      M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Classroom'),
-      M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Classroom'),
-      M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Classroom'),
-      M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Classroom'),
-      M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Classroom'),
-      M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Classroom'),
-      M('inv', 'Inventory', Boxes, <InventoryCatalogMod />, 'Classroom'),
+      M('tt', 'My Timetable', CalendarDays, <TimetableMod />, 'My Batches'),
+      M('take', 'Take Attendance', ClipboardCheck, <TakeAttendanceMod />, 'My Batches'),
+      M('assign', 'Create DPP / Assignment', BookOpen, <CreateAssignmentMod />, 'My Batches'),
+      M('grades', 'Test Gradebook', PencilLine, <GradebookMod />, 'My Batches'),
+      M('syllabus', 'Syllabus Progress', BookMarked, <TeachingProgressMod />, 'My Batches'),
+      M('worksheets', 'AI Question Generator', Wand2, <WorksheetGeneratorMod />, 'My Batches'),
+      M('atrisk', 'Students at Risk', ShieldAlert, <StudentsAtRiskMod />, 'My Batches'),
+      M('reports', 'Progress Reports', FileBadge, <StudentReportsMod />, 'My Batches'),
+      M('remarks', 'Report Remarks', MessageSquare, <ReportCardRemarksMod />, 'My Batches'),
+      M('feed', 'Announcements', Megaphone, <FeedMod />, 'Communication'),
+      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Communication'),
+      M('meet', 'Parent–Teacher Meetings', Video, <MeetingsMod />, 'Communication'),
       M('salary', 'My Payslips', Wallet, <MyPayslipsMod />, 'My HR'),
       M('myleave', 'My Leave', Umbrella, <MyLeaveMod />, 'My HR'),
       M('contract', 'My Contract', ScrollText, <MyContractMod />, 'My HR'),
-      M('work', 'Event Duties', PartyPopper, <DutiesMod />, 'My HR'),
-      M('freg', 'Faculty Events', Play, <RegistrationsMod kind="faculty" title="Faculty Event Registration" sub="Workshops and panels for teachers" />, 'My HR'),
-      M('ach', 'My Achievements', Award, <AchievementsMod />, 'My HR'),
-      M('myteam', 'My Team', Users, <MyTeamMod />, 'My HR'),
       M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'My HR'),
+      M('myteam', 'My Team', Users, <MyTeamMod />, 'My HR'),
       M('teamreviews', 'Team Reviews', ClipboardList, <TeamReviewsMod />, 'My HR'),
       M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
     case 'staff': return [
       M('home', 'Overview', Home, <Overview />, 'Main'),
-      M('attm', 'Attendance Mgmt', ClipboardCheck, <AttendanceMgmtMod />, 'Operations'),
-      M('syllabusov', 'Syllabus Overview', BookMarked, <SyllabusOverviewMod />, 'Operations'),
-      M('atrisk', 'Students at Risk', ShieldAlert, <StudentsAtRiskMod />, 'Operations'),
-      M('losttime', 'Lost Instructional Time', FileBarChart2, <LostInstructionalTimeMod />, 'Operations'),
-      M('leaderboard', 'House Leaderboard', Trophy, <LeaderboardMod />, 'Operations'),
-      M('seating', 'Exam Seating Plans', ClipboardCheck, <SeatingPlanMod />, 'Operations'),
-      M('invigroster', 'Invigilation Roster', Users2, <InvigilationRosterMod />, 'Operations'),
-      M('worksheets', 'AI Worksheets', Wand2, <WorksheetGeneratorMod />, 'Operations'),
-      M('remarks', 'Report Card Remarks', MessageSquare, <ReportCardRemarksMod />, 'Operations'),
-      M('pickupdesk', 'Pickup Desk', KeyRound, <PickupDeskMod />, 'Operations'),
-      M('visitordesk', 'Visitor Desk', UserCheck, <VisitorDeskMod />, 'Operations'),
-      M('canteenpos', 'Canteen POS', ShoppingCart, <CanteenPOSMod />, 'Operations'),
-      M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Operations'),
-      M('people', 'People', Users, <PeopleMod />, 'Operations'),
-      M('leads', 'Leads', Target, <LeadsMod />, 'Operations'),
-      M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Operations'),
-      M('admissioncat', 'Admission Catalogs', FolderCog, <AdmissionCatalogsMod />, 'Operations'),
-      M('docrecords', 'Held Documents', ClipboardList, <DocumentRecordsReportMod />, 'Operations'),
-      M('trackexceptions', 'Eligibility Exceptions', FileWarning, <EligibilityExceptionsReportMod />, 'Operations'),
-      M('verify', 'Verifications', ShieldCheck, <VerificationsMod />, 'Operations'),
-      M('leaves', 'Leave Approvals', Umbrella, <LeaveApprovalsMod />, 'Operations'),
-      M('calm', 'Calendar Mgmt', CalendarPlus, <CalendarAdminMod />, 'Operations'),
-      M('work', 'Work Assignment', PartyPopper, <DutiesMod manage />, 'Operations'),
-      M('actadmin', 'Activities Admin', Sparkles, <ActivitiesAdminMod />, 'Operations'),
-      M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Operations'),
-      M('libissue', 'Issue & Returns', Undo2, <LibraryIssueReturnsMod />, 'Operations'),
-      M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Operations'),
-      M('inv', 'Inventory', Boxes, <InventoryCatalogMod />, 'Operations'),
-      M('po', 'Purchase Orders', ShoppingCart, <PurchaseOrdersMod />, 'Operations'),
-      M('vendors', 'Vendors', Truck, <VendorsMod />, 'Operations'),
-      M('feed', 'School Feed', Megaphone, <FeedMod />, 'Operations'),
-      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Operations'),
-      M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Operations'),
-      M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Operations'),
-      M('health', 'Health Records', HeartPulse, <HealthMod />, 'Operations'),
-      M('meds', 'Medication Log', PillBottle, <MedicationMod />, 'Operations'),
-      M('ach', 'Achievements', Award, <AchievementsMod />, 'Operations'),
-      M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Operations'),
-      M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Operations'),
-      M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Operations'),
-      M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Operations'),
-      M('meet', 'Meetings', Video, <MeetingsMod />, 'Operations'),
+      ...staffDesk(),
+      M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Students'),
+      M('atrisk', 'Students at Risk', ShieldAlert, <StudentsAtRiskMod />, 'Students'),
+      M('reports', 'Progress Reports', FileBadge, <StudentReportsMod />, 'Students'),
+        M('seating', 'Test Seating Plans', ClipboardCheck, <SeatingPlanMod />, 'Tests & Results'),
+        M('remarks', 'Report Remarks', MessageSquare, <ReportCardRemarksMod />, 'Tests & Results'),
+      M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Teaching'),
+      M('syllabusov', 'Syllabus Coverage', BookMarked, <SyllabusOverviewMod />, 'Teaching'),
+      M('worksheets', 'AI Question Generator', Wand2, <WorksheetGeneratorMod />, 'Teaching'),
+      M('feed', 'Announcements', Megaphone, <FeedMod />, 'Communication'),
+      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Communication'),
+      M('meet', 'Parent–Teacher Meetings', Video, <MeetingsMod />, 'Communication'),
+      M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Communication'),
       M('fees', 'Fee Setup', CreditCard, <FeeSetupMod />, 'Finance'),
       M('collect', 'Collections', Landmark, <CollectionsMod />, 'Finance'),
-      M('scholarships', 'Scholarships', Award, <ScholarshipsMod />, 'Finance'),
-      M('salary', 'My Payslips', ScrollText, <MyPayslipsMod />, 'Finance'),
-      M('myteam', 'My Team', Users, <MyTeamMod />, 'My HR'),
-      M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'My HR'),
-      M('teamreviews', 'Team Reviews', ClipboardList, <TeamReviewsMod />, 'My HR'),
-      M('alumni', 'Success Stories', Trophy, <AlumniMod />, 'Success Stories'),
-      M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
-    ]
-    case 'admin': return [
-      M('home', 'Overview', Home, <Overview />, 'Main'),
-      M('years', 'Years & Terms', CalendarRange, <AcademicYearsMod />, 'Academic Setup'),
-      M('boards', 'Boards & Grades', Layers, <BoardsMod />, 'Academic Setup'),
-      M('curriculum', 'Curriculum', BookMarked, <CurriculumMod />, 'Academic Setup'),
-      M('syllabusov', 'Syllabus Overview', BookMarked, <SyllabusOverviewMod />, 'Academic Setup'),
-      M('classes', 'Classes & Sections', GraduationCap, <ClassesMod />, 'Academic Setup'),
-      M('ttb', 'Timetable Builder', CalendarDays, <TimetableBuilderMod />, 'Academic Setup'),
-      M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Academic Setup'),
-      M('rooms', 'Rooms', DoorOpen, <RoomsMod />, 'Academic Setup'),
-      M('periods', 'Periods', Clock3, <PeriodsMod />, 'Academic Setup'),
-      M('bands', 'Performance Bands', BarChart3, <PerformanceBandsMod />, 'Academic Setup'),
-      M('sectemplates', 'Sectioning Templates', Shuffle, <SectioningTemplatesMod />, 'Academic Setup'),
-      M('tracks', 'Track Eligibility', Target, <TrackEligibilityMod />, 'Academic Setup'),
-      M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
-      M('leads', 'Leads', Target, <LeadsMod />, 'Manage'),
-      M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
-      M('admissioncat', 'Admission Catalogs', FolderCog, <AdmissionCatalogsMod />, 'Manage'),
-      M('docrecords', 'Held Documents', ClipboardList, <DocumentRecordsReportMod />, 'Manage'),
-      M('trackexceptions', 'Eligibility Exceptions', FileWarning, <EligibilityExceptionsReportMod />, 'Manage'),
-      M('verify', 'Verifications', ShieldCheck, <VerificationsMod />, 'Manage'),
-      M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Manage'),
-      M('pickupdesk', 'Pickup Desk', KeyRound, <PickupDeskMod />, 'Manage'),
-      M('visitordesk', 'Visitor Desk', UserCheck, <VisitorDeskMod />, 'Manage'),
-      M('concernqueue', 'Concern Review', AlertTriangle, <ConcernReviewQueueMod />, 'Manage'),
-      M('atrisk', 'Students at Risk', ShieldAlert, <StudentsAtRiskMod />, 'Manage'),
-      M('losttime', 'Lost Instructional Time', FileBarChart2, <LostInstructionalTimeMod />, 'Manage'),
-      M('leaderboard', 'House Leaderboard', Trophy, <LeaderboardMod />, 'Manage'),
-      M('seating', 'Exam Seating Plans', ClipboardCheck, <SeatingPlanMod />, 'Manage'),
-      M('invigroster', 'Invigilation Roster', Users2, <InvigilationRosterMod />, 'Manage'),
-      M('worksheets', 'AI Worksheets', Wand2, <WorksheetGeneratorMod />, 'Manage'),
-      M('remarks', 'Report Card Remarks', MessageSquare, <ReportCardRemarksMod />, 'Manage'),
-      M('leavetypes', 'Leave Types', Umbrella, <LeaveTypesMod />, 'Manage'),
-      M('leaves', 'Leave Approvals', Umbrella, <LeaveApprovalsMod />, 'Manage'),
-      M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
-      M('work', 'Work Assignment', PartyPopper, <DutiesMod manage />, 'Manage'),
-      M('actadmin', 'Activities Admin', Sparkles, <ActivitiesAdminMod />, 'Manage'),
-      M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Manage'),
-      M('libissue', 'Issue & Returns', Undo2, <LibraryIssueReturnsMod />, 'Manage'),
-      M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Manage'),
-      M('inv', 'Inventory', Boxes, <InventoryCatalogMod />, 'Manage'),
-      M('po', 'Purchase Orders', ShoppingCart, <PurchaseOrdersMod />, 'Manage'),
-      M('vendors', 'Vendors', Truck, <VendorsMod />, 'Manage'),
-      M('feed', 'School Feed', Megaphone, <FeedMod />, 'Manage'),
-      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Manage'),
-      M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Manage'),
-      M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Manage'),
-      M('health', 'Health Records', HeartPulse, <HealthMod />, 'Manage'),
-      M('meds', 'Medication Log', PillBottle, <MedicationMod />, 'Manage'),
-      M('ach', 'Achievements', Award, <AchievementsMod />, 'Manage'),
-      M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Manage'),
-      M('contracts', 'Contracts & Exit', ScrollText, <ContractsResignationsAdminMod />, 'Manage'),
-      M('myteam', 'My Team', Users, <MyTeamMod />, 'Manage'),
-      M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'Manage'),
-      M('teamreviews', 'Team Reviews', ClipboardList, <TeamReviewsMod />, 'Manage'),
-      M('staffconduct', 'Staff Conduct', ShieldAlert, <StaffConductMod />, 'Manage'),
-      M('alumni', 'Success Stories', Trophy, <AlumniMod />, 'Success Stories'),
-      M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Manage'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Finance'),
-      M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Finance'),
-      M('meet', 'Meetings', Video, <MeetingsMod />, 'Finance'),
-      M('fees', 'Fee Setup', CreditCard, <FeeSetupMod />, 'Finance'),
-      M('collect', 'Collections', Landmark, <CollectionsMod />, 'Finance'),
-      M('scholarships', 'Scholarships', Award, <ScholarshipsMod />, 'Finance'),
-      M('payroll', 'Payroll', Wallet, <PayrollMod />, 'Finance'),
-      M('coa', 'Chart of Accounts', Calculator, <ChartOfAccountsMod />, 'Finance'),
-      M('journal', 'Journal', NotebookPen, <JournalMod />, 'Finance'),
-      M('acctreports', 'Accounting Reports', FileBarChart2, <AccountingReportsMod />, 'Finance'),
-      M('canteenrecon', 'Canteen Reconciliation', Scale, <CanteenReconciliationMod />, 'Finance'),
-      M('workingdays', 'Working Days & Periods', CalendarClock, <WorkingDaysMod />, 'System'),
-      M('libsettings', 'Library Settings', BookMarked, <LibrarySettingsMod />, 'System'),
-      M('udise', 'UDISE+ Export', FileBarChart2, <UdiseExportMod />, 'System'),
-      M('settings', 'Settings', Settings, <SettingsMod />, 'System'),
-      M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
-    ]
-    case 'superadmin': return [
-      M('home', 'Overview', Home, <Overview />, 'Main'),
-      M('years', 'Years & Terms', CalendarRange, <AcademicYearsMod />, 'Academic Setup'),
-      M('boards', 'Boards & Grades', Layers, <BoardsMod />, 'Academic Setup'),
-      M('curriculum', 'Curriculum', BookMarked, <CurriculumMod />, 'Academic Setup'),
-      M('syllabusov', 'Syllabus Overview', BookMarked, <SyllabusOverviewMod />, 'Academic Setup'),
-      M('classes', 'Classes & Sections', GraduationCap, <ClassesMod />, 'Academic Setup'),
-      M('ttb', 'Timetable Builder', CalendarDays, <TimetableBuilderMod />, 'Academic Setup'),
-      M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Academic Setup'),
-      M('rooms', 'Rooms', DoorOpen, <RoomsMod />, 'Academic Setup'),
-      M('periods', 'Periods', Clock3, <PeriodsMod />, 'Academic Setup'),
-      M('bands', 'Performance Bands', BarChart3, <PerformanceBandsMod />, 'Academic Setup'),
-      M('sectemplates', 'Sectioning Templates', Shuffle, <SectioningTemplatesMod />, 'Academic Setup'),
-      M('tracks', 'Track Eligibility', Target, <TrackEligibilityMod />, 'Academic Setup'),
-      M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
-      M('admins', 'Admin Management', ShieldCheck, <AdminManagementMod />, 'Manage'),
-      M('leads', 'Leads', Target, <LeadsMod />, 'Manage'),
-      M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
-      M('admissioncat', 'Admission Catalogs', FolderCog, <AdmissionCatalogsMod />, 'Manage'),
-      M('docrecords', 'Held Documents', ClipboardList, <DocumentRecordsReportMod />, 'Manage'),
-      M('trackexceptions', 'Eligibility Exceptions', FileWarning, <EligibilityExceptionsReportMod />, 'Manage'),
-      M('verify', 'Verifications', ShieldCheck, <VerificationsMod />, 'Manage'),
-      M('attm', 'Attendance', ClipboardCheck, <AttendanceMgmtMod />, 'Manage'),
-      M('pickupdesk', 'Pickup Desk', KeyRound, <PickupDeskMod />, 'Manage'),
-      M('visitordesk', 'Visitor Desk', UserCheck, <VisitorDeskMod />, 'Manage'),
-      M('concernqueue', 'Concern Review', AlertTriangle, <ConcernReviewQueueMod />, 'Manage'),
-      M('atrisk', 'Students at Risk', ShieldAlert, <StudentsAtRiskMod />, 'Manage'),
-      M('losttime', 'Lost Instructional Time', FileBarChart2, <LostInstructionalTimeMod />, 'Manage'),
-      M('leaderboard', 'House Leaderboard', Trophy, <LeaderboardMod />, 'Manage'),
-      M('seating', 'Exam Seating Plans', ClipboardCheck, <SeatingPlanMod />, 'Manage'),
-      M('invigroster', 'Invigilation Roster', Users2, <InvigilationRosterMod />, 'Manage'),
-      M('worksheets', 'AI Worksheets', Wand2, <WorksheetGeneratorMod />, 'Manage'),
-      M('remarks', 'Report Card Remarks', MessageSquare, <ReportCardRemarksMod />, 'Manage'),
-      M('leavetypes', 'Leave Types', Umbrella, <LeaveTypesMod />, 'Manage'),
-      M('leaves', 'Leave Approvals', Umbrella, <LeaveApprovalsMod />, 'Manage'),
-      M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
-      M('work', 'Work Assignment', PartyPopper, <DutiesMod manage />, 'Manage'),
-      M('actadmin', 'Activities Admin', Sparkles, <ActivitiesAdminMod />, 'Manage'),
-      M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Manage'),
-      M('libissue', 'Issue & Returns', Undo2, <LibraryIssueReturnsMod />, 'Manage'),
-      M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Manage'),
-      M('inv', 'Inventory', Boxes, <InventoryCatalogMod />, 'Manage'),
-      M('po', 'Purchase Orders', ShoppingCart, <PurchaseOrdersMod />, 'Manage'),
-      M('vendors', 'Vendors', Truck, <VendorsMod />, 'Manage'),
-      M('feed', 'School Feed', Megaphone, <FeedMod />, 'Manage'),
-      M('msgs', 'Messages', MessagesSquare, <MessagesMod />, 'Manage'),
-      M('hl', 'Event Highlights', Play, <HighlightsMod />, 'Manage'),
-      M('slips', 'Permission Slips', ShieldCheck, <SlipsMod />, 'Manage'),
-      M('health', 'Health Records', HeartPulse, <HealthMod />, 'Manage'),
-      M('meds', 'Medication Log', PillBottle, <MedicationMod />, 'Manage'),
-      M('ach', 'Achievements', Award, <AchievementsMod />, 'Manage'),
-      M('msheet', 'Board Registration', School, <BoardRegistrationMod />, 'Manage'),
-      M('contracts', 'Contracts & Exit', ScrollText, <ContractsResignationsAdminMod />, 'Manage'),
-      M('myteam', 'My Team', Users, <MyTeamMod />, 'Manage'),
-      M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'Manage'),
-      M('teamreviews', 'Team Reviews', ClipboardList, <TeamReviewsMod />, 'Manage'),
-      M('staffconduct', 'Staff Conduct', ShieldAlert, <StaffConductMod />, 'Manage'),
+      M('inv', 'Inventory', Boxes, <InventoryCatalogMod />, 'Resources'),
+      M('po', 'Purchase Orders', ShoppingCart, <PurchaseOrdersMod />, 'Resources'),
+      M('vendors', 'Vendors', Truck, <VendorsMod />, 'Resources'),
+      M('people', 'People', Users, <PeopleMod />, 'Faculty & HR'),
+      M('salary', 'My Payslips', ScrollText, <MyPayslipsMod />, 'Faculty & HR'),
+      M('myleave', 'My Leave', Umbrella, <MyLeaveMod />, 'Faculty & HR'),
+      M('myteam', 'My Team', Users, <MyTeamMod />, 'Faculty & HR'),
+      M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'Faculty & HR'),
+      M('teamreviews', 'Team Reviews', ClipboardList, <TeamReviewsMod />, 'Faculty & HR'),
       M('alumni', 'Success Stories', Trophy, <AlumniMod />, 'Success Stories'),
-      M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Manage'),
-      M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Finance'),
-      M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Finance'),
-      M('meet', 'Meetings', Video, <MeetingsMod />, 'Finance'),
-      M('fees', 'Fee Setup', CreditCard, <FeeSetupMod />, 'Finance'),
-      M('collect', 'Collections', Landmark, <CollectionsMod />, 'Finance'),
-      M('scholarships', 'Scholarships', Award, <ScholarshipsMod />, 'Finance'),
-      M('payroll', 'Payroll', Wallet, <PayrollMod />, 'Finance'),
-      M('coa', 'Chart of Accounts', Calculator, <ChartOfAccountsMod />, 'Finance'),
-      M('journal', 'Journal', NotebookPen, <JournalMod />, 'Finance'),
-      M('acctreports', 'Accounting Reports', FileBarChart2, <AccountingReportsMod />, 'Finance'),
-      M('canteenrecon', 'Canteen Reconciliation', Scale, <CanteenReconciliationMod />, 'Finance'),
-      M('workingdays', 'Working Days & Periods', CalendarClock, <WorkingDaysMod />, 'System'),
-      M('libsettings', 'Library Settings', BookMarked, <LibrarySettingsMod />, 'System'),
-      M('udise', 'UDISE+ Export', FileBarChart2, <UdiseExportMod />, 'System'),
-      M('settings', 'Settings', Settings, <SettingsMod />, 'System'),
       M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
+    case 'admin': return adminMods(false)
+    case 'superadmin': return adminMods(true)
   }
 }
 
@@ -479,7 +298,7 @@ function AdminManagementMod() {
 
   return (
     <div>
-      <PageHead title="Admin Management" sub="Create school administrators, change staff roles, and revoke access">
+      <PageHead title="Admin Management" sub="Create institute administrators, change staff roles, and revoke access">
         <button onClick={() => { setCreateOpen(true); setCreated(null) }} className="btn-ink px-5 py-2.5 text-[13.5px] font-semibold">New admin</button>
       </PageHead>
       <div className="grid gap-4">
@@ -619,8 +438,8 @@ function Overview() {
           nextTile,
           { k: 'Attendance', v: overall, s: termName, tone: 'from-emerald-500 to-teal-400' },
           { k: 'To submit', v: String(pendingHw), s: 'assignments open', tone: 'from-amber-500 to-orange-400' },
-          { k: 'Class rank', v: rank ? `#${rank}` : '—', s: cls ? `${termName} · ${cls.label}` : 'not enrolled yet', tone: 'from-indigo-500 to-violet-500' },
-          { k: 'My class', v: cls?.label ?? '—', s: cls ? `${academic.enrollments.filter(e => e.classId === cls.id && e.status === 'active').length} students` : 'ask the office to enrol you', tone: 'from-sky-500 to-cyan-400' },
+          { k: 'Batch rank', v: rank ? `#${rank}` : '—', s: cls ? `${termName} · ${cls.label}` : 'not enrolled yet', tone: 'from-indigo-500 to-violet-500' },
+          { k: 'My batch', v: cls?.label ?? '—', s: cls ? `${academic.enrollments.filter(e => e.classId === cls.id && e.status === 'active').length} students` : 'ask the office to enrol you', tone: 'from-sky-500 to-cyan-400' },
         ]
       }
       case 'teacher': {
@@ -631,7 +450,7 @@ function Overview() {
           : agenda.today.length ? 'all done for today' : myTTLoading ? 'loading timetable…' : 'nothing scheduled today'
         return [
           { k: 'Classes today', v: String(agenda.today.length), s: todaySub, tone: 'from-fuchsia-500 to-pink-500' },
-          { k: 'My classes', v: String(taught.length), s: taught.map(c => c.label).join(', ') || 'no assignments yet', tone: 'from-indigo-500 to-violet-500' },
+          { k: 'My batches', v: String(taught.length), s: taught.map(c => c.label).join(', ') || 'no assignments yet', tone: 'from-indigo-500 to-violet-500' },
           { k: 'Leave requests', v: String(pendingLeave), s: 'awaiting approval', tone: 'from-amber-500 to-orange-400' },
           { k: 'Fee defaulters', v: String(defaulters), s: 'students with dues', tone: 'from-rose-500 to-pink-400' },
           { k: 'Disciplinary', v: String(pendingDisciplinary), s: 'open cases', tone: 'from-sky-500 to-cyan-400' },
@@ -652,7 +471,7 @@ function Overview() {
       case 'superadmin': return [
         { k: 'Students', v: String(students), s: `${academic.classes.length} classes`, tone: 'from-sky-500 to-cyan-400' },
         { k: 'Teachers', v: String(teachers), s: `${academic.subjects.length} subjects`, tone: 'from-indigo-500 to-violet-500' },
-        { k: 'Admins', v: String(db.users.filter(u => u.role === 'admin').length), s: 'school administrators', tone: 'from-fuchsia-500 to-pink-500' },
+        { k: 'Admins', v: String(db.users.filter(u => u.role === 'admin').length), s: 'institute administrators', tone: 'from-fuchsia-500 to-pink-500' },
         { k: 'Resignations', v: String(pendingResignations), s: 'pending approval', tone: 'from-amber-500 to-orange-400' },
       ]
       default: return []
@@ -666,7 +485,7 @@ function Overview() {
     { done: academic.years.length > 0, label: 'Create the academic year and its terms', where: 'Years & Terms' },
     { done: academic.boards.length > 0 && academic.grades.length > 0, label: 'Add the boards you run and the grade ladder', where: 'Boards & Grades' },
     { done: academic.curriculum.length > 0, label: 'Define each board’s grade-wise subjects', where: 'Curriculum' },
-    { done: academic.classes.length > 0, label: 'Create sections and assign teachers', where: 'Classes & Sections' },
+    { done: academic.classes.length > 0, label: 'Create sections and assign teachers', where: 'Batches' },
     { done: db.users.some(u => u.role === 'student'), label: 'Enrol students and link parents', where: 'People & Roles' },
   ]
   const setupComplete = setupSteps.every(s => s.done)
@@ -709,7 +528,7 @@ function Overview() {
         </div>
         {isSetupRole && !setupComplete ? (
           <div className="rounded-3xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/60 dark:bg-indigo-500/10 p-6">
-            <p className="text-[13px] font-semibold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Set up your school</p>
+            <p className="text-[13px] font-semibold uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Set up your institute</p>
             <ol className="mt-4 space-y-3">
               {setupSteps.map((s, i) => (
                 <li key={s.label} className="flex items-start gap-3 text-[14px]">
@@ -737,6 +556,10 @@ function Overview() {
 
 /* ── shell ─────────────────────────────────────────────── */
 
+const ROLE_TITLE: Record<Role, string> = {
+  superadmin: 'Director', admin: 'Admin', staff: 'Front desk', teacher: 'Faculty', parent: 'Parent', student: 'Student',
+}
+
 const ROLE_GRAD: Record<Role, string> = {
   parent: 'from-indigo-500 to-violet-500', student: 'from-sky-500 to-cyan-400',
   teacher: 'from-emerald-500 to-teal-400', staff: 'from-amber-500 to-orange-400', admin: 'from-rose-500 to-pink-400',
@@ -763,10 +586,9 @@ export default function Portal() {
   const { memberships } = useGroupMemberships()
   const mods = useMemo(() => {
     const list = modulesFor(user?.role ?? 'parent', setActive)
-    if (user?.isCounselor) list.push({ id: 'counseling', label: 'Counseling Records', icon: HeartHandshake, el: <CounselingRecordsMod />, group: 'Manage' })
-    if (memberships.length > 0) list.push({ id: 'group', label: 'Group', icon: Network, el: <GroupMod />, group: 'Manage' })
+    if (memberships.length > 0) list.push({ id: 'group', label: 'Group', icon: Network, el: <GroupMod />, group: 'System' })
     return list
-  }, [user?.role, user?.isCounselor, memberships.length, setActive])
+  }, [user?.role, memberships.length, setActive])
   // '' means "follow the school's current term" until the user picks one explicitly.
   const [pickedTerm, setTerm] = useState('')
   const term = pickedTerm || currentTerm?.id || ''
@@ -823,7 +645,7 @@ export default function Portal() {
               <NotificationBell onNavigate={setActive} />
               <ThemeToggle />
               <span className={`hidden rounded-full bg-gradient-to-r px-3.5 py-1.5 text-[12px] font-bold capitalize text-white sm:block ${ROLE_GRAD[user.role]}`}>
-                {user.role} portal
+                {ROLE_TITLE[user.role]} portal
               </span>
               <button onClick={() => setActive('profile')} className="rounded-full ring-2 ring-transparent transition hover:ring-indigo-300 dark:hover:ring-indigo-500/50" title="Profile">
                 <Avatar name={user.name} hue={user.avatarHue} size={38} src={headerPhoto} />

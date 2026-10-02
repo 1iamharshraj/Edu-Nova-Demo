@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { CheckCircle2, Clock3, CloudUpload, FileText, ShieldCheck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useStore } from '@/lib/store'
@@ -64,17 +65,21 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
     return () => window.removeEventListener('keydown', fn)
   }, [open, onClose])
   if (!open) return null
-  return (
+  // Portalled to <body>: modules render inside <main class="module-in">, whose transform animation makes it
+  // the containing block for `position: fixed` descendants — without the portal, modals get trapped inside
+  // the content column (backdrop covers only <main>, panel lands wherever main's centre is, often off-screen).
+  return createPortal(
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className={`mega-in relative max-h-[85vh] w-full overflow-y-auto rounded-3xl bg-white dark:bg-[#14141f] p-6 shadow-2xl thin-scroll ${wide ? 'max-w-2xl' : 'max-w-md'}`}>
+      <div role="dialog" aria-modal="true" aria-label={title} className={`mega-in relative max-h-[85vh] w-full overflow-y-auto rounded-3xl bg-white dark:bg-[#14141f] p-6 shadow-2xl thin-scroll ${wide ? 'max-w-2xl' : 'max-w-md'}`}>
         <div className="mb-4 flex items-center justify-between">
           <p className="font-display text-xl font-medium">{title}</p>
-          <button onClick={onClose} className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close" className="rounded-full bg-black/[.05] dark:bg-white/[.07] p-2 hover:bg-black/10 dark:hover:bg-white/15"><X size={16} /></button>
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

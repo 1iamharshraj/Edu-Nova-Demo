@@ -190,7 +190,7 @@ function seedExamsAcademics(db: Collections) {
   // ═══════════════════════════ Calendar ═══════════════════════════
   db.CalendarEvent = [
     { id: 'cal-1', schoolId: SCHOOL_ID, title: 'Winter Break Begins', date: '2025-12-25', endDate: '2026-01-01', type: 'holiday', audience: 'School', classId: null, termId: 't3', createdById: 'u-ad', createdAt: '2025-11-01T00:00:00.000Z' } as Row,
-    { id: 'cal-2', schoolId: SCHOOL_ID, title: 'Grade X-A Term 3 Unit Tests', date: '2025-12-15', endDate: '2025-12-18', type: 'exam', audience: 'Class', classId: 'class-10a', termId: 't3', createdById: 'u-ad', createdAt: '2025-11-20T00:00:00.000Z' } as Row,
+    { id: 'cal-2', schoolId: SCHOOL_ID, title: 'JEE 2027 · A — Mock Test Series 6', date: '2025-12-15', endDate: '2025-12-18', type: 'exam', audience: 'Class', classId: 'class-10a', termId: 't3', createdById: 'u-ad', createdAt: '2025-11-20T00:00:00.000Z' } as Row,
     { id: 'cal-3', schoolId: SCHOOL_ID, title: 'Annual Sports Day', date: '2026-02-10', endDate: undefined, type: 'event', audience: 'School', classId: null, termId: 't3', createdById: 'u-ad', createdAt: '2025-12-01T00:00:00.000Z' } as Row,
   ]
 

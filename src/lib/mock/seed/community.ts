@@ -122,7 +122,7 @@ function seedCommunity(db: Collections) {
 
   db.Conversation = [
     { id: 'conv-1', schoolId: SCHOOL_ID, kind: 'DM', title: null, classId: null, createdById: 'u-t', createdAt: daysAgo(4) },
-    { id: 'conv-2', schoolId: SCHOOL_ID, kind: 'Group', title: 'X-A class group', classId: 'class-10a', createdById: 'u-t', createdAt: daysAgo(10) },
+    { id: 'conv-2', schoolId: SCHOOL_ID, kind: 'Group', title: 'JEE 2027 · A batch group', classId: 'class-10a', createdById: 'u-t', createdAt: daysAgo(10) },
   ].map(r => r as Row)
 
   db.Participant = [
@@ -146,7 +146,7 @@ function seedCommunity(db: Collections) {
     { id: 'notif-2', schoolId: SCHOOL_ID, userId: 'u-ad', kind: 'alumni', title: 'New alumni donation recorded', body: '₹5,000 donation from Sneha Kapoor (Class of 2020).', link: 'alumni', readAt: daysAgo(0), createdAt: daysAgo(9) },
     { id: 'notif-3', schoolId: SCHOOL_ID, userId: 'u-s1', kind: 'wallet', title: 'Canteen wallet topped up', body: '₹150 added to your canteen wallet.', link: 'canteen', readAt: null, createdAt: daysAgo(2) },
     { id: 'notif-4', schoolId: SCHOOL_ID, userId: 'u-t2', kind: 'review', title: 'A performance review has been shared with you', body: '2025 Annual review from Priya Menon is ready for your comments.', link: 'reviews', readAt: null, createdAt: daysAgo(3) },
-    { id: 'notif-5', schoolId: SCHOOL_ID, userId: 'u-s2', kind: 'message', title: 'New message in X-A class group', body: 'Reminder: unit test on Chapter 4 this Friday.', link: 'msgs', readAt: null, createdAt: daysAgo(2) },
+    { id: 'notif-5', schoolId: SCHOOL_ID, userId: 'u-s2', kind: 'message', title: 'New message in JEE 2027 · A batch group', body: 'Reminder: Mock Test 6 (full syllabus) this Sunday, 9 am.', link: 'msgs', readAt: null, createdAt: daysAgo(2) },
   ].map(r => r as Row)
 
   // ═══════════════════════════ Phase 11 (A3 only) — Performance reviews ═══════════════════════════
@@ -157,13 +157,13 @@ function seedCommunity(db: Collections) {
       periodStart: '2025-04-01', periodEnd: '2026-03-31', overallRating: 4,
       strengths: 'Excellent classroom engagement; students consistently rate English lessons highly. Strong command of the CBSE curriculum.',
       areasForImprovement: 'Could delegate more grading to peer-review exercises to reduce turnaround time on essays.',
-      goals: 'Pilot a peer-review rubric for Class X essay submissions next term.',
+      goals: 'Pilot weekly mixed-topic DPPs for the JEE 2027 batches next term.',
       employeeComments: null, status: 'Shared', createdAt: daysAgo(20), sharedAt: daysAgo(3), acknowledgedAt: null,
     },
     {
       id: 'pr-2', schoolId: SCHOOL_ID, employeeId: 'u-t', reviewerId: 'u-ad', cycle: '2025 Annual',
       periodStart: '2025-04-01', periodEnd: '2026-03-31', overallRating: 5,
-      strengths: 'Outstanding results in Class X Mathematics boards prep; mentors junior teachers informally.',
+      strengths: 'Outstanding JEE Mathematics results — 9 students in the top 1,000 last year; mentors junior faculty.',
       areasForImprovement: 'Documentation of lesson plans could be more detailed for substitute coverage.',
       goals: 'Lead the Mathematics department’s NCERT-alignment review for the coming academic year.',
       employeeComments: 'Thank you for the encouraging feedback — I will work on lesson-plan documentation this term.',

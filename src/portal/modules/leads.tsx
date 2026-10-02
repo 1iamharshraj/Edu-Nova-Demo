@@ -72,7 +72,7 @@ function AddLeadModal({ open, onClose, onCreated }: { open: boolean; onClose: ()
         {(form.source === 'Google Ads' || form.source === 'Facebook/Instagram Ads') && (
           <Field label="Campaign name"><input className={inputCls} value={form.campaign} onChange={e => setForm({ ...form, campaign: e.target.value })} placeholder="e.g. JEE_Main_2027_Search_Bangalore" /></Field>
         )}
-        <Field label="Interested course / batch"><input className={inputCls} value={form.interestedCourse} onChange={e => setForm({ ...form, interestedCourse: e.target.value })} placeholder="e.g. JEE Main 2027 — Batch A" /></Field>
+        <Field label="Interested course / batch"><input className={inputCls} value={form.interestedCourse} onChange={e => setForm({ ...form, interestedCourse: e.target.value })} placeholder="e.g. JEE 2027 · A" /></Field>
         <button onClick={submit} disabled={busy || !form.name.trim() || !form.phone.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">
           {busy ? 'Adding…' : 'Add lead'}
         </button>
@@ -143,7 +143,7 @@ function ImportLeadsModal({ open, onClose, onImported }: { open: boolean; onClos
             <input type="file" accept=".csv,text/csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f) }} />
           </label>
           <textarea className={`${inputCls} h-32 font-mono text-[12.5px]`} value={csvText} onChange={e => setCsvText(e.target.value)}
-            placeholder={'name,phone,email,interestedCourse\nIshaan Verma,+91 90001 11111,ishaan@gmail.com,JEE Main 2027 — Batch A'} />
+            placeholder={'name,phone,email,interestedCourse\nIshaan Verma,+91 90001 11111,ishaan@gmail.com,JEE 2027 · A'} />
           <button onClick={submitCsv} disabled={busy || !csvText.trim()} className="btn-ink w-full py-3 text-[14px] font-semibold disabled:opacity-40">
             {busy ? 'Importing…' : 'Import from CSV'}
           </button>

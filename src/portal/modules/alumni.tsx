@@ -343,7 +343,7 @@ function DonationsTab() {
     <div>
       <div className="mb-5 grid gap-4 sm:grid-cols-2">
         <Card>
-          <p className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><HandCoins size={15} /> School-wide total</p>
+          <p className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40"><HandCoins size={15} /> Institute-wide total</p>
           <p className="font-display mt-2 text-3xl font-medium">{fmtINR(total)}</p>
           <p className="mt-1 text-[12.5px] text-black/45 dark:text-white/45">{list.length} donation{list.length === 1 ? '' : 's'} on record</p>
         </Card>

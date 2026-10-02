@@ -12,7 +12,7 @@ export interface Lead {
   id: string; name: string; phone: string; email?: string
   source: LeadSource; campaign?: string; interestedCourse: string
   status: LeadStatus; score: number; assignedToId?: string; assignedToName?: string
-  importBatch?: string; notes: LeadNote[]; convertedApplicationId?: string; createdAt: string
+  importBatch?: string; notes: LeadNote[]; convertedStudentId?: string; enrolledBatch?: string; createdAt: string
 }
 export interface LeadsSummary { total: number; newThisWeek: number; byStatus: Record<string, number>; bySource: Record<string, number> }
 
@@ -51,8 +51,8 @@ export async function addLeadNote(id: string, text: string) {
   return api.post<{ item: Lead }>(`/leads/${encodeURIComponent(id)}/notes`, { text })
 }
 
-export async function convertLead(id: string) {
-  return api.post<{ item: Lead; applicationId: string }>(`/leads/${encodeURIComponent(id)}/convert`)
+export async function enrollLead(id: string, classId: string) {
+  return api.post<{ item: Lead; studentId: string; email: string; password: string; batch: string }>(`/leads/${encodeURIComponent(id)}/convert`, { classId })
 }
 
 export async function importLeadsFromRows(rows: Array<{ name: string; phone: string; email?: string; interestedCourse?: string }>, batchLabel?: string) {

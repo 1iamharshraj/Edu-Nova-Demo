@@ -89,7 +89,7 @@ export function SeatingPlanMod() {
           <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Generate a plan</p>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Class">
+              <Field label="Batch">
                 <select value={cls} onChange={e => { setClassId(e.target.value); setPicked([]) }} className={inputCls}>
                   {classList.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
                 </select>
@@ -259,7 +259,7 @@ export function InvigilationRosterMod() {
           <p className="mb-4 text-[13px] font-semibold uppercase tracking-wider text-black/40 dark:text-white/40">Assign invigilators</p>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Class">
+              <Field label="Batch">
                 <select value={cls} onChange={e => { setClassId(e.target.value); setPicked([]) }} className={inputCls}>
                   {classList.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
                 </select>

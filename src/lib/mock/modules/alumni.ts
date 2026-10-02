@@ -127,7 +127,7 @@ route('POST', '/alumni/convert-student', (ctx) => {
     const cls = table('Class').find(c => c.id === activeEnrollment.classId)
     const grade = cls ? table('Grade').find(g => g.id === cls.gradeId) : undefined
     const board = cls ? table('Board').find(bd => bd.id === cls.boardId) : undefined
-    if (cls && grade) lastClassLabel = `${grade.label}-${cls.section}${board ? ` ${board.code}` : ''}`
+    if (cls && grade) lastClassLabel = `${grade.label} · ${cls.section}${board ? ` ${board.code}` : ''}`
   }
   const academicYear = table('AcademicYear').find(y => y.id === activeEnrollment?.academicYearId)
   const graduationYear = b.graduationYear ?? (academicYear ? new Date(String(academicYear.endDate)).getFullYear() : new Date().getFullYear())

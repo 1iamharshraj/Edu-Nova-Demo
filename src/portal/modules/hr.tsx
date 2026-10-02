@@ -323,7 +323,7 @@ export function LeaveApprovalsMod() {
 
   return (
     <div>
-      <PageHead title="Leave Approvals" sub="Requests you can decide — student leave for your classes, staff leave for the school">
+      <PageHead title="Leave Approvals" sub="Requests you can decide — student leave for your classes, staff leave for the institute">
         <select value={status} onChange={e => setStatus(e.target.value as LeaveRequestStatus | '')} className={`${inputCls} w-auto`}>
           <option value="">All statuses</option>
           {LEAVE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}

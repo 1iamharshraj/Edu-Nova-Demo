@@ -216,7 +216,7 @@ export function TimetableBuilderMod() {
   // from the live grid until the admin explicitly commits or discards it. Runs entirely through the
   // Cohort/TeachingRequirement/TeachingAssignment-scoped solver (T4+) — see server/src/modules/timetable/
   // solver.ts. Phase T10 §2 retired Phase 26's legacy ClassSubject-scoped generator and the "This class"/
-  // "All classes" scope buttons that used to sit alongside "Cohort group" here: every class already has its
+  // "All batches" scope buttons that used to sit alongside "Cohort group" here: every class already has its
   // own auto-generated 1:1 section cohort (roadmap D2), so picking that one cohort IS "this class", and
   // selecting every cohort IS "all classes" — one picker now covers what three options used to.
   const autoGen = useAutoGenerate()
@@ -356,7 +356,7 @@ export function TimetableBuilderMod() {
   const header = (
     <PageHead title="Timetable Builder" sub="Place each class's subjects on the week, save to check for clashes, then publish for students and parents">
       <div className="flex flex-wrap items-center gap-2">
-        <select value={classId} onChange={e => setPickedClass(e.target.value)} className={inputCls + ' w-auto min-w-[150px] py-2 text-[13.5px]'} aria-label="Class" disabled={classList.length === 0 || !!autoDraft}>
+        <select value={classId} onChange={e => setPickedClass(e.target.value)} className={inputCls + ' w-auto min-w-[150px] py-2 text-[13.5px]'} aria-label="Batch" disabled={classList.length === 0 || !!autoDraft}>
           {classList.map(c => <option key={c.id} value={c.id}>{c.label} · {c.boardCode}</option>)}
         </select>
         <select value={termId} onChange={e => setPickedTerm(e.target.value)} className={inputCls + ' w-auto min-w-[120px] py-2 text-[13.5px]'} aria-label="Term" disabled={termList.length === 0 || !!autoDraft}>
@@ -368,7 +368,7 @@ export function TimetableBuilderMod() {
 
   if (classList.length === 0) return <div>{header}<Empty text="Create a class in the current year first — timetables are built per class." /></div>
   if (termList.length === 0) return <div>{header}<Empty text="Create a term for this year first — every timetable belongs to a term." /></div>
-  if (periodTemplates.length === 0 && !data?.template) return <div>{header}<Empty text="Define the school day under Periods first — the grid's columns come from the period template." /></div>
+  if (periodTemplates.length === 0 && !data?.template) return <div>{header}<Empty text="Define the teaching day under Periods first — the grid's columns come from the period template." /></div>
 
   return (
     <div>
@@ -455,7 +455,7 @@ export function TimetableBuilderMod() {
           {loading ? <div className="py-10 text-center text-[14px] text-black/40 dark:text-white/40">Loading grid…</div>
             : error ? <Empty text={error} />
             : !template ? <Empty text="No period template applies to this class." />
-            : subjectRows.length === 0 ? <Empty text={`${cls?.label ?? 'This class'} has no subjects yet — add them under Classes & Sections → Subjects.`} />
+            : subjectRows.length === 0 ? <Empty text={`${cls?.label ?? 'This class'} has no subjects yet — add them under Batches → Subjects.`} />
             : (
               // Side panel stacks below the grid up to 2xl (1536px) — on a normal 1280–1440px laptop screen the
               // grid needs the full width to show a whole day's periods without scrolling; only very wide
@@ -610,7 +610,7 @@ export function TimetableBuilderMod() {
       </Modal>
 
       {/* auto-generate: cohort scope, mode, and (for full-regenerate) an explicit confirmation gate.
-          Phase T10 §2 — the legacy "This class"/"All classes" scope buttons are gone; picking just this
+          Phase T10 §2 — the legacy "This class"/"All batches" scope buttons are gone; picking just this
           class's own auto-generated cohort (pre-selected below) covers "this class", and picking every
           cohort covers "all classes" — one picker replaces what three options used to. */}
       <Modal open={autoSetupOpen} onClose={() => setAutoSetupOpen(false)} title="Auto-Generate Timetable">

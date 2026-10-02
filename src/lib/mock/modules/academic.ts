@@ -45,7 +45,7 @@ function serializeClass(c: Row) {
   return {
     id: c.id, academicYearId: c.academicYearId, boardId: c.boardId, boardCode,
     gradeId: c.gradeId, grade: gradeLabel, streamId: c.streamId, stream: streamName,
-    section: c.section, label: `${gradeLabel}-${c.section}${streamName ? ` (${streamName})` : ''}`,
+    section: c.section, label: `${gradeLabel} · ${c.section}${streamName ? ` (${streamName})` : ''}`,
     classTeacherId: c.classTeacherId, capacity: c.capacity ?? 45, periodTemplateId: c.periodTemplateId,
   }
 }

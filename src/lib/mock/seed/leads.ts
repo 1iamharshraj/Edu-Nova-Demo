@@ -1,7 +1,7 @@
 // Lead Management — coaching-institute demo. Every enquiry into the institute (walk-in, phone call,
 // website form, paid ad click, or a bulk import from a counselor's Google Sheet) lands here as one
-// `Lead` row and moves through a pipeline until it converts into a real `Application` (reusing the
-// existing admissions flow — see modules/leads.ts's `convert-to-application` endpoint) or is marked Lost.
+// `Lead` row and moves through a pipeline until it is enrolled straight into a batch (student login +
+// enrollment — see modules/leads.ts `POST /leads/:id/convert`) or is marked Lost.
 
 import type { Collections, Row } from '../store'
 import { SCHOOL_ID } from '../store'
@@ -22,7 +22,7 @@ export function seedLeads(db: Collections) {
   db.Lead = [
     mk({
       id: 'lead-1', name: 'Aditya Rao', phone: '+91 98450 11234', email: 'aditya.rao.parent@gmail.com',
-      source: 'Google Ads', campaign: 'JEE_Main_2027_Search_Bangalore', interestedCourse: 'JEE Main 2027 — Batch A',
+      source: 'Google Ads', campaign: 'JEE_Main_2027_Search_Bangalore', interestedCourse: 'JEE 2027 · A',
       status: 'New', score: 72, createdAt: '2026-09-28T10:15:00.000Z', assignedToId: 'u-st',
       notes: [],
     }),
@@ -45,7 +45,7 @@ export function seedLeads(db: Collections) {
     }),
     mk({
       id: 'lead-4', name: 'Fatima Sheikh', phone: '+91 97420 56789',
-      source: 'Walk-in', interestedCourse: 'Foundation Batch — Class X',
+      source: 'Walk-in', interestedCourse: 'Foundation IX · A',
       status: 'Trial Attended', score: 88, createdAt: '2026-09-15T12:00:00.000Z', assignedToId: 'u-ad',
       notes: [
         { at: '2026-09-15T12:30:00.000Z', by: 'Priya Menon', text: 'Walked in with mother, picked up brochure, attended trial Maths class same day.' },
@@ -54,9 +54,9 @@ export function seedLeads(db: Collections) {
     }),
     mk({
       id: 'lead-5', name: 'Karan Mehta', phone: '+91 96540 67890', email: 'karan.mehta.09@gmail.com',
-      source: 'Referral', interestedCourse: 'JEE Advanced 2027 — Batch A',
+      source: 'Referral', interestedCourse: 'JEE 2027 · A',
       status: 'Enrolled', score: 95, createdAt: '2026-08-28T08:00:00.000Z', assignedToId: 'u-st',
-      convertedApplicationId: null,
+
       notes: [
         { at: '2026-08-28T09:00:00.000Z', by: 'Kavita Joshi', text: 'Referred by an existing JEE batch student — strong intent from day one.' },
         { at: '2026-09-02T09:00:00.000Z', by: 'Kavita Joshi', text: 'Converted to admission and enrolled. See linked application.' },
@@ -64,7 +64,7 @@ export function seedLeads(db: Collections) {
     }),
     mk({
       id: 'lead-6', name: 'Ananya Bhattacharya', phone: '+91 95430 78901',
-      source: 'Google Ads', campaign: 'Foundation_Class9_Search_Kolkata', interestedCourse: 'Foundation Batch — Class IX',
+      source: 'Google Ads', campaign: 'Foundation_Class9_Search_Kolkata', interestedCourse: 'Foundation IX · B',
       status: 'Lost', score: 30, createdAt: '2026-09-10T10:00:00.000Z', assignedToId: 'u-ad',
       notes: [
         { at: '2026-09-18T10:00:00.000Z', by: 'Priya Menon', text: 'Chose a competitor closer to home. Marked lost.' },
@@ -78,13 +78,13 @@ export function seedLeads(db: Collections) {
     }),
     mk({
       id: 'lead-8', name: 'Pooja Nair', phone: '+91 93210 90123', email: 'pooja.nair.in@gmail.com',
-      source: 'Google Sheet Import', interestedCourse: 'JEE Main 2027 — Batch B',
+      source: 'Google Sheet Import', interestedCourse: 'JEE 2027 · B',
       status: 'New', score: 60, createdAt: '2026-09-29T07:00:00.000Z', assignedToId: 'u-ad',
       importBatch: 'edu-expo-oct-2026', notes: [],
     }),
     mk({
       id: 'lead-9', name: 'Siddharth Iyer', phone: '+91 92100 01234',
-      source: 'Phone Enquiry', interestedCourse: 'JEE Main 2027 — Batch A',
+      source: 'Phone Enquiry', interestedCourse: 'JEE 2027 · A',
       status: 'Contacted', score: 58, createdAt: '2026-09-27T15:00:00.000Z', assignedToId: 'u-st',
       notes: [{ at: '2026-09-27T15:10:00.000Z', by: 'Kavita Joshi', text: 'Called in asking about fee structure and batch timings.' }],
     }),
@@ -96,14 +96,14 @@ export function seedLeads(db: Collections) {
     }),
     mk({
       id: 'lead-11', name: 'Arjun Khanna', phone: '+91 90980 23456',
-      source: 'Facebook/Instagram Ads', campaign: 'JEE_2027_Reels_Delhi', interestedCourse: 'JEE Advanced 2027 — Batch A',
+      source: 'Facebook/Instagram Ads', campaign: 'JEE_2027_Reels_Delhi', interestedCourse: 'JEE 2027 · A',
       status: 'New', score: 45, createdAt: '2026-09-30T06:30:00.000Z', assignedToId: 'u-st', notes: [],
     }),
     mk({
       id: 'lead-12', name: 'Divya Agarwal', phone: '+91 89870 34567', email: 'divya.agarwal.09@gmail.com',
-      source: 'Referral', interestedCourse: 'Foundation Batch — Class X',
+      source: 'Referral', interestedCourse: 'Foundation IX · A',
       status: 'Enrolled', score: 90, createdAt: '2026-08-20T08:00:00.000Z', assignedToId: 'u-ad',
-      convertedApplicationId: null,
+
       notes: [{ at: '2026-08-25T09:00:00.000Z', by: 'Priya Menon', text: 'Sibling of an existing student. Fast conversion.' }],
     }),
   ]

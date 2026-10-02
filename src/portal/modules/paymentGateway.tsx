@@ -98,7 +98,7 @@ export function PaymentGatewayMod() {
       const Razorpay = await loadRazorpay()
       new Razorpay({
         key: order.key, amount: order.amount ?? Math.round(amt * 100), currency: order.currency ?? 'INR', order_id: order.orderId,
-        name: 'Edkonic School', description: `${selected.invoiceNo} · ${invoiceLabel(selected)}`, theme: { color: '#4f46e5' },
+        name: 'Edkonic Prep', description: `${selected.invoiceNo} · ${invoiceLabel(selected)}`, theme: { color: '#4f46e5' },
         prefill: { name: user?.name, email: user?.email, contact: user?.phone },
         handler: r => { void confirm({ orderId: order.orderId, invoiceId: selected.id, amount: amt, method, paymentId: r.razorpay_payment_id, signature: r.razorpay_signature }) },
         modal: { ondismiss: () => setStage('idle') },
@@ -235,7 +235,7 @@ export function PaymentGatewayMod() {
             <button onClick={pay} disabled={busy || amt <= 0 || amt > maxAmount} className="btn-ink flex w-full items-center justify-center gap-2 py-3 text-[14px] font-semibold disabled:opacity-40">
               {stage === 'ordering' ? 'Creating order…' : stage === 'checkout' ? 'Complete payment in the checkout window…' : stage === 'confirming' ? 'Confirming payment…' : `Pay ${fmtINR(amt)} via ${METHOD_LABEL[method]}`}
             </button>
-            <p className="text-center text-[12px] text-black/40 dark:text-white/40">Secured by the school's payment gateway. A receipt is issued as soon as the payment is confirmed.</p>
+            <p className="text-center text-[12px] text-black/40 dark:text-white/40">Secured by the institute's payment gateway. A receipt is issued as soon as the payment is confirmed.</p>
             <button onClick={close} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-full py-2 text-[13px] font-semibold text-black/50 dark:text-white/50 hover:bg-black/[.05] dark:hover:bg-white/[.07] disabled:opacity-40">
               <ArrowLeft size={14} /> Cancel and return
             </button>
