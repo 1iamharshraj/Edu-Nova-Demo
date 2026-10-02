@@ -31,7 +31,7 @@ test('leave types + leave approvals render seeded data', async ({ page }) => {
   await expect(page.getByText('Earned Leave').first()).toBeVisible()
   await assertNoErrorToast(page)
 
-  await nav(page, 'Leave Approvals').click()
+  await nav(page, 'Faculty Leave Approvals').click()
   // Term 3 pending staff leave request seeded in src/lib/mock/seed/hr.ts (leave-req-1, Sofia D'Souza / fever).
   await expect(page.getByText(/fever/i).first()).toBeVisible({ timeout: 10_000 })
   await assertNoErrorToast(page)

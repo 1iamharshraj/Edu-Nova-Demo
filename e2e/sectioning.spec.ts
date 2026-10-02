@@ -1,11 +1,7 @@
 import { test, expect } from '@playwright/test'
 
-// Phase T3 — Sectioning Engine click-through (see .agents/edunova/phase-t3-sectioning-engine.md and
-// .agents/edunova/static-demo-plan.md). Login pattern reused from e2e/smoke.spec.ts. Only "Sectioning
-// Templates" is wired into the portal sidebar (src/portal/Portal.tsx already ships that way — Performance
-// Bands / Track Eligibility / Track Registration / Eligibility Exceptions have working routes/components
-// but no nav entry, and this batch's ground rules forbid touching Portal.tsx to add one), so this spec
-// covers the reachable path: template list -> run a strategy -> draft-review-before-approve -> approve.
+// Batch Allocation (the sectioning engine, relabelled for coaching): template list -> run a strategy ->
+// draft review -> approve.
 
 test('admin can run a sectioning template and approve the draft', async ({ page }) => {
   await page.goto('/login')
@@ -14,11 +10,11 @@ test('admin can run a sectioning template and approve the draft', async ({ page 
   await page.locator('button[type="submit"]').click()
   await expect(page).toHaveURL(/\/portal/, { timeout: 10_000 })
 
-  await page.getByRole('button', { name: 'Sectioning Templates' }).click()
-  await expect(page.getByRole('heading', { name: 'Sectioning Templates' })).toBeVisible()
+  await page.getByRole('button', { name: 'Batch Allocation' }).click()
+  await expect(page.getByRole('heading', { name: 'Batch Allocation' })).toBeVisible()
 
   // The seeded BALANCED template for Grade X, with an already-APPROVED past run visible on its card.
-  await expect(page.getByText('Grade X — Balanced mix')).toBeVisible()
+  await expect(page.getByText('JEE 2027 — Balanced batches')).toBeVisible()
   await expect(page.getByText('Balanced').first()).toBeVisible()
   await expect(page.getByText(/students?$/).first()).toBeVisible()
 
@@ -28,8 +24,8 @@ test('admin can run a sectioning template and approve the draft', async ({ page 
 
   // Validation + band-mix preview must render without crashing, whichever state they land in.
   await expect(page.getByText(/blocking issue|No validation issues/).first()).toBeVisible({ timeout: 10_000 })
-  await expect(page.getByText('X-A', { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('X-B', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('JEE 2027 · A', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('JEE 2027 · B', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('Scored', { exact: true })).toBeVisible()
   await expect(page.getByText('Assigned', { exact: true })).toBeVisible()
 
@@ -49,12 +45,12 @@ test('a second, differently-strategized template (SKIM_THEN_BALANCE) also runs c
   await page.locator('button[type="submit"]').click()
   await expect(page).toHaveURL(/\/portal/, { timeout: 10_000 })
 
-  await page.getByRole('button', { name: 'Sectioning Templates' }).click()
-  await expect(page.getByText('Grade IX — Skim merit then balance')).toBeVisible()
+  await page.getByRole('button', { name: 'Batch Allocation' }).click()
+  await expect(page.getByText('Foundation IX — Toppers batch, then balance')).toBeVisible()
 
   await page.getByRole('button', { name: /Run — generate draft/ }).nth(1).click()
   await expect(page).toHaveURL(/\/portal\/sectioning\/versions\//, { timeout: 10_000 })
   await expect(page.getByText(/blocking issue|No validation issues/).first()).toBeVisible({ timeout: 10_000 })
-  await expect(page.getByText('IX-A', { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('IX-B', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('Foundation IX · A', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('Foundation IX · B', { exact: true }).first()).toBeVisible()
 })

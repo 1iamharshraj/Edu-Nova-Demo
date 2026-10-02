@@ -74,7 +74,7 @@ export function PerformanceBandsMod() {
 
   return (
     <div>
-      <PageHead title="Performance Bands" sub="Neutral score bands per academic year — never surfaced to families as 'slow/average/topper', just A/B/C style labels used to mix sections.">
+      <PageHead title="Score Bands" sub="Neutral score bands per session from the admission/scholarship test — never shown to families, just A/B/C labels used to mix batches.">
         {sortedYears.length > 0 && (
           <select value={yearId} onChange={e => setYearId(e.target.value)} className={inputCls + ' w-auto min-w-[150px]'}>
             {sortedYears.map(y => <option key={y.id} value={y.id}>{y.label}{y.isCurrent ? ' · current' : ''}</option>)}
@@ -242,7 +242,7 @@ function TemplateFormBody({ form, setForm, grades, bands, cohorts, subjects }: {
               {b.label} ({b.minScore}–{b.maxScore}%)
             </button>
           ))}
-          {bands.length === 0 && <p className={muted}>No bands defined for this year yet — add them under Performance Bands first.</p>}
+          {bands.length === 0 && <p className={muted}>No bands defined for this year yet — add them under Score Bands first.</p>}
         </div>
       </div>
 
@@ -401,7 +401,7 @@ export function SectioningTemplatesMod() {
 
   return (
     <div>
-      <PageHead title="Sectioning Templates" sub="Configure how a grade's students are split into sections — pick a strategy, the bands that drive the mix, and the fill order.">
+      <PageHead title="Batch Allocation" sub="Configure how a course's students are split into batches — pick a strategy (e.g. a toppers batch, then balance the rest), the score bands that drive it, and the fill order.">
         <div className="flex items-center gap-3">
           <YearGradeBar years={sortedYears} yearId={yearId} setYearId={setYearId} gradeId={gradeId} setGradeId={setGradeId} grades={sortedGrades} />
           {yearId && <HeaderAdd label="New template" onClick={openAdd} />}

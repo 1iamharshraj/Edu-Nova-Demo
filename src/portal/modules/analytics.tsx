@@ -98,7 +98,7 @@ export function StudentsAtRiskMod() {
                     <div className="hidden flex-wrap gap-x-4 gap-y-1 text-[12px] text-black/50 dark:text-white/50 sm:flex">
                       <span>Attendance {Math.round(r.attendancePct)}%</span>
                       <span>Marks {Math.round(r.avgMarksPct)}%</span>
-                      {r.homeworkOverdueCount > 0 && <span className="text-amber-600 dark:text-amber-400">{r.homeworkOverdueCount} overdue HW</span>}
+                      {r.homeworkOverdueCount > 0 && <span className="text-amber-600 dark:text-amber-400">{r.homeworkOverdueCount} overdue DPPs</span>}
                       {r.feeOverdueAmount > 0 && <span className="text-rose-500">₹{r.feeOverdueAmount.toLocaleString('en-IN')} fee due</span>}
                       {r.openDisciplineCaseCount > 0 && <span className="text-rose-500">{r.openDisciplineCaseCount} discipline</span>}
                     </div>

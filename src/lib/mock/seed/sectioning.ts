@@ -41,14 +41,14 @@ export function seedSectioning(db: Collections) {
   db.SectioningTemplate = [
     {
       id: 'sect-tpl-10-balanced', schoolId: SCHOOL_ID, academicYearId: YEAR_ID, gradeId: 'grade-10',
-      name: 'Grade X — Balanced mix', strategy: 'BALANCED', scoreSource: 'LATEST_EXAM',
+      name: 'JEE 2027 — Balanced batches', strategy: 'BALANCED', scoreSource: 'LATEST_EXAM',
       bandIds: ['band-a', 'band-b', 'band-c', 'band-d'],
       distributionConfig: { bandMixTolerancePct: 15, siblingsTogether: true },
       sectionOrder: ['cohort-10a', 'cohort-10b'], respectExisting: true, createdAt: '2025-08-01T00:00:00.000Z',
     },
     {
       id: 'sect-tpl-9-skim', schoolId: SCHOOL_ID, academicYearId: YEAR_ID, gradeId: 'grade-9',
-      name: 'Grade IX — Skim merit then balance', strategy: 'SKIM_THEN_BALANCE', scoreSource: 'EXAM_AVERAGE',
+      name: 'Foundation IX — Toppers batch, then balance', strategy: 'SKIM_THEN_BALANCE', scoreSource: 'EXAM_AVERAGE',
       bandIds: ['band-a', 'band-b', 'band-c', 'band-d'],
       distributionConfig: { bandMixTolerancePct: 20, skim: [{ sectionId: 'cohort-9a', percentage: 20 }], remainderStrategy: 'BALANCED' },
       sectionOrder: ['cohort-9a', 'cohort-9b'], respectExisting: true, createdAt: '2025-08-01T00:00:00.000Z',
