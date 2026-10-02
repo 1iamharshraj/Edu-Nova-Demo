@@ -3,12 +3,15 @@ import { Moon, Sun } from 'lucide-react'
 
 const KEY = 'edkonic_theme'
 
+// This demo is light-mode-first — unlike the system default elsewhere, the OS "prefers dark" signal is
+// deliberately not auto-followed here; dark stays available via the toggle, but a first visit always
+// opens in light.
 function initial(): 'light' | 'dark' {
   try {
     const saved = localStorage.getItem(KEY)
     if (saved === 'dark' || saved === 'light') return saved
   } catch { /* ignore */ }
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  return 'light'
 }
 
 export function useTheme() {
