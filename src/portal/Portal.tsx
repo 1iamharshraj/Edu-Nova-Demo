@@ -1,8 +1,8 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import {
-  AlertTriangle, Award, Banknote, BarChart3, BedDouble, BookMarked, BookOpen, Boxes, BrainCircuit, Bus, Calculator, CalendarClock, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock3,
-  CloudUpload, CreditCard, DoorOpen, FileBadge, FileBarChart2, FileWarning, FolderCog, Gavel, GraduationCap, Handshake, HeartHandshake, HeartPulse, Home, IdCard, KeyRound, Landmark, LayoutGrid, Layers,
+  AlertTriangle, Award, Banknote, BarChart3, BookMarked, BookOpen, Boxes, BrainCircuit, Calculator, CalendarClock, CalendarDays, CalendarPlus, CalendarRange, ClipboardCheck, ClipboardList, Clock3,
+  CloudUpload, CreditCard, DoorOpen, FileBadge, FileBarChart2, FileWarning, FolderCog, Gavel, GraduationCap, HeartHandshake, HeartPulse, Home, IdCard, KeyRound, Landmark, LayoutGrid, Layers,
   LogOut, Megaphone, MessageCircleWarning, MessageSquare, MessagesSquare, Network, NotebookPen, PartyPopper, PencilLine, PillBottle, Play, Route as RouteIcon, School, ScrollText, Settings, ShoppingCart, Shuffle,
   Scale, ShieldAlert, ShieldCheck, Sparkles, Star, Target, Trophy, Truck, UserCheck, UserCircle2, Umbrella, Undo2, Users, Users2, Video, Wallet, Wand2, type LucideIcon,
 } from 'lucide-react'
@@ -45,10 +45,7 @@ import { EligibilityExceptionsReportMod, PerformanceBandsMod, SectioningTemplate
 import { SettingsMod } from './modules/settings'
 import { firstName } from './modules/viewer'
 import { MyTeamMod, MyReviewsMod, TeamReviewsMod, StaffConductMod } from './modules/employee'
-import { MyBusMod, TransportMod } from './modules/transport'
 import { AlumniMod } from './modules/alumni'
-import { HostelMod, MyHostelMod } from './modules/hostel'
-import { HostelOutpassMod, HostelRollCallMod, MessMenuMod, MyMessMod, MyOutpassMod } from './modules/hostelExtras'
 import { LibraryCatalogMod, LibraryIssueReturnsMod, LibrarySettingsMod, MyLoansMod } from './modules/library'
 import { InventoryCatalogMod, PurchaseOrdersMod, VendorsMod } from './modules/inventory'
 import { AccountingReportsMod, ChartOfAccountsMod, JournalMod } from './modules/accounting'
@@ -103,10 +100,6 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('health', 'Health Records', HeartPulse, <HealthMod />, 'Actions'),
       M('meds', 'Medication Log', PillBottle, <MedicationMod />, 'Actions'),
       M('ach', 'Achievements', Award, <AchievementsMod />, 'Actions'),
-      M('bus', 'My Bus', Bus, <MyBusMod />, 'Actions'),
-      M('myhostel', 'My Hostel', BedDouble, <MyHostelMod />, 'Actions'),
-      M('myoutpass', 'My Outpass', DoorOpen, <MyOutpassMod />, 'Actions'),
-      M('mymess', 'My Mess', ClipboardList, <MyMessMod />, 'Actions'),
       M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Actions'),
       M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Actions'),
       M('pickups', 'Authorized Pickup', KeyRound, <AuthorizedPickupMod />, 'Actions'),
@@ -143,10 +136,6 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('health', 'Health Records', HeartPulse, <HealthMod />, 'Actions'),
       M('meds', 'Medication Log', PillBottle, <MedicationMod />, 'Actions'),
       M('ach', 'Achievements', Award, <AchievementsMod />, 'Actions'),
-      M('bus', 'My Bus', Bus, <MyBusMod />, 'Actions'),
-      M('myhostel', 'My Hostel', BedDouble, <MyHostelMod />, 'Actions'),
-      M('myoutpass', 'My Outpass', DoorOpen, <MyOutpassMod />, 'Actions'),
-      M('mymess', 'My Mess', ClipboardList, <MyMessMod />, 'Actions'),
       M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Actions'),
       M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Actions'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Office'),
@@ -217,11 +206,6 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('calm', 'Calendar Mgmt', CalendarPlus, <CalendarAdminMod />, 'Operations'),
       M('work', 'Work Assignment', PartyPopper, <DutiesMod manage />, 'Operations'),
       M('actadmin', 'Activities Admin', Sparkles, <ActivitiesAdminMod />, 'Operations'),
-      M('transport', 'Transport', Bus, <TransportMod />, 'Operations'),
-      M('hostel', 'Hostel', BedDouble, <HostelMod />, 'Operations'),
-      M('hostelout', 'Hostel Outpass', DoorOpen, <HostelOutpassMod />, 'Operations'),
-      M('hostelroll', 'Hostel Roll-call', ClipboardList, <HostelRollCallMod />, 'Operations'),
-      M('hostelmess', 'Mess Menu', ClipboardList, <MessMenuMod />, 'Operations'),
       M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Operations'),
       M('libissue', 'Issue & Returns', Undo2, <LibraryIssueReturnsMod />, 'Operations'),
       M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Operations'),
@@ -247,7 +231,7 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('myteam', 'My Team', Users, <MyTeamMod />, 'My HR'),
       M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'My HR'),
       M('teamreviews', 'Team Reviews', ClipboardList, <TeamReviewsMod />, 'My HR'),
-      M('alumni', 'Alumni', Handshake, <AlumniMod />, 'Alumni'),
+      M('alumni', 'Success Stories', Trophy, <AlumniMod />, 'Success Stories'),
       M('profile', 'Profile', UserCircle2, <ProfileMod />, 'Account'),
     ]
     case 'admin': return [
@@ -286,11 +270,6 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
       M('work', 'Work Assignment', PartyPopper, <DutiesMod manage />, 'Manage'),
       M('actadmin', 'Activities Admin', Sparkles, <ActivitiesAdminMod />, 'Manage'),
-      M('transport', 'Transport', Bus, <TransportMod />, 'Manage'),
-      M('hostel', 'Hostel', BedDouble, <HostelMod />, 'Manage'),
-      M('hostelout', 'Hostel Outpass', DoorOpen, <HostelOutpassMod />, 'Manage'),
-      M('hostelroll', 'Hostel Roll-call', ClipboardList, <HostelRollCallMod />, 'Manage'),
-      M('hostelmess', 'Mess Menu', ClipboardList, <MessMenuMod />, 'Manage'),
       M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Manage'),
       M('libissue', 'Issue & Returns', Undo2, <LibraryIssueReturnsMod />, 'Manage'),
       M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Manage'),
@@ -310,7 +289,7 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'Manage'),
       M('teamreviews', 'Team Reviews', ClipboardList, <TeamReviewsMod />, 'Manage'),
       M('staffconduct', 'Staff Conduct', ShieldAlert, <StaffConductMod />, 'Manage'),
-      M('alumni', 'Alumni', Handshake, <AlumniMod />, 'Alumni'),
+      M('alumni', 'Success Stories', Trophy, <AlumniMod />, 'Success Stories'),
       M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Manage'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Finance'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Finance'),
@@ -366,11 +345,6 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('calm', 'Calendar', CalendarPlus, <CalendarAdminMod />, 'Manage'),
       M('work', 'Work Assignment', PartyPopper, <DutiesMod manage />, 'Manage'),
       M('actadmin', 'Activities Admin', Sparkles, <ActivitiesAdminMod />, 'Manage'),
-      M('transport', 'Transport', Bus, <TransportMod />, 'Manage'),
-      M('hostel', 'Hostel', BedDouble, <HostelMod />, 'Manage'),
-      M('hostelout', 'Hostel Outpass', DoorOpen, <HostelOutpassMod />, 'Manage'),
-      M('hostelroll', 'Hostel Roll-call', ClipboardList, <HostelRollCallMod />, 'Manage'),
-      M('hostelmess', 'Mess Menu', ClipboardList, <MessMenuMod />, 'Manage'),
       M('library', 'Library', BookMarked, <LibraryCatalogMod />, 'Manage'),
       M('libissue', 'Issue & Returns', Undo2, <LibraryIssueReturnsMod />, 'Manage'),
       M('myloans', 'My Loans', BookOpen, <MyLoansMod />, 'Manage'),
@@ -390,7 +364,7 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('myreviews', 'My Reviews', Star, <MyReviewsMod />, 'Manage'),
       M('teamreviews', 'Team Reviews', ClipboardList, <TeamReviewsMod />, 'Manage'),
       M('staffconduct', 'Staff Conduct', ShieldAlert, <StaffConductMod />, 'Manage'),
-      M('alumni', 'Alumni', Handshake, <AlumniMod />, 'Alumni'),
+      M('alumni', 'Success Stories', Trophy, <AlumniMod />, 'Success Stories'),
       M('reports', 'Student Reports', FileBadge, <StudentReportsMod />, 'Manage'),
       M('defaulters', 'Fee Defaulters', Banknote, <FeeDefaultersAndCallsMod />, 'Finance'),
       M('disc', 'Discipline', Gavel, <DisciplinaryCommitteeMod />, 'Finance'),

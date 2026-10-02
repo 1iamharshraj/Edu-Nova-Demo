@@ -55,7 +55,7 @@ export function AlumniMod() {
   const [tab, setTab] = useState<Tab>('directory')
   return (
     <div>
-      <PageHead title="Alumni" sub="Former students — directory, events and donations. Staff/admin-recorded; alumni have no portal login of their own.">
+      <PageHead title="Success Stories" sub="Toppers and alumni — directory, felicitation events and contributions. Staff/admin-recorded; they have no portal login of their own.">
         <Tabs value={tab} onChange={setTab} />
       </PageHead>
       {tab === 'directory' && <DirectoryTab />}
