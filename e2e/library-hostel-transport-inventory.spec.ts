@@ -20,18 +20,9 @@ test('library catalog renders seeded books', async ({ page }) => {
   await expect(page.getByText('Mathematics — NCERT Class X')).toBeVisible()
 })
 
-test('hostel module renders seeded hostels and occupancy', async ({ page }) => {
-  await page.getByRole('button', { name: 'Hostel', exact: true }).first().click()
-  await expect(page.getByText('Vivekananda Bhavan (Boys)')).toBeVisible({ timeout: 10_000 })
-  await expect(page.getByText('Sarojini Bhavan (Girls)')).toBeVisible()
-})
-
-test('transport module renders seeded routes and vehicles', async ({ page }) => {
-  await page.getByRole('button', { name: 'Transport', exact: true }).first().click()
-  await expect(page.getByText('Route 1 — MG Road')).toBeVisible({ timeout: 10_000 })
-  await page.getByRole('button', { name: 'Vehicles', exact: true }).click()
-  await expect(page.getByText('TN-07-AB-1234')).toBeVisible()
-})
+// Hostel and Transport are intentionally not part of this coaching-institute demo (day-only institutes
+// per the branch's scope) — their nav entries are removed, so those two specs from the school demo are
+// dropped here rather than left to fail. The mock backend modules themselves are untouched/dormant.
 
 test('inventory catalog renders seeded items and low-stock flag', async ({ page }) => {
   await page.getByRole('button', { name: 'Inventory', exact: true }).first().click()

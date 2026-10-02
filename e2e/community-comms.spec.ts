@@ -23,7 +23,7 @@ async function assertNoErrorToast(page: import('@playwright/test').Page) {
 test('superadmin — alumni directory, house leaderboard, team reviews, canteen reconciliation', async ({ page }) => {
   await login(page, 'principal@edkonic.in', 'principal123')
 
-  await nav(page, 'Alumni').click()
+  await nav(page, 'Success Stories').click()
   await expect(page.getByText('Rohit Malhotra').first()).toBeVisible({ timeout: 10_000 })
   await assertNoErrorToast(page)
 

@@ -30,6 +30,7 @@ import {
 import { useSlips, useDisciplinaryCases } from '@/lib/hooks/useWelfare'
 import { useCalendarEvents } from '@/lib/hooks/useComms'
 import { MeetingsMod } from './modules/meetings'
+import { LeadsMod } from './modules/leads'
 import { FeeDefaultersAndCallsMod } from './modules/feeDefaulters'
 import { DisciplinaryCommitteeMod } from './modules/disciplinary'
 import { PaymentGatewayMod } from './modules/paymentGateway'
@@ -197,6 +198,7 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('canteenpos', 'Canteen POS', ShoppingCart, <CanteenPOSMod />, 'Operations'),
       M('tt', 'Timetable', CalendarDays, <TimetableMod />, 'Operations'),
       M('people', 'People', Users, <PeopleMod />, 'Operations'),
+      M('leads', 'Leads', Target, <LeadsMod />, 'Operations'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Operations'),
       M('admissioncat', 'Admission Catalogs', FolderCog, <AdmissionCatalogsMod />, 'Operations'),
       M('docrecords', 'Held Documents', ClipboardList, <DocumentRecordsReportMod />, 'Operations'),
@@ -249,6 +251,7 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('sectemplates', 'Sectioning Templates', Shuffle, <SectioningTemplatesMod />, 'Academic Setup'),
       M('tracks', 'Track Eligibility', Target, <TrackEligibilityMod />, 'Academic Setup'),
       M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
+      M('leads', 'Leads', Target, <LeadsMod />, 'Manage'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
       M('admissioncat', 'Admission Catalogs', FolderCog, <AdmissionCatalogsMod />, 'Manage'),
       M('docrecords', 'Held Documents', ClipboardList, <DocumentRecordsReportMod />, 'Manage'),
@@ -324,6 +327,7 @@ function modulesFor(role: Role, onNavigate: (id: string) => void): Mod[] {
       M('tracks', 'Track Eligibility', Target, <TrackEligibilityMod />, 'Academic Setup'),
       M('people', 'People & Roles', Users, <PeopleMod />, 'Manage'),
       M('admins', 'Admin Management', ShieldCheck, <AdminManagementMod />, 'Manage'),
+      M('leads', 'Leads', Target, <LeadsMod />, 'Manage'),
       M('apps', 'Admissions & Certs', FileBadge, <ApplicationsMod />, 'Manage'),
       M('admissioncat', 'Admission Catalogs', FolderCog, <AdmissionCatalogsMod />, 'Manage'),
       M('docrecords', 'Held Documents', ClipboardList, <DocumentRecordsReportMod />, 'Manage'),
